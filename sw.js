@@ -1,5 +1,5 @@
 // Increment this release when publishing a changed application shell.
-const VERSION = '3.1.2';
+const VERSION = '3.1.3';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = new URL('index.html', SCOPE).href;
 // Avoid the old "murphy-" prefix: older installs delete all caches using that prefix.

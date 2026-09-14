@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#101214">
+<meta name="theme-color" content="#101010">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Murphy">
@@ -12,14 +12,14 @@
 <style>
 :root{
   color-scheme:dark;
-  --paper:#101214; --surface:#1c1f22; --surface-2:#292d31;
-  --ink:#f5f5f7; --ink-2:#d0d2d6; --ink-3:#adb2b9;
-  --rule:#41464d; --rule-2:#858c95;
-  --accent:#9ac4ff; --accent-ink:#b4d3ff; --accent-soft:#23364e;
-  --good:#78c886; --good-soft:#16251a;
-  --watch:#e7b45a; --watch-soft:#2a2316;
-  --alert:#ffaaa0; --alert-soft:#39231f; --on-accent:#101214;
-  --switch-on:#319863; --switch-off:#727a84;
+  --paper:#101010; --surface:#1e1e1e; --surface-2:#292929;
+  --ink:#f5f5f5; --ink-2:#d0d0d0; --ink-3:#b2b2b2;
+  --rule:#454545; --rule-2:#858585;
+  --accent:#ededed; --accent-ink:#f0f0f0; --accent-soft:#303030;
+  --good:#78c886; --good-soft:var(--surface-2);
+  --watch:#e7b45a; --watch-soft:var(--surface-2);
+  --alert:#ffaaa0; --alert-soft:var(--surface-2); --on-accent:#101010;
+  --switch-on:#ededed; --switch-off:#757575; --switch-thumb-on:#101010;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
   --compact:"SF Compact Text","SF Compact",var(--sans);
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
@@ -29,26 +29,26 @@
 }
 :root[data-theme="light"]{
   color-scheme:light;
-  --paper:#f2f3f7; --surface:#fff; --surface-2:#eef0f4;
-  --ink:#17191d; --ink-2:#3e4651; --ink-3:#59616d;
-  --rule:#d2d6dd; --rule-2:#7b8491;
-  --accent:#075dc6; --accent-ink:#0754b4; --accent-soft:#e7f0ff;
-  --good:#276e30; --good-soft:#e4f1e4;
-  --watch:#805109; --watch-soft:#f6eddc;
-  --alert:#a12c24; --alert-soft:#fbe9e6; --on-accent:#fff;
-  --switch-on:#167c48; --switch-off:#737c87;
+  --paper:#f4f4f4; --surface:#fff; --surface-2:#eee;
+  --ink:#171717; --ink-2:#444; --ink-3:#595959;
+  --rule:#d4d4d4; --rule-2:#808080;
+  --accent:#262626; --accent-ink:#1f1f1f; --accent-soft:#e5e5e5;
+  --good:#276e30; --good-soft:var(--surface-2);
+  --watch:#805109; --watch-soft:var(--surface-2);
+  --alert:#a12c24; --alert-soft:var(--surface-2); --on-accent:#fff;
+  --switch-on:#262626; --switch-off:#757575; --switch-thumb-on:#fff;
 }
 @media(prefers-color-scheme:light){
   :root:not([data-theme="dark"]){
     color-scheme:light;
-    --paper:#f2f3f7; --surface:#fff; --surface-2:#eef0f4;
-    --ink:#17191d; --ink-2:#3e4651; --ink-3:#59616d;
-    --rule:#d2d6dd; --rule-2:#7b8491;
-    --accent:#075dc6; --accent-ink:#0754b4; --accent-soft:#e7f0ff;
-    --good:#276e30; --good-soft:#e4f1e4;
-    --watch:#805109; --watch-soft:#f6eddc;
-    --alert:#a12c24; --alert-soft:#fbe9e6; --on-accent:#fff;
-    --switch-on:#167c48; --switch-off:#737c87;
+    --paper:#f4f4f4; --surface:#fff; --surface-2:#eee;
+    --ink:#171717; --ink-2:#444; --ink-3:#595959;
+    --rule:#d4d4d4; --rule-2:#808080;
+    --accent:#262626; --accent-ink:#1f1f1f; --accent-soft:#e5e5e5;
+    --good:#276e30; --good-soft:var(--surface-2);
+    --watch:#805109; --watch-soft:var(--surface-2);
+    --alert:#a12c24; --alert-soft:var(--surface-2); --on-accent:#fff;
+    --switch-on:#262626; --switch-off:#757575; --switch-thumb-on:#fff;
   }
 }
 
@@ -60,11 +60,18 @@ body{
   font-family:var(--sans); font-size:1rem; line-height:1.5;
   -webkit-font-smoothing:antialiased; overscroll-behavior-y:contain;
 }
-button,input,select,textarea{font:inherit;color:inherit}
+button,input,select,textarea{font:inherit;color:inherit;accent-color:var(--accent);caret-color:var(--ink)}
+/* Neutral browser-owned text selection and form chrome where CSS is supported. */
+::selection{background:var(--accent);color:var(--on-accent)}
+input::file-selector-button{color:var(--ink);background:var(--surface-2);border-color:var(--rule-2)}
+option{color:var(--ink);background:var(--surface)}
+option:checked{color:var(--on-accent);background:var(--accent)}
 button{background:none;border:0;cursor:pointer;padding:0;text-align:left;min-width:44px;min-height:44px;overflow-wrap:anywhere}
 input,select,.btn{min-height:44px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:5px}
 button:disabled{cursor:default}
+button:disabled:not(.btn){color:var(--ink-3)}
+.switch-row:disabled .switch-track{border:1px dashed currentColor;box-shadow:none;opacity:.5}
 button:not(:disabled):active{filter:brightness(.88)}
 input,select,textarea{scroll-margin-block:5rem calc(var(--tabh) + 2rem)}
 .hide{display:none !important}
@@ -103,7 +110,7 @@ main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s6)) var(--sl);
 }
 .tabbar button.on{color:var(--accent-ink);font-weight:650;background:var(--accent-soft);box-shadow:inset 0 2px 0 var(--accent)}
 .tabbar svg{display:block;width:22px;height:22px;margin:0 auto 2px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-.tabbar .dotmark{position:absolute;top:7px;left:calc(50% + 13px);width:6px;height:6px;border-radius:50%;background:var(--alert)}
+.tabbar .dotmark{position:absolute;top:7px;left:calc(50% + 13px);width:6px;height:6px;border-radius:50%;background:var(--ink)}
 
 /* pieces */
 .moment{
@@ -163,15 +170,16 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .switch-track{display:block;position:relative;width:51px;height:31px;border-radius:20px;background:var(--switch-off);box-shadow:inset 0 0 0 1px var(--switch-off);transition:background-color .15s ease}
 .switch-thumb{position:absolute;top:3px;left:3px;width:25px;height:25px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0004;transition:transform .15s ease}
 .switch-row[aria-checked="true"] .switch-track{background:var(--switch-on)}
-.switch-row[aria-checked="true"] .switch-thumb{transform:translateX(20px)}
+.switch-row[aria-checked="true"] .switch-thumb{transform:translateX(20px);background:var(--switch-thumb-on)}
 .chip{font-size:.9375rem;padding:var(--s2) var(--s3);border:1px solid var(--rule-2);border-radius:9px;color:var(--ink-2);background:transparent}
 .chip.on,.seg button.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
-.chip.on.ev{background:var(--alert);border-color:var(--alert)}
+.chip.on.ev{background:var(--accent);border-color:var(--accent)}
 
 /* segmented */
 .seg{display:flex;border:1px solid var(--rule-2);border-radius:8px;overflow:hidden}
 .seg button{flex:1;min-width:0;text-align:center;padding:var(--s2);font-size:.9375rem;color:var(--ink-2);border-right:1px solid var(--rule-2)}
 .seg button:last-child{border-right:0}
+.seg button:disabled{background:var(--surface-2);color:var(--ink-3);opacity:.65}
 
 /* bristol + bcs scales */
 .bristol,.scale{display:grid;grid-template-columns:repeat(auto-fit,minmax(max(44px,3.5rem),1fr));gap:var(--s2);margin-block:var(--s3)}
@@ -226,6 +234,20 @@ th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);white-
 thead th{font-size:.8125rem;font-weight:600;color:var(--ink-3);background:var(--surface-2)}
 td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 tr.tap{cursor:pointer}
+/* Keep iPhone meal summaries at the table's scale instead of allowing a wide,
+   unbroken cell to trigger text inflation. rem units still follow enlarged text;
+   viewport zoom stays enabled. Larger desktop/tablet typography is unchanged. */
+@media(max-width:600px),(max-width:960px) and (orientation:landscape){
+  .log-table .meal-column{
+    --meal-readable-width:calc(100vw - var(--sl) - var(--sr) - 24px);
+    width:clamp(12rem,60vw,16rem);
+    min-width:min(12rem,var(--meal-readable-width));max-width:min(16rem,var(--meal-readable-width));
+    white-space:normal;overflow-wrap:anywhere;vertical-align:top;
+    font-size:.8125rem;line-height:1.35;padding:6px 8px;
+    -webkit-text-size-adjust:100%;text-size-adjust:100%;
+  }
+  .log-table .meal-column .meal-detail{font-size:inherit;line-height:inherit;margin-top:4px}
+}
 
 /* date bar */
 .datebar{container-type:inline-size;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:8px;margin-bottom:var(--s5)}
@@ -248,7 +270,19 @@ tr.tap{cursor:pointer}
 .pre{font-family:var(--mono);font-size:.75rem;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border-radius:6px;padding:10px;color:var(--ink-2);max-height:320px;overflow:auto}
 @media(max-width:360px){:root{--sl:max(12px,env(safe-area-inset-left));--sr:max(12px,env(safe-area-inset-right))}.sec{padding:16px}.switch-row{gap:8px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
-@media(forced-colors:active){.switch-track{forced-color-adjust:none;background:Canvas;border:1px solid ButtonText}.switch-thumb{background:ButtonText}.switch-row[aria-checked="true"] .switch-track{background:Highlight}.switch-row[aria-checked="true"] .switch-thumb{background:HighlightText}}
+/* Pressed feedback changes the inset edge without shifting any control. */
+button:not(:disabled):active{filter:brightness(.78);box-shadow:inset 0 0 0 2px var(--ink-3)}
+@media(forced-colors:active){
+  .switch-track{forced-color-adjust:none;background:Canvas;border:1px solid ButtonText}
+  .switch-thumb{background:ButtonText}
+  .switch-row[aria-checked="true"] .switch-track{background:Highlight}
+  .switch-row[aria-checked="true"] .switch-thumb{background:HighlightText}
+  :is(.chip,.seg button,.scale button,.bristol button,.tabbar button).on{outline:2px solid Highlight;outline-offset:-4px}
+  :is(.chip,.seg button,.scale button,.bristol button,.tabbar button).on:focus-visible{outline:3px dashed CanvasText;outline-offset:-6px}
+  :focus-visible{outline:3px solid CanvasText}
+  button:not(:disabled):active{filter:none}
+  button:disabled{color:GrayText}
+}
 @media(min-width:64rem){
   main.wide{max-width:68rem}
   .daily{--steps:7;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4);margin-bottom:var(--s4)}
@@ -302,7 +336,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.2';
+const APP_VERSION = '3.1.3';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -806,7 +840,7 @@ function applyTheme(){
   if (t==='system') document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', t);
   const light=t==='light'||(t==='system'&&matchMedia('(prefers-color-scheme: light)').matches);
-  document.querySelector('meta[name="theme-color"]').content=light?'#f2f3f7':'#101214';
+  document.querySelector('meta[name="theme-color"]').content=light?'#f4f4f4':'#101010';
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change',applyTheme);
 
@@ -1196,7 +1230,7 @@ function viewHistory(){
       <td class="${band}">${worst?worst+(st.length>1?' ('+st.length+')':''):'--'}</td>
       <td>${d.weightMissed===true?'Missed':recordedWeight(d)!==null?d.weight.toFixed(2):'--'}</td>
       <td>${Number.isFinite(d.bcs)?d.bcs:'--'}</td>
-      <td>${r?r.short:'--'}<div class="sub">${mealSummary(m)}</div></td>
+      <td class="meal-column">${r?r.short:'--'}<div class="sub meal-detail">${mealSummary(m)}</div></td>
       <td>${m.darfFed??m.darfPlanned??'--'}</td>
       <td>${esc(m.bowl||'--')}</td>
       <td>${(d.events||[]).length?'&#9679;':''}</td></tr>`;
@@ -1210,7 +1244,7 @@ function viewHistory(){
     <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
   <div class="card"><div class="sec"><p class="lab">By recipe</p>${foodTable(isos,false)}</div>
     <div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div></div>
-  <div class="card tw"><table><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th>Meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
+  <div class="card tw"><table class="log-table"><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th class="meal-heading">Meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -1238,7 +1272,7 @@ function lineChart(pts, kind, forceRange, targetLine){
   const lbl=chartLabels(x0,x1);
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${kind==='kg'?'Weight':'Body condition'} over time">
     ${ticks}${tgt}${marks}<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${dots}${lbl}</svg>
-    ${targetLine!=null?'<p class="legend">Dashed line marks the ideal centre. The excellent range is 4.5–5.5.</p>':'<p class="legend">Amber dashes mark a recorded ration change.</p>'}`;
+    ${targetLine!=null?'<p class="legend">Dashed line marks the ideal centre. The excellent range is 4.5–5.5.</p>':'<p class="legend">Vertical dashes mark a recorded ration change.</p>'}`;
 }
 
 function stoolChart(isos){
@@ -1253,14 +1287,20 @@ function stoolChart(isos){
   const hours=chartTicks([0,6,12,18,24],h=>py(h*60),h=>String(h).padStart(2,'0'));
   const col={g:'var(--good)',a:'var(--watch)',r:'var(--alert)'};
   const dots=all.map(s=>{
-    const c=col[bandOfBristol(s.b)];
-    const ring=(s.mu||s.bl)?`<circle cx="${px(s.d).toFixed(1)}" cy="${py(s.m).toFixed(1)}" r="6" fill="none" stroke="${s.bl?'var(--alert)':'var(--watch)'}" stroke-width="1.4"/>`:'';
-    return `<circle cx="${px(s.d).toFixed(1)}" cy="${py(s.m).toFixed(1)}" r="3.4" fill="${c}"/>${ring}`;
+    const group=bandOfBristol(s.b), c=col[group], x=px(s.d), y=py(s.m);
+    // Shape and ring pattern repeat the clinical colour meaning. Positions and
+    // data remain unchanged, including separate cues when both flags are present.
+    const marker=group==='r'?`<rect x="${(x-3.4).toFixed(1)}" y="${(y-3.4).toFixed(1)}" width="6.8" height="6.8" fill="${c}"/>`:
+      group==='a'?`<path d="M${x.toFixed(1)},${(y-3.4).toFixed(1)} L${(x+3.4).toFixed(1)},${y.toFixed(1)} L${x.toFixed(1)},${(y+3.4).toFixed(1)} L${(x-3.4).toFixed(1)},${y.toFixed(1)} Z" fill="${c}"/>`:
+      `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="${c}"/>`;
+    const ring=(s.mu?`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${s.bl?8:6}" fill="none" stroke="var(--watch)" stroke-width="1.4" stroke-dasharray="2 2"/>`:'')+
+      (s.bl?`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6" fill="none" stroke="var(--alert)" stroke-width="1.4"/>`:'');
+    return `<g><title>${esc(fmtDate(toIso(s.d)))} · Bristol ${esc(s.b)}${s.mu?' · mucus':''}${s.bl?' · blood':''}</title>${marker}${ring}</g>`;
   }).join('');
   const lbl=chartLabels(x0,x1);
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Every stool by date and time of day, coloured by Bristol type">
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Every stool by date and time of day; shapes and colours identify Bristol groups, rings identify mucus and blood">
     ${band}${hours}${dots}${lbl}</svg>
-    <p class="legend">Time of day up the side. Green is Bristol 3 to 4, amber 2, 5 and 6, red 1 and 7. A ring marks mucus or blood.</p>`;
+    <p class="legend">Bristol: ● 3–4 (green), ◆ 2/5/6 (amber), ■ 1/7 (red). Dashed ring: mucus; solid ring: blood. Time up the side.</p>`;
 }
 
 function foodStats(isos){
