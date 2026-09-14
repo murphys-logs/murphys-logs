@@ -1,1 +1,1679 @@
-<h1>Murphy's logs, coming soon</h1>
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d1416">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Murphy">
+<title>Murphy's Log</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230e6a6f'/%3E%3Cg fill='%23fff'%3E%3Cellipse cx='64' cy='62' rx='14' ry='19'/%3E%3Cellipse cx='97' cy='54' rx='14' ry='20'/%3E%3Cellipse cx='128' cy='68' rx='13' ry='18'/%3E%3Cpath d='M96 88c19 0 34 14 34 29 0 13-11 20-24 20-8 0-12-3-20-3s-12 3-20 3c-13 0-24-7-24-20 0-15 15-29 34-29z'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+:root{
+  --paper:#f2f5f4; --surface:#ffffff; --surface-2:#e9efee; --surface-3:#dde6e4;
+  --ink:#121a1d; --ink-2:#47585d; --ink-3:#7b8c90;
+  --rule:#d5e0de; --rule-2:#bccac8;
+  --accent:#0e6a6f; --accent-ink:#0b5257; --accent-soft:#dfeeee;
+  --good:#2e7d32; --good-soft:#e4f1e4;
+  --watch:#a06a14; --watch-soft:#f6eddc;
+  --alert:#a3372c; --alert-soft:#f7e4e1;
+  --on-accent:#ffffff;
+  --shadow:0 1px 2px rgba(18,26,29,.07),0 6px 18px rgba(18,26,29,.05);
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --tabh:58px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0d1416; --surface:#151e21; --surface-2:#1d282b; --surface-3:#263336;
+    --ink:#e7eeee; --ink-2:#a6b6b7; --ink-3:#77898c;
+    --rule:#253336; --rule-2:#324245;
+    --accent:#4fb3b7; --accent-ink:#7fcccf; --accent-soft:#12302f;
+    --good:#74c17e; --good-soft:#15291a;
+    --watch:#dfa94f; --watch-soft:#2b2312;
+    --alert:#e08478; --alert-soft:#2e1a17;
+    --on-accent:#0d1416;
+    --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 18px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0d1416; --surface:#151e21; --surface-2:#1d282b; --surface-3:#263336;
+  --ink:#e7eeee; --ink-2:#a6b6b7; --ink-3:#77898c;
+  --rule:#253336; --rule-2:#324245;
+  --accent:#4fb3b7; --accent-ink:#7fcccf; --accent-soft:#12302f;
+  --good:#74c17e; --good-soft:#15291a;
+  --watch:#dfa94f; --watch-soft:#2b2312;
+  --alert:#e08478; --alert-soft:#2e1a17;
+  --on-accent:#0d1416;
+  --shadow:0 1px 2px rgba(0,0,0,.45),0 6px 18px rgba(0,0,0,.3);
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:var(--sans); font-size:16px; line-height:1.5;
+  -webkit-font-smoothing:antialiased; overscroll-behavior-y:contain;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer;padding:0;text-align:left}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+.hide{display:none !important}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* ---------- shell ---------- */
+#gate{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}
+.gate-card{width:100%;max-width:380px}
+.gate-card h1{font-size:26px;font-weight:650;letter-spacing:-.02em;margin:0 0 4px}
+.gate-card p.sub{color:var(--ink-2);font-size:14.5px;margin:0 0 26px}
+
+#app{min-height:100dvh;display:flex;flex-direction:column}
+.topbar{
+  position:sticky;top:0;z-index:20;background:var(--paper);
+  border-bottom:1px solid var(--rule);
+  padding:calc(env(safe-area-inset-top) + 11px) 16px 10px;
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+}
+.topbar .who{font-family:var(--mono);font-size:11.5px;font-weight:600;letter-spacing:.14em}
+.topbar .state{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.topbar .state.warn{color:var(--watch)}
+.topbar .state.bad{color:var(--alert)}
+
+main{flex:1;padding:14px 16px calc(var(--tabh) + env(safe-area-inset-bottom) + 26px);max-width:620px;width:100%;margin:0 auto}
+
+.tabbar{
+  position:fixed;left:0;right:0;bottom:0;z-index:20;
+  display:grid;grid-template-columns:repeat(5,1fr);
+  background:var(--surface);border-top:1px solid var(--rule-2);
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.tabbar button{
+  text-align:center;padding:9px 2px 10px;font-size:10.5px;color:var(--ink-3);
+  font-family:var(--mono);letter-spacing:.03em;
+}
+.tabbar button.on{color:var(--accent-ink);font-weight:600;box-shadow:inset 0 2px 0 var(--accent)}
+.tabbar .dotmark{display:block;width:5px;height:5px;border-radius:50%;background:var(--alert);margin:3px auto 0}
+
+/* ---------- pieces ---------- */
+.moment{
+  display:inline-block;font-family:var(--mono);font-size:9.5px;font-weight:700;
+  letter-spacing:.17em;text-transform:uppercase;color:var(--on-accent);
+  background:var(--accent);padding:3px 9px;border-radius:2px;margin-bottom:12px;
+}
+h2.screen{font-size:21px;font-weight:650;letter-spacing:-.015em;margin:0 0 14px;line-height:1.2}
+
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:9px;margin-bottom:12px;overflow:hidden}
+.sec{padding:13px 15px;border-bottom:1px solid var(--rule)}
+.sec:last-child{border-bottom:0}
+.lab{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px}
+.row:last-child{margin-bottom:0}
+.row .k{color:var(--ink-2);font-size:13.5px}
+.row .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:13.5px;font-weight:500;white-space:nowrap}
+.sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin:3px 0 0;font-variant-numeric:tabular-nums}
+.sub.ind{margin-left:14px}
+
+/* buttons */
+.btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:15px;padding:13px;border-radius:7px}
+.btn[disabled]{opacity:.4}
+.btn.ghost{background:transparent;color:var(--accent-ink);border:1px solid var(--rule-2)}
+.btn.sm{font-size:13.5px;padding:9px}
+.btn.danger{background:var(--alert);color:var(--on-accent)}
+.btnrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.link{color:var(--accent-ink);font-weight:500;font-size:13px}
+
+/* inputs */
+.field{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--rule-2);border-radius:7px;padding:4px 6px 4px 12px;background:var(--surface)}
+.field label{font-size:13px;color:var(--ink-3)}
+.field input{
+  border:0;background:transparent;text-align:right;font-family:var(--mono);
+  font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;width:110px;padding:7px 6px;
+}
+.field input:focus{outline:none}
+.tin{width:100%;border:1px solid var(--rule-2);border-radius:7px;padding:10px 12px;background:var(--surface);font-size:15px}
+textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
+.inline-lab{display:block;font-size:12.5px;color:var(--ink-3);margin:0 0 5px}
+
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{font-size:12px;padding:6px 11px;border:1px solid var(--rule-2);border-radius:15px;color:var(--ink-2);white-space:nowrap;background:var(--surface)}
+.chip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.chip.on.ev{background:var(--alert);border-color:var(--alert)}
+
+/* segmented */
+.seg{display:flex;border:1px solid var(--rule-2);border-radius:7px;overflow:hidden}
+.seg button{flex:1;text-align:center;padding:9px 3px;font-size:12.5px;color:var(--ink-2);border-right:1px solid var(--rule-2);background:var(--surface)}
+.seg button:last-child{border-right:0}
+.seg button.on{background:var(--accent);color:var(--on-accent);font-weight:600}
+.seg.off{opacity:.42;pointer-events:none}
+
+/* bristol + bcs scales */
+.bristol{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.bristol button{text-align:center;padding:9px 1px 7px;border:1px solid var(--rule-2);border-radius:6px;background:var(--surface);line-height:1.1}
+.bristol b{display:block;font-family:var(--mono);font-size:15px;font-weight:600}
+.bristol i{display:block;font-style:normal;font-size:8px;letter-spacing:.01em;color:var(--ink-3);margin-top:3px}
+.bristol button.g b{color:var(--good)} .bristol button.a b{color:var(--watch)} .bristol button.r b{color:var(--alert)}
+.bristol button.on.g{background:var(--good);border-color:var(--good)}
+.bristol button.on.a{background:var(--watch);border-color:var(--watch)}
+.bristol button.on.r{background:var(--alert);border-color:var(--alert)}
+.bristol button.on b,.bristol button.on i{color:var(--on-accent)}
+
+.scale{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.scale button{
+  text-align:center;padding:11px 0;font-family:var(--mono);font-size:13px;font-weight:600;
+  border:1px solid var(--rule-2);border-radius:6px;background:var(--surface);font-variant-numeric:tabular-nums;
+}
+.scale button.g{color:var(--good)} .scale button.a{color:var(--watch)} .scale button.r{color:var(--alert)}
+.scale button.on{color:var(--on-accent)}
+.scale button.on.g{background:var(--good);border-color:var(--good)}
+.scale button.on.a{background:var(--watch);border-color:var(--watch)}
+.scale button.on.r{background:var(--alert);border-color:var(--alert)}
+
+/* stool entries */
+.stool{display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-bottom:1px solid var(--rule)}
+.stool:last-of-type{border-bottom:0}
+.dot{width:9px;height:9px;border-radius:2px;flex:none;margin-top:5px}
+.dot.g{background:var(--good)} .dot.a{background:var(--watch)} .dot.r{background:var(--alert)}
+.stool .body{flex:1;min-width:0}
+.stool .t{font-size:13.5px}
+.stool .attr{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:2px}
+.stool .attr button{color:var(--accent-ink);font-family:var(--mono);font-size:10.5px;text-decoration:underline}
+.stool .del{color:var(--ink-3);font-size:17px;padding:0 4px;flex:none}
+
+/* callouts */
+.note{border-radius:7px;padding:11px 13px;font-size:13px;line-height:1.5;margin-bottom:10px;color:var(--ink-2)}
+.note b{display:block;color:var(--ink);font-weight:650;font-size:14px;margin-bottom:3px}
+.note.hold{background:var(--accent-soft);border-left:3px solid var(--accent)}
+.note.good{background:var(--good-soft);border-left:3px solid var(--good)}
+.note.warn{background:var(--watch-soft);border-left:3px solid var(--watch)}
+.note.bad{background:var(--alert-soft);border-left:3px solid var(--alert)}
+.note.plain{background:var(--surface-2);border-left:3px solid var(--rule-2)}
+
+/* streak */
+.streak{display:flex;gap:4px}
+.streak span{flex:1;height:26px;border-radius:4px;border:1px solid var(--rule-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--ink-3);background:var(--surface)}
+.streak span.clean{background:var(--good);border-color:var(--good);color:var(--on-accent)}
+.streak span.broken{background:var(--alert);border-color:var(--alert);color:var(--on-accent)}
+.streak span.pause{background:var(--surface-2)}
+
+/* gauge */
+.gauge{height:9px;border-radius:5px;background:var(--surface-2);border:1px solid var(--rule-2);position:relative;overflow:hidden;margin:8px 0 5px}
+.gauge .mid{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--rule-2)}
+.gauge .fill{position:absolute;top:0;bottom:0;background:var(--accent)}
+
+/* charts */
+svg.chart{display:block;width:100%;height:auto}
+.legend{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:5px}
+
+/* tables */
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);white-space:nowrap}
+thead th{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface-2)}
+td{color:var(--ink-2);font-variant-numeric:tabular-nums}
+td.g{color:var(--good)} td.a{color:var(--watch)} td.r{color:var(--alert)}
+tr.tap{cursor:pointer}
+
+/* date bar */
+.datebar{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--rule);border-radius:7px;padding:8px 10px;margin-bottom:12px}
+.datebar button{font-family:var(--mono);font-size:17px;color:var(--ink-2);padding:2px 12px}
+.datebar button[disabled]{opacity:.28}
+.datebar .d{font-family:var(--mono);font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* misc */
+.muted{color:var(--ink-3);font-size:13px}
+.err{color:var(--alert);font-size:13.5px;margin-top:10px}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--rule-2);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
+hr.sp{border:0;border-top:1px solid var(--rule);margin:16px 0}
+.stack{display:grid;gap:9px}
+.pre{font-family:var(--mono);font-size:11px;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border-radius:6px;padding:10px;color:var(--ink-2);max-height:320px;overflow:auto}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gate-card">
+    <h1>Murphy's Log</h1>
+    <p class="sub">Stools, weight, condition and the evening bowl.</p>
+    <div class="stack">
+      <div>
+        <label class="inline-lab" for="em">Email</label>
+        <input class="tin" type="email" id="em" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false">
+      </div>
+      <div>
+        <label class="inline-lab" for="pw">Password</label>
+        <input class="tin" type="password" id="pw" autocomplete="current-password">
+      </div>
+      <button class="btn" id="signin">Sign in</button>
+    </div>
+    <p class="err hide" id="gate-err"></p>
+    <p class="muted" style="margin-top:22px">Two accounts only. There is no sign-up here; accounts are added in the Firebase console.</p>
+  </div>
+</div>
+
+<div id="app" class="hide">
+  <div class="topbar">
+    <span class="who">MURPHY</span>
+    <span class="state" id="state">Connecting</span>
+  </div>
+  <main id="main"></main>
+  <nav class="tabbar" id="tabbar">
+    <button data-tab="today">Today</button>
+    <button data-tab="day">Day</button>
+    <button data-tab="status">Status</button>
+    <button data-tab="history">History</button>
+    <button data-tab="more">More</button>
+  </nav>
+</div>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut }
+  from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
+         doc, collection, setDoc, deleteDoc, onSnapshot }
+  from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
+
+const APP_VERSION = '3.0.0';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
+  authDomain: "murphy-s-stool-log-v3.firebaseapp.com",
+  projectId: "murphy-s-stool-log-v3",
+  storageBucket: "murphy-s-stool-log-v3.firebasestorage.app",
+  messagingSenderId: "973290826819",
+  appId: "1:973290826819:web:be8f108bcd4bf9667f78f6"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+let db;
+try {
+  db = initializeFirestore(fbApp, {
+    localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+  });
+} catch (e) {
+  db = initializeFirestore(fbApp, {});
+  console.warn('Offline cache unavailable, continuing without it.', e);
+}
+
+/* =====================================================================
+   PURE CORE
+   No DOM, no Firebase. Every rule lives here. Mirrored by the self-tests
+   under More, and by a Node suite run before this file was written.
+   ===================================================================== */
+
+const RECIPES = [
+  { id:'lamb',   name:'Grass-Fed Lamb',        short:'Lamb',   kcal100:122, noOil:false },
+  { id:'fish',   name:'Sustainable Fish',      short:'Fish',   kcal100:94,  noOil:false },
+  { id:'turkey', name:'Higher-Welfare Turkey', short:'Turkey', kcal100:100, noOil:false },
+  { id:'tripe',  name:'Grass-Fed Beef Tripe',  short:'Tripe',  kcal100:118, noOil:false },
+  { id:'beef',   name:'Grass-Fed Beef',        short:'Beef',   kcal100:118, noOil:false },
+  { id:'salmon', name:'Sustainable Salmon',    short:'Salmon', kcal100:129, noOil:true  },
+  { id:'duck',   name:'Nutrient-Rich Duck',    short:'Duck',   kcal100:157, noOil:false }
+];
+const BRISTOL = [null,
+  { n:1, word:'Pellets', band:'r' }, { n:2, word:'Lumpy', band:'a' },
+  { n:3, word:'Cracked', band:'g' }, { n:4, word:'Smooth', band:'g' },
+  { n:5, word:'Soft',    band:'a' }, { n:6, word:'Mushy',  band:'a' },
+  { n:7, word:'Liquid',  band:'r' }];
+const BCS_STEPS = [
+  { v:3, band:'r' }, { v:4, band:'a' }, { v:4.5, band:'g' }, { v:5, band:'g' },
+  { v:5.5, band:'g' }, { v:6, band:'a' }, { v:7, band:'r' }];
+const EVENTS = [
+  { id:'vomited', label:'Vomited' }, { id:'blood', label:'Blood' },
+  { id:'lethargic', label:'Lethargic' }, { id:'offFood', label:'Off food' },
+  { id:'vacant', label:'Vacant episode' }];
+
+const DEFAULTS = {
+  startDate:'2026-09-07', targetKcal:1240, bdGrams:500,
+  kcalPerGDarf:4.62, kcalPerMlOil:7.82, kcalPerKgTissue:7000,
+  damping:0.125, deadbandPct:1.0, maxStepG:15, maxCumulativeG:40,
+  minWeighIns:5, windowDays:7, suppressOnRegimeChange:true,
+  bcsHoldAtOrBelow:5, bcsTarget:5, darfMinG:20,
+  attributionMinH:6, handoverHour:16,
+  eggKcal:0, brothKcal:0,
+  fibreStepG:2.5, fibreRestG:5, fibreCapG:10, fibreStreakDays:7,
+  fibreStepBackDays:14, fibreReviewMinDays:14, fibreReviewWindow:14, fibreReviewBadDays:6,
+  oilSchedule:[{from:'2026-01-01', ml:8},{from:'2026-09-28', ml:4}],
+  fibreSchedule:[{from:'2026-09-04', g:2.5}],
+  regimeChanges:[], vetWindowDays:90, theme:'system'
+};
+
+const DAY_MS = 86400000;
+const toDay = (iso) => Math.floor(Date.parse(iso + 'T00:00:00Z') / DAY_MS);
+const toIso = (d) => new Date(d * DAY_MS).toISOString().slice(0, 10);
+function mondayOf(iso){ const d = toDay(iso); const w = new Date(d*DAY_MS).getUTCDay(); return d - ((w+6)%7); }
+const minsOf = (t) => { const [h,m] = String(t||'00:00').split(':').map(Number); return h*60+m; };
+const round1 = (x) => Math.round(x*10)/10;
+
+function inForce(sch, iso, key){
+  let val=null, best=-Infinity;
+  for (const e of (sch||[])){ const d=toDay(e.from); if (d<=toDay(iso) && d>=best){ best=d; val=e[key]; } }
+  return val;
+}
+const oilMlOn  = (iso,s) => { const v=inForce(s.oilSchedule,iso,'ml');  return v===null?0:v; };
+const fibreGOn = (iso,s) => { const v=inForce(s.fibreSchedule,iso,'g'); return v===null?0:v; };
+function fibreDoseSince(iso,s){
+  let best=null;
+  for (const e of (s.fibreSchedule||[])) if (toDay(e.from)<=toDay(iso))
+    if (best===null || toDay(e.from)>=toDay(best)) best=e.from;
+  return best;
+}
+const adjustmentOn = (iso, ch) => (ch||[]).reduce((a,c)=> toDay(c.date)<=toDay(iso) ? a+(c.deltaG||0) : a, 0);
+
+function bowlFor(iso, recipeId, s, changes, extras){
+  const r = RECIPES.find(x=>x.id===recipeId); if (!r) return null;
+  const bdKcal = r.kcal100 * (s.bdGrams/100);
+  const oilMl = r.noOil ? 0 : oilMlOn(iso,s);
+  const oilKcal = round1(oilMl * s.kcalPerMlOil);
+  const fibreG = fibreGOn(iso,s);
+  const ex = extras||{};
+  const extrasKcal = (ex.egg?s.eggKcal:0) + (ex.broth?s.brothKcal:0);
+  const adjustment = adjustmentOn(iso, changes);
+  const darfBase = (s.targetKcal - bdKcal - oilKcal - extrasKcal) / s.kcalPerGDarf;
+  let darfG = Math.round(darfBase + adjustment), floored = false;
+  if (darfG < s.darfMinG){ darfG = s.darfMinG; floored = true; }
+  return { recipe:r, bdGrams:s.bdGrams, bdKcal, oilMl, oilKcal, fibreG, extrasKcal,
+    adjustment, darfBase:round1(darfBase), darfG, floored,
+    totalKcal: Math.round(bdKcal + oilKcal + extrasKcal + darfG*s.kcalPerGDarf) };
+}
+
+function windowMean(weights, endDay, len){
+  const start = endDay - len + 1;
+  const kgs = (weights||[]).filter(w=>{ const d=toDay(w.date); return d>=start && d<=endDay && Number.isFinite(w.kg); }).map(w=>w.kg);
+  return { n:kgs.length, mean:kgs.length?kgs.reduce((a,b)=>a+b,0)/kgs.length:null, from:toIso(start), to:toIso(endDay) };
+}
+
+/* The weekly ration rule. Kevin's function of 14 September 2026, with two
+   agreed corrections marked FIX 1 and FIX 2. */
+function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustmentWeek=null,
+  bcs7dMean=null, regimeChanges=[], settings={} } = {}){
+  const cfg = { ...DEFAULTS, ...settings };
+  const thisWeek = mondayOf(asOf), endDay = thisWeek - 1;
+  const current = windowMean(weights, endDay, cfg.windowDays);
+  const previous = windowMean(weights, endDay - cfg.windowDays, cfg.windowDays);
+  const out = { asOf, weekStart:toIso(thisWeek),
+    currentWindow:[current.from,current.to], previousWindow:[previous.from,previous.to],
+    previousMean:previous.mean, currentMean:current.mean, previousN:previous.n, currentN:current.n,
+    percentChange:null, fullCorrectionG:null, rawStepG:null,
+    adjustmentG:0, applied:false, limitedBy:null, held:false, reason:'' };
+
+  if (lastAdjustmentWeek && mondayOf(lastAdjustmentWeek) >= thisWeek){
+    out.reason = 'An adjustment has already been recorded this week.'; return out; }
+  if (cfg.suppressOnRegimeChange){
+    const lo=toDay(previous.from), hi=toDay(current.to);
+    const hit=(regimeChanges||[]).find(d=>{const n=toDay(d);return n>=lo&&n<=hi;});
+    if (hit){ out.reason = `A ration change on ${fmtDate(hit)} falls inside the comparison, so the trend is confounded and no corrective step is advised.`; return out; }
+  }
+  if (previous.n < cfg.minWeighIns || current.n < cfg.minWeighIns){
+    out.reason = `Not enough weigh-ins: ${previous.n} in the earlier week and ${current.n} in the later one, ${cfg.minWeighIns} needed in each.`;
+    return out;
+  }
+  const pct = ((current.mean - previous.mean) / previous.mean) * 100;
+  out.percentChange = pct;
+  const perPct = (0.01 * current.mean * cfg.kcalPerKgTissue) / (cfg.windowDays * cfg.kcalPerGDarf);
+  out.fullCorrectionG = -pct * perPct;
+  out.rawStepG = out.fullCorrectionG * cfg.damping;
+
+  if (Math.abs(pct) < cfg.deadbandPct){
+    out.reason = `${pct>=0?'+':''}${pct.toFixed(2)}% is inside the plus or minus ${cfg.deadbandPct}% deadband, so the ration holds.`;
+    return out;
+  }
+  let step = Math.round(out.rawStepG);
+
+  // FIX 2: the condition hold runs before the caps, on the intended direction.
+  if (step < 0 && bcs7dMean !== null && bcs7dMean <= cfg.bcsHoldAtOrBelow){
+    out.held = true;
+    out.reason = `Weight up ${pct.toFixed(2)}%, but the 7-day mean body condition is ${bcs7dMean.toFixed(1)}, so the reduction is held while he is at or below ${cfg.bcsHoldAtOrBelow}.`;
+    return out;
+  }
+  const before = step;
+  if (Math.abs(step) > cfg.maxStepG){ step = Math.sign(step)*cfg.maxStepG; out.limitedBy='maxStepG'; }
+  const projected = currentOffsetG + step;
+  if (Math.abs(projected) > cfg.maxCumulativeG){
+    step = Math.trunc(Math.sign(projected)*cfg.maxCumulativeG - currentOffsetG);
+    if (Math.sign(step) !== Math.sign(before)) step = 0;   // FIX 1: never reverse the advice
+    out.limitedBy = 'maxCumulativeG';
+  }
+  if (step === 0){
+    out.reason = `${pct>=0?'+':''}${pct.toFixed(2)}% would call for a change, but the cumulative cap of plus or minus ${cfg.maxCumulativeG} g is already reached.`;
+    return out;
+  }
+  out.adjustmentG = step; out.applied = true;
+  out.reason = `${fmtDate(current.from)} to ${fmtDate(current.to)} averaged ${current.mean.toFixed(2)} kg against `
+    + `${previous.mean.toFixed(2)} kg the week before, ${pct>0?'+':''}${pct.toFixed(2)}%. `
+    + `Nulling that outright would take ${Math.abs(out.fullCorrectionG).toFixed(0)} g of DARF, so it is damped to `
+    + `${step>0?'up':'down'} ${Math.abs(step)} g`
+    + (out.limitedBy ? ` and held at the ${out.limitedBy==='maxStepG'?'single-step':'cumulative'} cap.` : '.');
+  return out;
+}
+
+function attributionFor(stoolIso, stoolTime, meals, cfg, overrideDate){
+  const gapMin = (cfg.attributionMinH || 6) * 60;
+  if (overrideDate){
+    const m = (meals||[]).find(x=>x.date===overrideDate);
+    if (m){
+      const earlier = (meals||[]).filter(x=>toDay(x.date)<toDay(overrideDate)).sort((a,b)=>toDay(a.date)-toDay(b.date));
+      return { primary:m, secondary:earlier[earlier.length-1]||null, assumed:false, overridden:true };
+    }
+  }
+  const t = toDay(stoolIso)*1440 + minsOf(stoolTime);
+  const at = (m) => toDay(m.date)*1440 + minsOf(m.fedAt);
+  const sorted = (meals||[]).slice().sort((a,b)=>at(a)-at(b));
+  const eligible = sorted.filter(m => t - at(m) >= gapMin);
+  const earlier = sorted.filter(m => at(m) < t);
+  if (!eligible.length){
+    return earlier.length
+      ? { primary:earlier[earlier.length-1], secondary:earlier[earlier.length-2]||null, assumed:true }
+      : { primary:null, secondary:null, assumed:false };
+  }
+  return { primary:eligible[eligible.length-1], secondary:eligible[eligible.length-2]||null, assumed:false };
+}
+
+function dayVerdict(day){
+  const st = (day && day.stools) || [];
+  if (!st.length) return 'pause';
+  return st.some(s => s.bristol<3 || s.bristol>4 || s.mucus || s.blood) ? 'broken' : 'clean';
+}
+function fibreStreak(days, sinceIso, todayIso){
+  const out=[]; let count=0;
+  for (let d=toDay(sinceIso)+1; d<=toDay(todayIso); d++){
+    const iso=toIso(d), v=dayVerdict(days[iso]);
+    if (v==='clean') count++; else if (v==='broken') count=0;
+    out.push({date:iso, verdict:v});
+  }
+  return { count, days:out };
+}
+function fibreAdvice(days, todayIso, s){
+  const dose = fibreGOn(todayIso,s), since = fibreDoseSince(todayIso,s);
+  const res = { dose, since, streak:0, chips:[], advice:null, review:false, note:'' };
+  if (!since) return res;
+  const st = fibreStreak(days, since, todayIso);
+  res.streak = st.count;
+  res.chips = st.days.slice(-s.fibreStreakDays);
+  const daysAtDose = toDay(todayIso) - toDay(since);
+
+  const prior = (s.fibreSchedule||[]).filter(e=>toDay(e.from)<toDay(since)).sort((a,b)=>toDay(a.from)-toDay(b.from));
+  const previousDose = prior.length ? prior[prior.length-1].g : null;
+  if (previousDose !== null && dose > previousDose && daysAtDose <= s.fibreStepBackDays){
+    const loose=[];
+    for (let d=toDay(since)+1; d<=toDay(todayIso); d++){
+      const day=days[toIso(d)];
+      loose.push(!!(day && (day.stools||[]).some(x=>x.bristol>=5)));
+    }
+    for (let i=0; i+3<=loose.length; i++){
+      if (loose.slice(i,i+3).filter(Boolean).length >= 2){
+        res.advice = { kind:'down', toG:previousDose, text:`Loose stools since the step to ${dose} g. Return to ${previousDose} g.` };
+        return res;
+      }
+    }
+  }
+  if (dose < s.fibreRestG && res.streak >= s.fibreStreakDays){
+    const toG = Math.min(dose + s.fibreStepG, s.fibreRestG);
+    res.advice = { kind:'up', toG, text:`${res.streak} clean days. Step Pro-Fibre from ${dose} g to ${toG} g.` };
+    return res;
+  }
+  if (dose >= s.fibreRestG){
+    res.note = `Resting at ${dose} g. This is the ceiling the audit set, and the app will not advise higher.`;
+    if (daysAtDose >= s.fibreReviewMinDays){
+      let bad=0;
+      for (let d=toDay(todayIso)-s.fibreReviewWindow+1; d<=toDay(todayIso); d++){
+        const st2=(days[toIso(d)]||{}).stools||[];
+        if (st2.length && st2.some(x=>x.bristol<3||x.bristol>4||x.mucus)) bad++;
+      }
+      if (bad >= s.fibreReviewBadDays){
+        res.review = true;
+        res.note = `${bad} of the last ${s.fibreReviewWindow} logged days were outside Bristol 3 to 4 or carried mucus, after ${daysAtDose} days at ${dose} g. Stool that does not settle at ${s.fibreRestG} g is a clinical question rather than a dose question: faecal pathogens, pancreatic lipase, the raw handling chain. Worth a vet conversation. A higher dose is available by hand in Settings, up to ${s.fibreCapG} g, but is deliberately never advised here.`;
+      }
+    }
+  }
+  return res;
+}
+
+function bcsMean(days, todayIso, n){
+  const v=[];
+  for (let d=toDay(todayIso)-n+1; d<=toDay(todayIso); d++){
+    const day=days[toIso(d)];
+    if (day && Number.isFinite(day.bcs)) v.push(day.bcs);
+  }
+  return v.length ? { mean:v.reduce((a,b)=>a+b,0)/v.length, n:v.length } : { mean:null, n:0 };
+}
+
+function vetItems(days, todayIso, weights, s){
+  const items=[], within=(iso,n)=>toDay(iso)>toDay(todayIso)-n;
+  const all=Object.keys(days).sort();
+  const blood=all.filter(d=>(days[d].stools||[]).some(x=>x.blood)||(days[d].events||[]).includes('blood'));
+  if (blood.length) items.push({sev:'r',title:'Blood recorded',dates:blood,text:'Never aged out of this list.'});
+  const vacant=all.filter(d=>within(d,s.vetWindowDays)&&(days[d].events||[]).includes('vacant'));
+  if (vacant.length) items.push({sev:'r',title:'Vacant episode',dates:vacant,text:'Video it if it happens again. For an episodic neurological sign a video is the single most useful thing a vet can be given.'});
+  const leth=all.filter(d=>within(d,s.vetWindowDays)&&(days[d].events||[]).includes('lethargic'));
+  if (leth.length) items.push({sev:'a',title:'Lethargy',dates:leth,text:''});
+  const vom=all.filter(d=>within(d,7)&&(days[d].events||[]).includes('vomited'));
+  if (vom.length>=2) items.push({sev:'a',title:'Vomited on two or more days this week',dates:vom,text:''});
+  const six=[];
+  for (let i=1;i<all.length;i++){
+    const a=all[i-1], b=all[i];
+    if (toDay(b)-toDay(a)!==1) continue;
+    const bad=d=>(days[d].stools||[]).some(x=>x.bristol>=6);
+    if (bad(a)&&bad(b)&&within(b,s.vetWindowDays)) six.push(b);
+  }
+  if (six.length) items.push({sev:'a',title:'Bristol 6 or 7 on consecutive days',dates:six,text:''});
+  const ref=all.filter(d=>within(d,7)&&days[d].meal&&days[d].meal.bowl==='refused');
+  if (ref.length>=2) items.push({sev:'a',title:'Bowl refused twice this week',dates:ref,text:''});
+  const end=toDay(todayIso);
+  const w2=windowMean(weights,end,14), w2p=windowMean(weights,end-14,14);
+  if (w2.mean&&w2p.mean&&(w2.mean-w2p.mean)/w2p.mean<=-0.02){
+    const nights=all.filter(d=>within(d,14)&&days[d].meal&&days[d].meal.bowl);
+    if (nights.length>=4&&nights.every(d=>days[d].meal.bowl==='cleared'))
+      items.push({sev:'a',title:'Losing weight with a cleared bowl',dates:[],
+        text:'Down 2% or more over a fortnight while eating everything put down. Loss with a normal appetite is a vet question rather than a ration question.'});
+  }
+  return items;
+}
+/* =====================================================================
+   STATE AND STORE
+   ===================================================================== */
+
+const S = {
+  user:null, days:{}, changes:[], settings:{...DEFAULTS},
+  ready:false, tab:'today', cursor:null, adding:null,
+  status:'Connecting', statusClass:'', banner:null, testOut:null, forceCard:null, subscribed:false
+};
+
+function localToday(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function nowHHMM(){ const d=new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+const MON=['Jan','Feb','Mar','Apr','May','June','July','Aug','Sept','Oct','Nov','Dec'];
+const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+function fmtDate(iso){
+  if (!iso) return '';
+  const d=new Date(toDay(iso)*DAY_MS);
+  return `${DOW[d.getUTCDay()]} ${d.getUTCDate()} ${MON[d.getUTCMonth()]}`;
+}
+function fmtShort(iso){ const d=new Date(toDay(iso)*DAY_MS); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; }
+
+function setStatus(text, cls){ S.status=text; S.statusClass=cls||''; const el=$('#state'); if (el){ el.textContent=text; el.className='state '+(cls||''); } }
+
+let pending = 0;
+async function write(fn){
+  pending++; setStatus('Saving');
+  try { await fn(); setStatus(pending>1?'Saving':'Saved'); }
+  catch(e){
+    console.error(e);
+    setStatus(navigator.onLine ? 'Not saved' : 'Offline, queued', navigator.onLine?'bad':'warn');
+    if (navigator.onLine) S.banner={kind:'bad',title:'That did not save',text:String(e.message||e)};
+  }
+  finally { pending--; }
+}
+
+function cleanDay(d){
+  const out={};
+  for (const [k,v] of Object.entries(d)){
+    if (v===null||v===undefined||v==='') continue;
+    if (Array.isArray(v) && !v.length) continue;
+    out[k]=v;
+  }
+  return out;
+}
+function saveDay(iso, patch){
+  const cur = S.days[iso] || {};
+  const next = cleanDay({ ...cur, ...patch });
+  const empty = !Object.keys(next).filter(k=>k!=='date'&&k!=='updatedAt').length;
+  if (empty){ delete S.days[iso]; render(); return write(()=>deleteDoc(doc(db,'days',iso))); }
+  next.date=iso; next.updatedAt=new Date().toISOString();
+  S.days[iso]=next; render();
+  return write(()=>setDoc(doc(db,'days',iso), next));
+}
+function saveSettings(patch){
+  S.settings={...S.settings,...patch}; render();
+  const body={...S.settings}; delete body.__id;
+  return write(()=>setDoc(doc(db,'settings','main'), body));
+}
+function saveChange(c){
+  const id=c.id||('c'+Date.now().toString(36));
+  const body={...c,id};
+  S.changes=[...S.changes.filter(x=>x.id!==id), body];
+  render();
+  return write(()=>setDoc(doc(db,'changes',id), body));
+}
+function removeChange(id){
+  S.changes=S.changes.filter(x=>x.id!==id); render();
+  return write(()=>deleteDoc(doc(db,'changes',id)));
+}
+
+function subscribe(){
+  onSnapshot(collection(db,'days'), snap=>{
+    const d={}; snap.forEach(doc0=>{ d[doc0.id]=doc0.data(); });
+    S.days=d; S.ready=true;
+    setStatus(snap.metadata.fromCache ? 'Synced (cached)' : 'Synced');
+    render();
+  }, err=>{ console.error(err); setStatus('Not connected','bad'); });
+
+  onSnapshot(collection(db,'changes'), snap=>{
+    const a=[]; snap.forEach(d=>a.push({...d.data(), id:d.id}));
+    S.changes=a.sort((x,y)=>toDay(x.date)-toDay(y.date)); render();
+  }, err=>console.error(err));
+
+  onSnapshot(doc(db,'settings','main'), snap=>{
+    S.settings = { ...DEFAULTS, ...(snap.exists() ? snap.data() : {}) };
+    applyTheme(); render();
+  }, err=>console.error(err));
+}
+
+function applyTheme(){
+  const t=S.settings.theme||'system';
+  if (t==='system') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', t);
+}
+
+/* =====================================================================
+   DERIVED
+   ===================================================================== */
+
+const $  = (q,r)=> (r||document).querySelector(q);
+const $$ = (q,r)=> Array.from((r||document).querySelectorAll(q));
+const esc = (s)=> String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function weightsList(){
+  return Object.entries(S.days)
+    .filter(([,d])=>Number.isFinite(d.weight))
+    .map(([iso,d])=>({date:iso, kg:d.weight}))
+    .sort((a,b)=>toDay(a.date)-toDay(b.date));
+}
+function mealsList(){
+  return Object.entries(S.days)
+    .filter(([,d])=>d.meal&&d.meal.recipe)
+    .map(([iso,d])=>({...d.meal, date:iso}))
+    .sort((a,b)=>toDay(a.date)-toDay(b.date));
+}
+const offsetNow = ()=> adjustmentOn(localToday(), S.changes);
+function lastAdjWeek(){
+  const applied=S.changes.filter(c=>c.source==='rule'||c.source==='refused');
+  if (!applied.length) return null;
+  return applied.map(c=>c.date).sort().slice(-1)[0];
+}
+function weeklyAdvice(){
+  const today=localToday();
+  return computeDarfAdjustment({
+    weights:weightsList(), asOf:today, currentOffsetG:offsetNow(),
+    lastAdjustmentWeek:lastAdjWeek(),
+    bcs7dMean:bcsMean(S.days,today,7).mean,
+    regimeChanges:S.settings.regimeChanges||[], settings:S.settings
+  });
+}
+function isEvening(){
+  if (S.forceCard) return S.forceCard==='evening';
+  return new Date().getHours() >= (S.settings.handoverHour ?? 16);
+}
+function missingFor(iso){
+  const d=S.days[iso]||{}, miss=[];
+  if (!(d.stools||[]).length) miss.push({k:'stool', t:'no stool logged'});
+  if (!Number.isFinite(d.weight)) miss.push({k:'weight', t:'no weight'});
+  if (!Number.isFinite(d.bcs)) miss.push({k:'bcs', t:'no condition score'});
+  const prev=S.days[toIso(toDay(iso)-1)];
+  if (prev&&prev.meal&&prev.meal.recipe&&!prev.meal.bowl) miss.push({k:'bowl', t:"last night's bowl not recorded"});
+  return miss;
+}
+function bandOfBristol(n){ return (BRISTOL[n]||{}).band||'a'; }
+function bandOfBcs(v){ const s=BCS_STEPS.find(x=>x.v===v); return s?s.band:(v>=4.5&&v<=5.5?'g':(v===4||v===6?'a':'r')); }
+
+/* =====================================================================
+   RENDER
+   ===================================================================== */
+
+function render(){
+  if (!S.user){ return; }
+  if (!S.cursor) S.cursor = localToday();
+  $$('#tabbar button').forEach(b=>b.classList.toggle('on', b.dataset.tab===S.tab));
+  const vet = vetItems(S.days, localToday(), weightsList(), S.settings);
+  const mark = $('#tabbar button[data-tab="status"]');
+  if (mark){
+    const adv = weeklyAdvice();
+    const needs = vet.length || adv.applied || (fibreAdvice(S.days, localToday(), S.settings).advice);
+    mark.innerHTML = 'Status' + (needs ? '<span class="dotmark"></span>' : '');
+  }
+  const m=$('#main');
+  m.innerHTML =
+    S.tab==='today'   ? viewToday()   :
+    S.tab==='day'     ? viewDay()     :
+    S.tab==='status'  ? viewStatus()  :
+    S.tab==='history' ? viewHistory() : viewMore();
+  m.scrollTop=0;
+}
+
+function bannerHtml(){
+  if (!S.banner) return '';
+  const b=S.banner;
+  return `<div class="note ${b.kind}"><b>${esc(b.title)}</b>${esc(b.text)}
+    <div style="margin-top:8px"><button class="link" data-act="dismiss-banner">Dismiss</button></div></div>`;
+}
+
+/* ---------- TODAY ---------- */
+function viewToday(){
+  const today=localToday();
+  const adv=weeklyAdvice(), fib=fibreAdvice(S.days,today,S.settings);
+  const vet=vetItems(S.days,today,weightsList(),S.settings);
+  let head='';
+  if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>v.title).join('. '))}. <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
+  if (adv.applied) head += `<div class="note warn"><b>This week's ration advice is waiting</b>${esc(adv.reason)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
+  else if (fib.advice) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
+
+  const toggle = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
+    <button class="link" data-act="swapcard">${isEvening()?'Show the morning log':"Show tonight's bowl"}</button></div>`;
+  return bannerHtml()+head+toggle+(isEvening()?cardEvening(today):cardMorning(today));
+}
+
+function cardMorning(iso){
+  const d=S.days[iso]||{};
+  const prevIso=toIso(toDay(iso)-1), prev=S.days[prevIso]||{};
+  const miss=missingFor(iso);
+  let last='<p class="muted">No meal recorded for last night. <button class="link" data-act="goday" data-date="'+prevIso+'">Add it</button></p>';
+  if (prev.meal&&prev.meal.recipe){
+    const r=RECIPES.find(x=>x.id===prev.meal.recipe);
+    const bowl=prev.meal.bowl?`bowl ${prev.meal.bowl==='left'?'left some':prev.meal.bowl}`:'bowl not recorded';
+    last=`<div class="row"><span class="k">${esc(r?r.name:prev.meal.recipe)} &middot; ${esc(bowl)}</span><span class="v">${prev.meal.darfFed??prev.meal.darfPlanned??'?'} g</span></div>
+      <p class="sub">${prev.meal.fedAt?esc(prev.meal.fedAt)+' &middot; ':''}oil ${prev.meal.oilMl??0} ml &middot; Pro-Fibre ${prev.meal.fibreG??0} g${prev.meal.egg?' &middot; egg':''}${prev.meal.broth?' &middot; broth':''}</p>`;
+  }
+  return `
+  <span class="moment">Morning</span>
+  <h2 class="screen">${fmtDate(iso)}</h2>
+  <div class="card"><div class="sec"><p class="lab">Last night</p>${last}</div></div>
+  ${stoolsCard(iso)}
+  <div class="card">
+    <div class="sec"><p class="lab">Weight</p>
+      <div class="field"><label for="w-in">kg, after defecation</label>
+        <input id="w-in" type="number" inputmode="decimal" step="0.01" min="10" max="30" value="${Number.isFinite(d.weight)?d.weight:''}" data-act="weight" placeholder="--.--"></div>
+      ${weightHint(iso)}
+    </div>
+    <div class="sec"><p class="lab">Condition</p>${bcsScale(iso,d.bcs)}
+      <p class="sub">Ribs, waist from above, tuck from the side. Target ${S.settings.bcsTarget}.</p></div>
+  </div>
+  <div class="card">
+    <div class="sec"><p class="lab">Walk</p>
+      <div class="stack">
+        <div class="field"><label for="wm">minutes walked</label><input id="wm" type="number" inputmode="numeric" min="0" max="600" value="${d.walkMin??''}" data-act="walkMin" placeholder="--"></div>
+        <div class="field"><label for="wk">km from the tracker</label><input id="wk" type="number" inputmode="decimal" step="0.1" min="0" max="80" value="${d.walkKm??''}" data-act="walkKm" placeholder="--.-"></div>
+        <div class="field"><label for="wa">Tractive active minutes</label><input id="wa" type="number" inputmode="numeric" min="0" max="1440" value="${d.activeMin??''}" data-act="activeMin" placeholder="--"></div>
+      </div>
+    </div>
+    <div class="sec"><p class="lab">Treats</p>
+      <div class="field"><label>dried necks and feet</label><input type="number" inputmode="numeric" min="0" max="10" value="${d.treats??''}" data-act="treats" placeholder="0"></div>
+    </div>
+    <div class="sec"><p class="lab">Events</p>
+      <div class="chips">${EVENTS.map(e=>`<button class="chip ${(d.events||[]).includes(e.id)?'on ev':''}" data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>
+    </div>
+    <div class="sec"><p class="lab">Notes</p>
+      <textarea class="tin" data-act="notes" placeholder="Anything else about today">${esc(d.notes||'')}</textarea>
+    </div>
+  </div>
+  <div class="note ${miss.length?'plain':'good'}">
+    ${miss.length
+      ? `<b>Still to log</b>` + miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', ')
+      : `<b>Morning complete</b>Tonight's bowl takes over at ${String(S.settings.handoverHour).padStart(2,'0')}:00.`}
+  </div>`;
+}
+
+function weightHint(iso){
+  const d=S.days[iso]||{};
+  const m=windowMean(weightsList().filter(w=>toDay(w.date)<=toDay(iso)), toDay(iso), 7);
+  if (!m.mean) return '';
+  let extra='';
+  if (Number.isFinite(d.weight) && Math.abs(d.weight-m.mean)/m.mean>0.05)
+    extra=` <span style="color:var(--watch)">That is ${((d.weight-m.mean)/m.mean*100).toFixed(0)}% from the recent average.</span>`;
+  return `<p class="sub">7-day mean ${m.mean.toFixed(2)} kg from ${m.n} reading${m.n===1?'':'s'}.${extra}</p>`;
+}
+
+function bcsScale(iso,val){
+  return `<div class="scale">${BCS_STEPS.map(s=>
+    `<button class="${s.band}${val===s.v?' on':''}" data-act="bcs" data-v="${s.v}" data-date="${iso}">${s.v}</button>`).join('')}</div>`;
+}
+
+function stoolsCard(iso){
+  const d=S.days[iso]||{}, st=(d.stools||[]).slice().sort((a,b)=>minsOf(a.time)-minsOf(b.time));
+  const meals=mealsList();
+  const rows = st.map(s=>{
+    const b=BRISTOL[s.bristol]||{word:'?',band:'a'};
+    const at=attributionFor(iso,s.time,meals,S.settings,s.mealOverride);
+    let attr='no meal recorded before it';
+    if (at.primary){
+      const r=RECIPES.find(x=>x.id===at.primary.recipe);
+      const gap=(toDay(iso)*1440+minsOf(s.time))-(toDay(at.primary.date)*1440+minsOf(at.primary.fedAt));
+      attr=`after ${r?r.short:at.primary.recipe}, ${Math.floor(gap/60)} h ${String(gap%60).padStart(2,'0')} m${at.assumed?', assumed':''}${at.overridden?', set by hand':''}`;
+    }
+    const alt=at.secondary?`<button data-act="swapattr" data-date="${iso}" data-id="${s.id}" data-to="${at.overridden?'':at.secondary.date}">change</button>`:'';
+    return `<div class="stool">
+      <span class="dot ${b.band}"></span>
+      <span class="body">
+        <span class="t"><span class="num">${esc(s.time)}</span> &middot; Bristol ${s.bristol}, ${b.word}${s.mucus?' &middot; mucus':''}${s.blood?' &middot; blood':''}</span>
+        <span class="attr">${attr} ${alt}</span>
+      </span>
+      <button class="del" data-act="delstool" data-date="${iso}" data-id="${s.id}" aria-label="Delete this stool">&times;</button>
+    </div>`;
+  }).join('');
+  const adding = S.adding===iso;
+  const form = adding ? `
+    <div style="margin-top:10px">
+      <label class="inline-lab" for="st-t">Time</label>
+      <input class="tin" id="st-t" type="time" value="${nowHHMM()}" style="margin-bottom:9px">
+      <div class="bristol">${BRISTOL.slice(1).map(b=>
+        `<button class="${b.band}" data-act="addstool" data-date="${iso}" data-b="${b.n}"><b>${b.n}</b><i>${b.word}</i></button>`).join('')}</div>
+      <div class="chips" style="margin-top:9px">
+        <button class="chip" data-act="tog-mucus" id="st-m">Mucus</button>
+        <button class="chip" data-act="tog-blood" id="st-b">Blood</button>
+        <button class="chip" data-act="cancelstool">Cancel</button>
+      </div>
+      <p class="sub">Pick a type to save. Mucus and blood first if either applies.</p>
+    </div>` :
+    `<button class="link" data-act="openstool" data-date="${iso}" style="margin-top:8px;display:inline-block">+ Add stool</button>`;
+  return `<div class="card"><div class="sec"><p class="lab">Stools</p>
+    ${rows||'<p class="muted">None logged.</p>'}${form}</div></div>`;
+}
+
+function cardEvening(iso){
+  const d=S.days[iso]||{}, meal=d.meal||{};
+  const chosen=meal.recipe||null;
+  const fed=!!meal.fedAt;
+  const extras={egg:!!meal.egg, broth:!!meal.broth};
+  const b=chosen?bowlFor(iso,chosen,S.settings,S.changes,extras):null;
+  const oilMl=oilMlOn(iso,S.settings), fibreG=fibreGOn(iso,S.settings);
+  const nextOil=(S.settings.oilSchedule||[]).filter(e=>toDay(e.from)>toDay(iso)).sort((a,b2)=>toDay(a.from)-toDay(b2.from))[0];
+  const last6=mealsList().filter(m=>toDay(m.date)<toDay(iso)).slice(-6).reverse()
+    .map(m=>{const r=RECIPES.find(x=>x.id===m.recipe); return r?r.short:m.recipe;});
+  const warnChange=(()=>{
+    const recent=[...(S.settings.oilSchedule||[]).map(e=>e.from),...(S.settings.fibreSchedule||[]).map(e=>e.from)]
+      .filter(f=>toDay(iso)-toDay(f)>=0 && toDay(iso)-toDay(f)<=7);
+    return recent.length?fmtDate(recent.sort().slice(-1)[0]):null;
+  })();
+
+  return `
+  <span class="moment">Evening</span>
+  <h2 class="screen">Tonight's bowl</h2>
+  <div class="card">
+    <div class="sec"><p class="lab">Regime tonight</p>
+      <p class="sub" style="font-size:12px">Pro-Fibre ${fibreG} g &middot; oil ${oilMl} ml${nextOil?` &middot; drops to ${nextOil.ml} ml in ${toDay(nextOil.from)-toDay(iso)} days`:''}</p>
+    </div>
+    <div class="sec"><p class="lab">Recipe</p>
+      <div class="chips">${RECIPES.map(r=>`<button class="chip ${chosen===r.id?'on':''}" data-act="pick" data-id="${r.id}" data-date="${iso}">${r.short}</button>`).join('')}</div>
+      ${last6.length?`<p class="sub">Last six: ${esc(last6.join(', '))}</p>`:''}
+    </div>
+    ${b?`
+    <div class="sec"><p class="lab">The bowl</p>
+      <div class="row"><span class="k">Bella &amp; Duke</span><span class="v">${b.bdGrams} g</span></div>
+      <div class="row"><span class="k" style="color:var(--ink);font-weight:600">DARF Active</span><span class="v" style="font-size:24px;font-weight:700;color:var(--accent-ink)">${b.darfG} g</span></div>
+      <div class="row"><span class="k">Salmon oil</span><span class="v">${b.oilMl?b.oilMl+' ml':'none tonight'}</span></div>
+      <div class="row"><span class="k">Pro-Fibre</span><span class="v">${b.fibreG} g</span></div>
+      <p class="sub">${b.darfBase} g base ${b.adjustment>=0?'+':'&minus;'} ${Math.abs(b.adjustment)} g adjustment &middot; ${b.totalKcal} kcal${b.floored?' &middot; at the ration floor':''}</p>
+    </div>
+    <div class="sec"><p class="lab">Extras</p>
+      <div class="chips">
+        <button class="chip ${extras.egg?'on':''}" data-act="extra" data-k="egg" data-date="${iso}">Whole egg</button>
+        <button class="chip ${extras.broth?'on':''}" data-act="extra" data-k="broth" data-date="${iso}">Bone broth</button>
+      </div>
+      ${warnChange?`<p class="sub" style="color:var(--watch)">Fibre or oil changed on ${warnChange}. An extra now will muddy the read-out.</p>`:''}
+    </div>
+    <div class="sec">
+      ${fed?`<div class="row"><span class="k">Fed at ${esc(meal.fedAt)}</span><span class="v">${meal.darfFed??meal.darfPlanned} g</span></div>
+        <div class="field" style="margin-top:8px"><label for="df">grams actually fed</label>
+          <input id="df" type="number" inputmode="numeric" min="0" max="400" value="${meal.darfFed??meal.darfPlanned}" data-act="darfFed" data-date="${iso}"></div>
+        <button class="btn ghost sm" data-act="unfeed" data-date="${iso}" style="margin-top:9px">Undo Fed</button>`
+       :`<button class="btn" data-act="fed" data-date="${iso}" data-r="${chosen}">Fed</button>`}
+    </div>
+    <div class="sec"><p class="lab">How the bowl went</p>
+      <div class="seg ${fed?'':'off'}">
+        ${['cleared','left','refused'].map(k=>`<button class="${meal.bowl===k?'on':''}" data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}
+      </div>
+      ${fed?'':'<p class="sub">Selectable once Fed is pressed.</p>'}
+    </div>`:'<div class="sec"><p class="muted">Choose a recipe to see tonight&rsquo;s amounts.</p></div>'}
+  </div>
+  ${eveningFoot(iso)}`;
+}
+
+function eveningFoot(iso){
+  const miss=missingFor(iso).filter(x=>x.k!=='bowl');
+  const d=S.days[iso]||{};
+  if (!miss.length) return `<div class="note good"><b>This morning</b>${(d.stools||[]).length} stool${(d.stools||[]).length===1?'':'s'} &middot; ${d.weight??'--'} kg &middot; BCS ${d.bcs??'--'}. Nothing outstanding.</div>`;
+  return `<div class="note plain"><b>Still to log today</b>${miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', ')}</div>`;
+}
+
+/* ---------- DAY SHEET ---------- */
+function viewDay(){
+  const iso=S.cursor, d=S.days[iso]||{}, miss=missingFor(iso);
+  const start=S.settings.startDate, today=localToday();
+  const meal=d.meal||{};
+  const r=meal.recipe?RECIPES.find(x=>x.id===meal.recipe):null;
+  return bannerHtml()+`
+  <div class="datebar">
+    <button data-act="dayshift" data-n="-1" ${toDay(iso)<=toDay(start)?'disabled':''} aria-label="Previous day">&lsaquo;</button>
+    <span class="d">${fmtDate(iso)}</span>
+    <button data-act="dayshift" data-n="1" ${toDay(iso)>=toDay(today)?'disabled':''} aria-label="Next day">&rsaquo;</button>
+  </div>
+  ${miss.length?`<div class="note plain"><b>Incomplete</b>${esc(miss.map(x=>x.t).join(', '))}.</div>`:'<div class="note good"><b>Complete</b>Everything recorded for this day.</div>'}
+  ${stoolsCard(iso)}
+  <div class="card">
+    <div class="sec"><p class="lab">Weight</p>
+      <div class="field"><label>kg</label><input type="number" inputmode="decimal" step="0.01" min="10" max="30" value="${Number.isFinite(d.weight)?d.weight:''}" data-act="weight" data-date="${iso}" placeholder="--.--"></div>
+      ${weightHint(iso)}</div>
+    <div class="sec"><p class="lab">Condition</p>${bcsScale(iso,d.bcs)}</div>
+  </div>
+  <div class="card">
+    <div class="sec"><p class="lab">Evening meal</p>
+      ${r?`<div class="row"><span class="k">${esc(r.name)}</span><span class="v">${meal.darfFed??meal.darfPlanned??'?'} g</span></div>
+        <p class="sub">${meal.fedAt?esc(meal.fedAt)+' &middot; ':''}oil ${meal.oilMl??0} ml &middot; PF ${meal.fibreG??0} g${meal.egg?' &middot; egg':''}${meal.broth?' &middot; broth':''}${meal.bowl?' &middot; bowl '+(meal.bowl==='left'?'left some':meal.bowl):''}</p>`
+        :'<p class="muted">No meal recorded.</p>'}
+      <div class="chips" style="margin-top:9px">${RECIPES.map(x=>`<button class="chip ${meal.recipe===x.id?'on':''}" data-act="pickday" data-id="${x.id}" data-date="${iso}">${x.short}</button>`).join('')}</div>
+      ${r?`<div class="seg" style="margin-top:9px">${['cleared','left','refused'].map(k=>`<button class="${meal.bowl===k?'on':''}" data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>`:''}
+    </div>
+    <div class="sec"><p class="lab">Walk, treats, events</p>
+      <div class="stack">
+        <div class="field"><label>minutes</label><input type="number" inputmode="numeric" min="0" max="600" value="${d.walkMin??''}" data-act="walkMin" data-date="${iso}" placeholder="--"></div>
+        <div class="field"><label>km</label><input type="number" inputmode="decimal" step="0.1" min="0" max="80" value="${d.walkKm??''}" data-act="walkKm" data-date="${iso}" placeholder="--.-"></div>
+        <div class="field"><label>active minutes</label><input type="number" inputmode="numeric" min="0" max="1440" value="${d.activeMin??''}" data-act="activeMin" data-date="${iso}" placeholder="--"></div>
+        <div class="field"><label>treats</label><input type="number" inputmode="numeric" min="0" max="10" value="${d.treats??''}" data-act="treats" data-date="${iso}" placeholder="0"></div>
+      </div>
+      <div class="chips" style="margin-top:9px">${EVENTS.map(e=>`<button class="chip ${(d.events||[]).includes(e.id)?'on ev':''}" data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>
+    </div>
+    <div class="sec"><p class="lab">Notes</p>
+      <textarea class="tin" data-act="notes" data-date="${iso}" placeholder="Anything else">${esc(d.notes||'')}</textarea></div>
+  </div>`;
+}
+/* ---------- STATUS ---------- */
+function viewStatus(){
+  const today=localToday(), s=S.settings;
+  const vet=vetItems(S.days,today,weightsList(),s);
+  const adv=weeklyAdvice(), fib=fibreAdvice(S.days,today,s);
+  const bcs7=bcsMean(S.days,today,7), bcs14=bcsMean(S.days,today,14), bcs28=bcsMean(S.days,today,28);
+  const off=offsetNow();
+  const W=weightsList(), end=toDay(today);
+  const w7=windowMean(W,end,7), w14=windowMean(W,end,14), w28=windowMean(W,end,28);
+  const latest=W.length?W[W.length-1]:null;
+
+  const vetHtml = vet.length
+    ? vet.map(v=>`<div class="note ${v.sev==='r'?'bad':'warn'}"><b>${esc(v.title)}</b>${v.dates.length?esc(v.dates.map(fmtShort).join(', ')):''}${v.text?'<br>'+esc(v.text):''}</div>`).join('')
+    : '<p class="muted">None.</p>';
+
+  let advHtml;
+  if (adv.applied){
+    advHtml = `<div class="note warn"><b>${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g on every recipe</b>${esc(adv.reason)}</div>
+      <div class="btnrow"><button class="btn sm" data-act="applyadv">Apply</button>
+      <button class="btn ghost sm" data-act="refuseadv">Refuse</button></div>`;
+  } else if (adv.held){
+    advHtml = `<div class="note hold"><b>Held</b>${esc(adv.reason)}</div>`;
+  } else {
+    advHtml = `<div class="note plain"><b>No change</b>${esc(adv.reason||'Not enough data yet.')}</div>`;
+  }
+  const windows = (adv.currentMean!=null&&adv.previousMean!=null) ? `
+    <div class="row"><span class="k">${fmtShort(adv.currentWindow[0])} to ${fmtShort(adv.currentWindow[1])}</span><span class="v">${adv.currentMean.toFixed(2)} kg</span></div>
+    <div class="row"><span class="k">${fmtShort(adv.previousWindow[0])} to ${fmtShort(adv.previousWindow[1])}</span><span class="v">${adv.previousMean.toFixed(2)} kg</span></div>
+    <p class="sub">${adv.percentChange>=0?'+':''}${adv.percentChange.toFixed(2)}% &middot; ${adv.previousN} and ${adv.currentN} weigh-ins${adv.fullCorrectionG!=null?` &middot; full correction ${Math.abs(adv.fullCorrectionG).toFixed(0)} g, damped to ${Math.abs(Math.round(adv.rawStepG))} g`:''}</p>` : '';
+
+  const chips = fib.chips.length ? `<div class="streak">${
+    Array.from({length:s.fibreStreakDays},(_,i)=>{
+      const c=fib.chips[i];
+      if (!c) return '<span></span>';
+      return `<span class="${c.verdict}" title="${fmtShort(c.date)}">${c.verdict==='clean'?'&check;':c.verdict==='broken'?'&times;':'&ndash;'}</span>`;
+    }).join('')}</div>` : '';
+
+  let fibHtml = `<div class="row"><span class="k">Current dose</span><span class="v">${fib.dose} g</span></div>${chips}`;
+  if (fib.dose < s.fibreRestG) fibHtml += `<p class="sub">${fib.streak} of ${s.fibreStreakDays} clean days since ${fmtShort(fib.since)}. A day with no stool pauses rather than resets.</p>`;
+  if (fib.advice) fibHtml += `<div class="note warn" style="margin-top:9px"><b>${fib.advice.kind==='up'?'Step up':'Step back'}</b>${esc(fib.advice.text)}</div>
+    <div class="btnrow"><button class="btn sm" data-act="applyfibre" data-g="${fib.advice.toG}">Apply</button>
+    <button class="btn ghost sm" data-act="dismissfibre">Not now</button></div>`;
+  if (fib.review) fibHtml += `<div class="note bad" style="margin-top:9px"><b>Review with the vet</b>${esc(fib.note)}</div>`;
+  else if (fib.note && !fib.advice) fibHtml += `<p class="sub">${esc(fib.note)}</p>`;
+
+  const pct=Math.min(Math.abs(off)/s.maxCumulativeG,1)*50;
+  const gauge=`<div class="gauge"><div class="mid"></div><div class="fill" style="${off>=0?`left:50%;width:${pct}%`:`right:50%;width:${pct}%`}"></div></div>`;
+
+  const ctx=weekContext(today);
+  const tonight=RECIPES.map(r=>{const b=bowlFor(today,r.id,s,S.changes,{});
+    return `<div class="row"><span class="k">${r.short}</span><span class="v">${b.darfG} g</span></div>`;}).join('');
+
+  return bannerHtml()+`
+  <h2 class="screen">Status</h2>
+  <div class="card"><div class="sec"><p class="lab">Vet items</p>${vetHtml}</div></div>
+  <div class="card"><div class="sec"><p class="lab">This week's ration</p>${advHtml}${windows}</div></div>
+  <div class="card"><div class="sec"><p class="lab">Pro-Fibre</p>${fibHtml}</div></div>
+  <div class="card">
+    <div class="sec"><p class="lab">Weight</p>
+      ${latest?`<div class="row"><span class="k">Latest, ${fmtShort(latest.date)}</span><span class="v">${latest.kg.toFixed(2)} kg</span></div>`:'<p class="muted">No weights yet.</p>'}
+      ${w7.mean?`<div class="row"><span class="k">7-day mean</span><span class="v">${w7.mean.toFixed(2)} kg &middot; ${w7.n}</span></div>`:''}
+      ${w14.mean?`<div class="row"><span class="k">14-day mean</span><span class="v">${w14.mean.toFixed(2)} kg &middot; ${w14.n}</span></div>`:''}
+      ${w28.mean?`<div class="row"><span class="k">28-day mean</span><span class="v">${w28.mean.toFixed(2)} kg &middot; ${w28.n}</span></div>`:''}
+    </div>
+    <div class="sec"><p class="lab">Condition</p>
+      ${bcs7.mean?`<div class="row"><span class="k">7-day mean</span><span class="v" style="color:var(--${bandOfBcs(Math.round(bcs7.mean*2)/2)==='g'?'good':bandOfBcs(Math.round(bcs7.mean*2)/2)==='a'?'watch':'alert'})">${bcs7.mean.toFixed(1)} &middot; ${bcs7.n}</span></div>`:'<p class="muted">No scores yet.</p>'}
+      ${bcs14.mean?`<div class="row"><span class="k">14-day mean</span><span class="v">${bcs14.mean.toFixed(1)}</span></div>`:''}
+      ${bcs28.mean?`<div class="row"><span class="k">28-day mean</span><span class="v">${bcs28.mean.toFixed(1)}</span></div>`:''}
+      <p class="sub">Target ${s.bcsTarget}. Reductions are held at or below ${s.bcsHoldAtOrBelow}${bcs7.mean&&bcs7.mean<=s.bcsHoldAtOrBelow?', which is the case now':''}.</p>
+    </div>
+    <div class="sec"><p class="lab">Corrective offset</p>${gauge}
+      <p class="sub">${off>=0?'+':'&minus;'}${Math.abs(off)} g of the plus or minus ${s.maxCumulativeG} g cap</p>
+      ${S.changes.length?S.changes.slice(-4).reverse().map(c=>`<div class="row"><span class="k">${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}</span><span class="v">${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g</span></div>`).join(''):'<p class="muted">No changes recorded.</p>'}
+      <p class="sub">The oil step is calorie-neutral and computed into the base, so it never appears here.</p>
+    </div>
+  </div>
+  <div class="card"><div class="sec"><p class="lab">This week against last</p>${ctx}</div></div>
+  <div class="card"><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></div>`;
+}
+
+function weekContext(today){
+  const end=toDay(today);
+  const agg=(from,to)=>{
+    let wm=0,wk=0,am=0,n=0,cl=0,lf=0,rf=0,tr=0,tn=0,eg=0,br=0;
+    for (let d=from;d<=to;d++){
+      const day=S.days[toIso(d)]; if (!day) continue;
+      if (Number.isFinite(day.walkMin)){wm+=day.walkMin;n++;}
+      if (Number.isFinite(day.walkKm)) wk+=day.walkKm;
+      if (Number.isFinite(day.activeMin)) am+=day.activeMin;
+      if (Number.isFinite(day.treats)){tr+=day.treats;tn++;}
+      const m=day.meal||{};
+      if (m.bowl==='cleared')cl++; else if (m.bowl==='left')lf++; else if (m.bowl==='refused')rf++;
+      if (m.egg)eg++; if (m.broth)br++;
+    }
+    return {wm:n?wm/n:null,wk:n?wk/n:null,am:n?am/n:null,n,cl,lf,rf,tr:tn?tr/tn:null,eg,br};
+  };
+  const a=agg(end-6,end), b=agg(end-13,end-7);
+  const d=(x,y)=> (x!=null&&y!=null&&y>0)?` &middot; ${x>=y?'+':''}${((x-y)/y*100).toFixed(0)}%`:'';
+  return `
+    <div class="row"><span class="k">Walk minutes</span><span class="v">${a.wm!=null?a.wm.toFixed(0):'--'}${d(a.wm,b.wm)}</span></div>
+    <div class="row"><span class="k">Kilometres</span><span class="v">${a.wk!=null?a.wk.toFixed(1):'--'}${d(a.wk,b.wk)}</span></div>
+    <div class="row"><span class="k">Active minutes</span><span class="v">${a.am!=null?a.am.toFixed(0):'--'}${d(a.am,b.am)}</span></div>
+    <div class="row"><span class="k">Bowl</span><span class="v">${a.cl} cleared, ${a.lf} left, ${a.rf} refused</span></div>
+    <div class="row"><span class="k">Treats a day</span><span class="v">${a.tr!=null?a.tr.toFixed(1):'--'}</span></div>
+    <div class="row"><span class="k">Egg / broth nights</span><span class="v">${a.eg} / ${a.br}</span></div>
+    <p class="sub">Context for reading a drift. None of it is ever an input to the advice.</p>`;
+}
+
+/* ---------- HISTORY ---------- */
+function viewHistory(){
+  const today=localToday(), s=S.settings;
+  const range=S.range||28;
+  const from=Math.max(toDay(s.startDate), toDay(today)-range+1);
+  const isos=[]; for (let d=from;d<=toDay(today);d++) isos.push(toIso(d));
+
+  const chips=[14,28,56,'All'].map(r=>`<button class="chip ${(r==='All'?9999:r)===range?'on':''}" data-act="range" data-r="${r==='All'?9999:r}">${r}</button>`).join('');
+  const W=weightsList().filter(w=>toDay(w.date)>=from);
+  const B=isos.map(i=>({date:i,v:(S.days[i]||{}).bcs})).filter(x=>Number.isFinite(x.v));
+
+  const rows=isos.slice().reverse().map(i=>{
+    const d=S.days[i]||{}, st=(d.stools||[]);
+    const worst=st.length?Math.max(...st.map(x=>x.bristol)):null;
+    const m=d.meal||{}, r=m.recipe?RECIPES.find(x=>x.id===m.recipe):null;
+    const band=worst?bandOfBristol(worst):'';
+    return `<tr class="tap" data-act="openday" data-date="${i}">
+      <td>${fmtShort(i)}</td>
+      <td class="${band}">${worst?worst+(st.length>1?' ('+st.length+')':''):'--'}</td>
+      <td>${Number.isFinite(d.weight)?d.weight.toFixed(2):'--'}</td>
+      <td>${Number.isFinite(d.bcs)?d.bcs:'--'}</td>
+      <td>${r?r.short:'--'}</td>
+      <td>${m.darfFed??m.darfPlanned??'--'}</td>
+      <td>${m.bowl?(m.bowl==='left'?'left':m.bowl):'--'}</td>
+      <td>${(d.events||[]).length?'&#9679;':''}</td></tr>`;
+  }).join('');
+
+  return bannerHtml()+`
+  <h2 class="screen">History</h2>
+  <div class="chips" style="margin-bottom:12px">${chips}</div>
+  <div class="card"><div class="sec"><p class="lab">Weight, kg</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg')}</div>
+    <div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget)}</div>
+    <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
+  <div class="card"><div class="sec"><p class="lab">By recipe</p>${byRecipe(isos)}</div>
+    <div class="sec"><p class="lab">By extra</p>${byExtra(isos)}</div></div>
+  <div class="card"><div class="sec" style="padding:0">
+    <div class="tw"><table><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th>Meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div></div></div>`;
+}
+
+function lineChart(pts, kind, forceRange, targetLine){
+  if (pts.length<2) return '<p class="muted">Not enough data to plot yet.</p>';
+  const W=600,H=170,L=42,R=10,T=12,Bm=26;
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
+  let lo=forceRange?forceRange[0]:Math.min(...ys), hi=forceRange?forceRange[1]:Math.max(...ys);
+  if (!forceRange){ const pad=Math.max((hi-lo)*0.18,kind==='kg'?0.15:0.4); lo-=pad; hi+=pad; }
+  const x0=Math.min(...xs), x1=Math.max(...xs);
+  const px=v=>L+((v-x0)/Math.max(x1-x0,1))*(W-L-R);
+  const py=v=>T+(1-(v-lo)/Math.max(hi-lo,0.0001))*(H-T-Bm);
+  const ticks=[lo,(lo+hi)/2,hi].map(v=>
+    `<line x1="${L}" y1="${py(v).toFixed(1)}" x2="${W-R}" y2="${py(v).toFixed(1)}" stroke="var(--rule)" stroke-width="1"/>
+     <text x="${L-6}" y="${(py(v)+4).toFixed(1)}" text-anchor="end" fill="var(--ink-3)" font-size="11" font-family="ui-monospace,monospace">${kind==='kg'?v.toFixed(2):v.toFixed(1)}</text>`).join('');
+  const line=pts.map((p,i)=>`${i?'L':'M'}${px(p.x).toFixed(1)},${py(p.y).toFixed(1)}`).join('');
+  const dots=pts.map(p=>`<circle cx="${px(p.x).toFixed(1)}" cy="${py(p.y).toFixed(1)}" r="2.6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.6"/>`).join('');
+  const tgt=targetLine!=null?`<line x1="${L}" y1="${py(targetLine).toFixed(1)}" x2="${W-R}" y2="${py(targetLine).toFixed(1)}" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4 3"/>`:'';
+  const marks=S.changes.filter(c=>toDay(c.date)>=x0&&toDay(c.date)<=x1).map(c=>
+    `<line x1="${px(toDay(c.date)).toFixed(1)}" y1="${T}" x2="${px(toDay(c.date)).toFixed(1)}" y2="${H-Bm}" stroke="var(--watch)" stroke-width="1" stroke-dasharray="3 3"/>`).join('');
+  const lbl=[x0,x1].map((v,i)=>`<text x="${i?W-R:L}" y="${H-7}" text-anchor="${i?'end':'start'}" fill="var(--ink-3)" font-size="11" font-family="ui-monospace,monospace">${fmtShort(toIso(v))}</text>`).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${kind==='kg'?'Weight':'Body condition'} over time">
+    ${ticks}${tgt}${marks}<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${dots}${lbl}</svg>
+    ${targetLine!=null?'<p class="legend">Dashed line is the target of '+targetLine+', which is also the hold threshold.</p>':'<p class="legend">Amber dashes mark a recorded ration change.</p>'}`;
+}
+
+function stoolChart(isos){
+  const all=[];
+  isos.forEach(i=>((S.days[i]||{}).stools||[]).forEach(s=>all.push({d:toDay(i),m:minsOf(s.time),b:s.bristol,mu:s.mucus,bl:s.blood})));
+  if (!all.length) return '<p class="muted">No stools logged in this range.</p>';
+  const W=600,H=170,L=42,R=10,T=12,Bm=26;
+  const x0=toDay(isos[0]), x1=toDay(isos[isos.length-1]);
+  const px=v=>L+((v-x0)/Math.max(x1-x0,1))*(W-L-R);
+  const py=m=>T+(m/1440)*(H-T-Bm);
+  const band=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="var(--surface-2)" opacity="0.5"/>`;
+  const hours=[0,6,12,18,24].map(h=>`<line x1="${L}" y1="${py(h*60).toFixed(1)}" x2="${W-R}" y2="${py(h*60).toFixed(1)}" stroke="var(--rule)" stroke-width="1"/>
+    <text x="${L-6}" y="${(py(h*60)+4).toFixed(1)}" text-anchor="end" fill="var(--ink-3)" font-size="11" font-family="ui-monospace,monospace">${String(h).padStart(2,'0')}</text>`).join('');
+  const col={g:'var(--good)',a:'var(--watch)',r:'var(--alert)'};
+  const dots=all.map(s=>{
+    const c=col[bandOfBristol(s.b)];
+    const ring=(s.mu||s.bl)?`<circle cx="${px(s.d).toFixed(1)}" cy="${py(s.m).toFixed(1)}" r="6" fill="none" stroke="${s.bl?'var(--alert)':'var(--watch)'}" stroke-width="1.4"/>`:'';
+    return `<circle cx="${px(s.d).toFixed(1)}" cy="${py(s.m).toFixed(1)}" r="3.4" fill="${c}"/>${ring}`;
+  }).join('');
+  const lbl=[x0,x1].map((v,i)=>`<text x="${i?W-R:L}" y="${H-7}" text-anchor="${i?'end':'start'}" fill="var(--ink-3)" font-size="11" font-family="ui-monospace,monospace">${fmtShort(toIso(v))}</text>`).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Every stool by date and time of day, coloured by Bristol type">
+    ${band}${hours}${dots}${lbl}</svg>
+    <p class="legend">Time of day up the side. Green is Bristol 3 to 4, amber 2, 5 and 6, red 1 and 7. A ring marks mucus or blood.</p>`;
+}
+
+function byRecipe(isos){
+  const meals=mealsList();
+  const stats={};
+  RECIPES.forEach(r=>stats[r.id]={n:0,sum:0,cnt:0,loose:0,mucus:0});
+  isos.forEach(i=>{
+    const day=S.days[i]; if (!day) return;
+    (day.stools||[]).forEach(s=>{
+      const at=attributionFor(i,s.time,meals,S.settings,s.mealOverride);
+      if (!at.primary||at.assumed) return;
+      const st=stats[at.primary.recipe]; if (!st) return;
+      st.sum+=s.bristol; st.cnt++;
+      if (s.bristol>=5) st.loose++;
+      if (s.mucus) st.mucus++;
+    });
+  });
+  meals.filter(m=>isos.includes(m.date)).forEach(m=>{ if (stats[m.recipe]) stats[m.recipe].n++; });
+  return `<div class="tw"><table><thead><tr><th>Recipe</th><th>Nights</th><th>Mean</th><th>5+</th><th>Mucus</th><th>Read</th></tr></thead><tbody>${
+    RECIPES.map(r=>{
+      const s=stats[r.id], mean=s.cnt?s.sum/s.cnt:null;
+      const read=!s.n?'not yet fed':s.loose>=2?'loose more than once, check fat load':mean>4.5?'trending loose':'fine';
+      const cls=!s.n?'':s.loose>=2?'r':mean>4.5?'a':'g';
+      return `<tr><td>${r.short}</td><td>${s.n}</td><td>${mean?mean.toFixed(1):'--'}</td><td>${s.loose}</td><td>${s.mucus}</td><td class="${cls}">${read}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+function byExtra(isos){
+  const meals=mealsList();
+  const g={egg:{n:0,sum:0,cnt:0,loose:0},broth:{n:0,sum:0,cnt:0,loose:0},none:{n:0,sum:0,cnt:0,loose:0}};
+  meals.filter(m=>isos.includes(m.date)).forEach(m=>{
+    if (m.egg) g.egg.n++; if (m.broth) g.broth.n++;
+    if (!m.egg&&!m.broth) g.none.n++;
+  });
+  isos.forEach(i=>{
+    const day=S.days[i]; if (!day) return;
+    (day.stools||[]).forEach(s=>{
+      const at=attributionFor(i,s.time,meals,S.settings,s.mealOverride);
+      if (!at.primary||at.assumed) return;
+      const keys=[]; if (at.primary.egg) keys.push('egg'); if (at.primary.broth) keys.push('broth');
+      if (!keys.length) keys.push('none');
+      keys.forEach(k=>{ g[k].sum+=s.bristol; g[k].cnt++; if (s.bristol>=5) g[k].loose++; });
+    });
+  });
+  const row=(k,label)=>{
+    const x=g[k], mean=x.cnt?x.sum/x.cnt:null;
+    return `<tr><td>${label}</td><td>${x.n}</td><td>${mean?mean.toFixed(1):'--'}</td><td>${x.loose}</td></tr>`;
+  };
+  return `<div class="tw"><table><thead><tr><th>Extra</th><th>Nights</th><th>Mean next stool</th><th>5+</th></tr></thead><tbody>
+    ${row('egg','Whole egg')}${row('broth','Bone broth')}${row('none','Neither')}</tbody></table></div>
+    <p class="legend">The neither row is the baseline. Without it the other two say nothing.</p>`;
+}
+/* ---------- MORE ---------- */
+function viewMore(){
+  const s=S.settings;
+  const oil=(s.oilSchedule||[]).map(e=>`<div class="row"><span class="k">${fmtShort(e.from)}</span><span class="v">${e.ml} ml</span></div>`).join('');
+  const fib=(s.fibreSchedule||[]).map(e=>`<div class="row"><span class="k">${fmtShort(e.from)}</span><span class="v">${e.g} g</span></div>`).join('');
+  const reg=(s.regimeChanges||[]).length
+    ? s.regimeChanges.map(d=>`<div class="row"><span class="k">${fmtShort(d)}</span><span class="v"><button class="link" data-act="delregime" data-d="${d}">remove</button></span></div>`).join('')
+    : '<p class="muted">None recorded.</p>';
+  const chg=S.changes.length
+    ? S.changes.slice().reverse().map(c=>`<div class="row"><span class="k">${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}${c.refused?' (refused)':''}</span><span class="v">${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g <button class="link" data-act="delchange" data-id="${esc(c.id)}">remove</button></span></div>`).join('')
+    : '<p class="muted">None.</p>';
+  const num=(k,label,step)=>`<div class="field"><label>${label}</label><input type="number" step="${step||1}" value="${s[k]}" data-act="setnum" data-k="${k}"></div>`;
+
+  return bannerHtml()+`
+  <h2 class="screen">More</h2>
+  <div class="card"><div class="sec"><p class="lab">Account</p>
+    <div class="row"><span class="k">${esc(S.user?S.user.email:'')}</span><span class="v"><button class="link" data-act="signout">Sign out</button></span></div>
+    <p class="sub">Version ${APP_VERSION} &middot; ${S.status}</p></div>
+    <div class="sec"><p class="lab">Appearance</p>
+      <div class="seg">${['system','light','dark'].map(t=>`<button class="${(s.theme||'system')===t?'on':''}" data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div></div>
+  </div>
+
+  <div class="card">
+    <div class="sec"><p class="lab">Ration</p><div class="stack">
+      ${num('targetKcal','daily target, kcal')}
+      ${num('bdGrams','Bella &amp; Duke, g')}
+      ${num('kcalPerGDarf','DARF, kcal per g','0.01')}
+      ${num('kcalPerMlOil','oil, kcal per ml','0.01')}
+      ${num('darfMinG','ration floor, g')}
+    </div></div>
+    <div class="sec"><p class="lab">Oil schedule</p>${oil}
+      <p class="sub">A change here moves the base ration on that date. It is calorie-neutral, so it never touches the cumulative cap.</p></div>
+    <div class="sec"><p class="lab">Pro-Fibre schedule</p>${fib}
+      <div class="chips" style="margin-top:9px">${[2.5,5,7.5,10].map(g=>`<button class="chip" data-act="setfibre" data-g="${g}">Set ${g} g today</button>`).join('')}</div>
+      <p class="sub">Above ${s.fibreRestG} g is available here and nowhere else, to a cap of ${s.fibreCapG} g. The app will never advise it: stool that does not settle at ${s.fibreRestG} g is a clinical question rather than a dose question.</p></div>
+  </div>
+
+  <div class="card">
+    <div class="sec"><p class="lab">The weekly rule</p><div class="stack">
+      ${num('deadbandPct','deadband, %','0.1')}
+      ${num('damping','damping','0.005')}
+      ${num('maxStepG','single-step cap, g')}
+      ${num('maxCumulativeG','cumulative cap, g')}
+      ${num('minWeighIns','weigh-ins needed per week')}
+      ${num('kcalPerKgTissue','kcal per kg of tissue')}
+      ${num('bcsHoldAtOrBelow','hold reductions at or below BCS','0.5')}
+      ${num('attributionMinH','attribution floor, hours')}
+      ${num('handoverHour','evening card from, hour')}
+    </div></div>
+    <div class="sec"><p class="lab">Regime changes</p>${reg}
+      <button class="link" data-act="addregime" style="margin-top:8px;display:inline-block">+ Mark today as a regime change</button>
+      <p class="sub">Genuinely non-neutral changes only: a new target, a portion change, a sustained treat change, illness. One inside either comparison window suppresses that week's advice.</p></div>
+    <div class="sec"><p class="lab">Adjustment log</p>${chg}</div>
+  </div>
+
+  <div class="card">
+    <div class="sec"><p class="lab">Data</p>
+      <div class="stack">
+        <button class="btn ghost sm" data-act="exportmonth">Export this month as CSV</button>
+        <button class="btn ghost sm" data-act="exportmd">Export this month as Markdown</button>
+        <button class="btn ghost sm" data-act="exportall">Export everything as JSON</button>
+        <label class="btn ghost sm" style="text-align:center;cursor:pointer">Import JSON
+          <input type="file" accept="application/json,.json" data-act="import" style="display:none"></label>
+      </div>
+      <p class="sub">${Object.keys(S.days).length} days, ${S.changes.length} changes. File the month in the project on the 1st.</p>
+    </div>
+    <div class="sec"><p class="lab">Checks</p>
+      <button class="btn ghost sm" data-act="selftest">Run self-tests</button>
+      ${S.testOut?`<pre class="pre" style="margin-top:10px">${esc(S.testOut)}</pre>`:''}
+    </div>
+    <div class="sec"><p class="lab">When to call the vet</p>
+      <p class="muted" style="font-size:13px;line-height:1.55">More than one episode of upset a month. Any episode with blood, marked lethargy or inappetence. Persistent soft stool that does not settle at ${s.fibreRestG} g of Pro-Fibre, which is a clinical question rather than a fibre-dose question. Any further vacant episode, and video it. Weight loss with a normal appetite.<br><br><b style="color:var(--alert)">The one emergency: unproductive retching with a distended or tense abdomen after a meal is a same-hour call, not a next-morning one.</b></p>
+    </div>
+    <div class="sec"><p class="lab">Erase</p>
+      <button class="btn danger sm" data-act="erase">Erase all log data</button>
+      <p class="sub">Settings are kept. Days and changes are deleted. Export first.</p></div>
+  </div>`;
+}
+
+/* =====================================================================
+   EXPORT
+   ===================================================================== */
+function download(name, text, type){
+  const blob=new Blob([text],{type:type||'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+}
+function monthIsos(ym){
+  return Object.keys(S.days).filter(d=>d.startsWith(ym)).sort();
+}
+function csvCell(v){ const s=String(v==null?'':v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+function exportMonthCsv(){
+  const ym=localToday().slice(0,7), isos=monthIsos(ym);
+  const head=['date','worstBristol','stoolCount','mucus','blood','weightKg','bcs','recipe','darfPlanned','darfFed','oilMl','fibreG','egg','broth','bowl','fedAt','walkMin','walkKm','activeMin','treats','events','notes'];
+  const rows=isos.map(i=>{
+    const d=S.days[i], st=d.stools||[], m=d.meal||{};
+    return [i, st.length?Math.max(...st.map(x=>x.bristol)):'', st.length, st.some(x=>x.mucus)?'Y':'', st.some(x=>x.blood)?'Y':'',
+      d.weight??'', d.bcs??'', m.recipe??'', m.darfPlanned??'', m.darfFed??'', m.oilMl??'', m.fibreG??'',
+      m.egg?'Y':'', m.broth?'Y':'', m.bowl??'', m.fedAt??'', d.walkMin??'', d.walkKm??'', d.activeMin??'', d.treats??'',
+      (d.events||[]).join(' '), d.notes??''].map(csvCell).join(',');
+  });
+  download(`Murphy_Log_${ym}.csv`, [head.join(','),...rows].join('\n'), 'text/csv;charset=utf-8');
+  const sh=['date','time','bristol','word','mucus','blood','attributedTo'];
+  const srows=[];
+  const meals=mealsList();
+  isos.forEach(i=>((S.days[i]||{}).stools||[]).forEach(s=>{
+    const at=attributionFor(i,s.time,meals,S.settings,s.mealOverride);
+    srows.push([i,s.time,s.bristol,(BRISTOL[s.bristol]||{}).word,s.mucus?'Y':'',s.blood?'Y':'',at.primary?at.primary.date+' '+at.primary.recipe:''].map(csvCell).join(','));
+  }));
+  setTimeout(()=>download(`Murphy_Log_${ym}_stools.csv`, [sh.join(','),...srows].join('\n'), 'text/csv;charset=utf-8'), 400);
+}
+function exportMonthMd(){
+  const ym=localToday().slice(0,7), isos=monthIsos(ym), s=S.settings;
+  const L=[];
+  L.push(`# Murphy's Log: ${MON[Number(ym.slice(5,7))-1]} ${ym.slice(0,4)}`,'');
+  L.push(`**Exported:** ${fmtDate(localToday())}  `);
+  L.push(`**Days recorded:** ${isos.length}  `);
+  L.push(`**Ration target:** ${s.targetKcal} kcal on ${s.bdGrams} g of Bella & Duke plus DARF at ${s.kcalPerGDarf} kcal/g`,'');
+  const W=weightsList().filter(w=>w.date.startsWith(ym));
+  if (W.length){
+    const mean=W.reduce((a,b)=>a+b.kg,0)/W.length;
+    L.push(`**Weight:** ${W.length} readings, mean ${mean.toFixed(2)} kg, from ${W[0].kg.toFixed(2)} to ${W[W.length-1].kg.toFixed(2)} kg`,'');
+  }
+  const bc=isos.map(i=>(S.days[i]||{}).bcs).filter(Number.isFinite);
+  if (bc.length) L.push(`**Condition:** ${bc.length} scores, mean ${(bc.reduce((a,b)=>a+b,0)/bc.length).toFixed(2)}`,'');
+  L.push('','## Days','');
+  L.push('| Date | Stools | kg | BCS | Meal | DARF | Bowl | Walk | Events |');
+  L.push('|---|---|---|---|---|---|---|---|---|');
+  isos.forEach(i=>{
+    const d=S.days[i], st=d.stools||[], m=d.meal||{}, r=m.recipe?RECIPES.find(x=>x.id===m.recipe):null;
+    const stool=st.map(x=>`${x.time} B${x.bristol}${x.mucus?'M':''}${x.blood?'!':''}`).join(', ')||'--';
+    L.push(`| ${fmtShort(i)} | ${stool} | ${d.weight??'--'} | ${d.bcs??'--'} | ${r?r.short:'--'} | ${m.darfFed??m.darfPlanned??'--'} | ${m.bowl??'--'} | ${d.walkMin??'--'} min | ${(d.events||[]).join(' ')||''} |`);
+  });
+  const ch=S.changes.filter(c=>c.date.startsWith(ym));
+  L.push('','## Ration changes applied','');
+  L.push(ch.length?ch.map(c=>`- ${fmtDate(c.date)}: ${c.deltaG>=0?'+':''}${c.deltaG} g (${c.source||'manual'}). ${c.reason||''}`).join('\n'):'None.');
+  L.push('','## Schedules in force','');
+  L.push(`- Salmon oil: ${(s.oilSchedule||[]).map(e=>`${e.ml} ml from ${e.from}`).join(', ')}`);
+  L.push(`- Pro-Fibre: ${(s.fibreSchedule||[]).map(e=>`${e.g} g from ${e.from}`).join(', ')}`);
+  L.push('','Notes on every day follow where recorded.','');
+  isos.filter(i=>(S.days[i]||{}).notes).forEach(i=>L.push(`- **${fmtShort(i)}**: ${S.days[i].notes}`));
+  download(`Murphy_Log_${ym}.md`, L.join('\n'), 'text/markdown;charset=utf-8');
+}
+function exportAll(){
+  download(`Murphy_Log_backup_${localToday()}.json`,
+    JSON.stringify({ exported:new Date().toISOString(), version:APP_VERSION,
+      settings:S.settings, days:S.days, changes:S.changes }, null, 2),
+    'application/json');
+}
+async function importJson(file){
+  try{
+    const data=JSON.parse(await file.text());
+    if (!data || typeof data!=='object' || !data.days) throw new Error('That file does not look like a Murphy backup.');
+    let n=0;
+    for (const [iso,day] of Object.entries(data.days)){
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !day || typeof day!=='object') continue;
+      const cur=S.days[iso];
+      if (!cur || (day.updatedAt||'') > (cur.updatedAt||'')){ await setDoc(doc(db,'days',iso), day); n++; }
+    }
+    for (const c of (data.changes||[])) if (c && c.id) await setDoc(doc(db,'changes',c.id), c);
+    S.banner={kind:'good',title:'Import done',text:`${n} day${n===1?'':'s'} written. Newer records already here were kept.`};
+    render();
+  } catch(e){ S.banner={kind:'bad',title:'Import failed',text:String(e.message||e)}; render(); }
+}
+
+/* =====================================================================
+   SELF-TESTS
+   ===================================================================== */
+function selfTest(){
+  const L=[]; let p=0,f=0;
+  const ok=(n,g,w)=>{ const good=JSON.stringify(g)===JSON.stringify(w);
+    good?p++:f++; L.push(`${good?'PASS':'FAIL'}  ${n}${good?'':`\n      got ${JSON.stringify(g)} want ${JSON.stringify(w)}`}`); };
+  const s={...DEFAULTS};
+  const ser=(start,n,kg)=>Array.from({length:n},(_,i)=>({date:toIso(toDay(start)+i),kg}));
+  const prev=ser('2026-08-31',7,18.80);
+
+  L.push('RATION at 8 ml');
+  const w8={lamb:123,fish:153,turkey:147,tripe:127,beef:127,salmon:129,duck:85};
+  RECIPES.forEach(r=>ok(r.short, bowlFor('2026-09-14',r.id,s,[],{}).darfG, w8[r.id]));
+  L.push('RATION at 4 ml, from 28 Sept');
+  const w4={lamb:130,fish:160,turkey:153,tripe:134,beef:134,salmon:129,duck:92};
+  RECIPES.forEach(r=>ok(r.short, bowlFor('2026-09-28',r.id,s,[],{}).darfG, w4[r.id]));
+  L.push('THE OIL STEP');
+  ok('Lamb rises 7 g', bowlFor('2026-09-28','lamb',s,[],{}).darfG - bowlFor('2026-09-27','lamb',s,[],{}).darfG, 7);
+  ok('energy within 3 kcal', Math.abs(bowlFor('2026-09-28','lamb',s,[],{}).totalKcal-1240)<=3, true);
+  ok('Salmon unmoved', bowlFor('2026-09-28','salmon',s,[],{}).darfG, bowlFor('2026-09-27','salmon',s,[],{}).darfG);
+  ok('adjustment applies', bowlFor('2026-09-14','lamb',s,[{date:'2026-09-14',deltaG:-5}],{}).darfG, 118);
+  ok('ration floor', bowlFor('2026-09-14','duck',s,[{date:'2026-09-14',deltaG:-200}],{}).darfG, s.darfMinG);
+
+  L.push('WEEKLY RULE');
+  const at=(p2)=>computeDarfAdjustment({weights:[...prev,...ser('2026-09-07',7,+(18.80*(1+p2/100)).toFixed(3))],asOf:'2026-09-14',settings:s}).adjustmentG;
+  ok('1.0% gives 5 g', computeDarfAdjustment({weights:[...prev,...ser('2026-09-07',7,18.988)],asOf:'2026-09-14',settings:s}).adjustmentG, -5);
+  ok('1.1% gives 6 g', at(1.1), -6);
+  ok('1.8% gives 9 g', at(1.8), -9);
+  ok('3.0% capped at 15 g', at(3.0), -15);
+  ok('0.74% does nothing', computeDarfAdjustment({weights:[...prev,...ser('2026-09-07',7,18.939)],asOf:'2026-09-14',settings:s}).applied, false);
+  ok('4 weigh-ins not enough', computeDarfAdjustment({weights:[...ser('2026-08-31',4,18.80),...ser('2026-09-07',4,18.988)],asOf:'2026-09-14',settings:s}).applied, false);
+  ok('5 weigh-ins enough', computeDarfAdjustment({weights:[...ser('2026-08-31',5,18.80),...ser('2026-09-07',5,18.988)],asOf:'2026-09-14',settings:s}).applied, true);
+
+  L.push('CONDITION HOLD');
+  const up=[...prev,...ser('2026-09-07',7,+(18.80*1.015).toFixed(3))];
+  const dn=[...prev,...ser('2026-09-07',7,+(18.80*0.985).toFixed(3))];
+  ok('BCS 4.3 holds', computeDarfAdjustment({weights:up,asOf:'2026-09-14',bcs7dMean:4.3,settings:s}).held, true);
+  ok('BCS 5.0 holds', computeDarfAdjustment({weights:up,asOf:'2026-09-14',bcs7dMean:5.0,settings:s}).held, true);
+  ok('BCS 5.07 releases', computeDarfAdjustment({weights:up,asOf:'2026-09-14',bcs7dMean:5.07,settings:s}).applied, true);
+  ok('increases never held', computeDarfAdjustment({weights:dn,asOf:'2026-09-14',bcs7dMean:4.3,settings:s}).applied, true);
+
+  L.push('FIX 1, the clamp never reverses');
+  [45,50,60].forEach(o=>ok(`offset ${o}`, computeDarfAdjustment({weights:dn,asOf:'2026-09-14',currentOffsetG:o,settings:s}).adjustmentG>=0, true));
+  L.push('FIX 2, the hold outranks the cap');
+  ok('reports the hold', computeDarfAdjustment({weights:up,asOf:'2026-09-14',currentOffsetG:-40,bcs7dMean:4.3,settings:s}).held, true);
+  L.push('CLAMP, normal');
+  ok('offset 35 to +5', computeDarfAdjustment({weights:dn,asOf:'2026-09-14',currentOffsetG:35,settings:s}).adjustmentG, 5);
+  ok('offset 40 nothing', computeDarfAdjustment({weights:dn,asOf:'2026-09-14',currentOffsetG:40,settings:s}).applied, false);
+  L.push('WEEK KEYING');
+  ok('Monday of a Sunday', toIso(mondayOf('2026-09-20')), '2026-09-14');
+  ok('already fired', computeDarfAdjustment({weights:up,asOf:'2026-09-14',lastAdjustmentWeek:'2026-09-16',bcs7dMean:6,settings:s}).applied, false);
+  ok('regime change suppresses', computeDarfAdjustment({weights:up,asOf:'2026-09-14',bcs7dMean:6,regimeChanges:['2026-09-09'],settings:s}).applied, false);
+
+  L.push('ATTRIBUTION, 6 hour floor');
+  const meals=[{date:'2026-09-09',fedAt:'19:00',recipe:'beef'},{date:'2026-09-10',fedAt:'19:00',recipe:'turkey'},{date:'2026-09-11',fedAt:'19:00',recipe:'lamb'}];
+  ok('morning to last night', attributionFor('2026-09-12','07:10',meals,s).primary.date, '2026-09-11');
+  ok('21:30 skips tonight', attributionFor('2026-09-11','21:30',meals,s).primary.date, '2026-09-10');
+  ok('01:30 to the evening before', attributionFor('2026-09-12','01:30',meals,s).primary.date, '2026-09-11');
+  ok('override wins', attributionFor('2026-09-12','00:30',meals,s,'2026-09-11').primary.date, '2026-09-11');
+
+  L.push('PRO-FIBRE');
+  const mk=o=>{const d={};Object.entries(o).forEach(([k,v])=>{d[k]=v===null?{}:{stools:v.map(b=>({bristol:b,mucus:false,blood:false}))}});return d;};
+  const d1=mk({'2026-09-05':[4],'2026-09-06':[3],'2026-09-07':null,'2026-09-08':[4],'2026-09-09':[5],'2026-09-10':[4],'2026-09-11':[3],'2026-09-12':[4],'2026-09-13':[4],'2026-09-14':[3],'2026-09-15':[4],'2026-09-16':[4]});
+  const F={...s,fibreSchedule:[{from:'2026-09-04',g:2.5}]};
+  ok('no stool pauses', fibreStreak(d1,'2026-09-04','2026-09-08').count, 3);
+  ok('a 5 breaks it', fibreStreak(d1,'2026-09-04','2026-09-09').count, 0);
+  ok('mucus breaks a day', dayVerdict({stools:[{bristol:4,mucus:true}]}), 'broken');
+  ok('7 clean advises 5 g', fibreAdvice(d1,'2026-09-16',F).advice.toG, 5);
+  ok('6 clean does not', fibreAdvice(d1,'2026-09-15',F).advice, null);
+  const F5={...s,fibreSchedule:[{from:'2026-09-04',g:2.5},{from:'2026-09-17',g:5}]};
+  const clean=(f,n)=>{const d={};for(let i=0;i<n;i++)d[toIso(toDay(f)+i)]={stools:[{bristol:4,mucus:false,blood:false}]};return d;};
+  ok('never above 5 g', fibreAdvice(clean('2026-09-18',30),'2026-10-17',F5).advice, null);
+  const loose={};[18,19,20].forEach((dd,i)=>{loose['2026-09-'+dd]={stools:[{bristol:i===0?4:5,mucus:false,blood:false}]}});
+  ok('step back to 2.5 g', fibreAdvice(loose,'2026-09-20',F5).advice.toG, 2.5);
+  const bad={};for(let i=0;i<20;i++){bad[toIso(toDay('2026-09-18')+i)]={stools:[{bristol:i%2?5:4,mucus:false,blood:false}]}}
+  ok('review flag raised', fibreAdvice(bad,'2026-10-07',F5).review, true);
+  ok('and still no step', fibreAdvice(bad,'2026-10-07',F5).advice, null);
+
+  L.push('VET ITEMS');
+  const vd={'2026-09-10':{stools:[{bristol:4,blood:true}]},'2026-09-12':{events:['vomited']},'2026-09-13':{events:['vomited']}};
+  ok('blood listed', vetItems(vd,'2026-09-14',[],s).some(x=>/Blood/.test(x.title)), true);
+  ok('blood never ages out', vetItems(vd,'2027-09-14',[],s).some(x=>/Blood/.test(x.title)), true);
+  ok('lethargy ages out', vetItems({'2026-01-01':{events:['lethargic']}},'2026-09-14',[],s).length, 0);
+
+  L.push('SCALES');
+  ok('BCS steps', BCS_STEPS.map(x=>x.v), [3,4,4.5,5,5.5,6,7]);
+  ok('BCS colours', BCS_STEPS.map(x=>x.band).join(''), 'ragggar');
+  ok('Bristol colours', BRISTOL.slice(1).map(x=>x.band).join(''), 'raggaar');
+  const bd={};[4,4,4.5,4,4.5,4,4.5].forEach((v,i)=>bd[toIso(toDay('2026-09-08')+i)]={bcs:v});
+  ok('half points average', +bcsMean(bd,'2026-09-14',7).mean.toFixed(3), 4.214);
+
+  S.testOut = `${p} passed, ${f} failed\n\n` + L.join('\n');
+  render();
+}
+
+/* =====================================================================
+   EVENTS
+   ===================================================================== */
+let stoolFlags={mucus:false,blood:false};
+
+document.addEventListener('click', async (ev)=>{
+  const el=ev.target.closest('[data-act]'); if (!el) return;
+  const a=el.dataset.act, iso=el.dataset.date||S.cursor||localToday();
+  const d=S.days[iso]||{};
+
+  if (a==='signin'){ return doSignIn(); }
+  if (a==='signout'){ await signOut(auth); location.reload(); return; }
+  if (a==='go'){ S.tab=el.dataset.tab; render(); return; }
+  if (a==='goday'){ S.cursor=el.dataset.date; S.tab='day'; render(); return; }
+  if (a==='openday'){ S.cursor=el.dataset.date; S.tab='day'; render(); return; }
+  if (a==='dismiss-banner'){ S.banner=null; render(); return; }
+  if (a==='swapcard'){ const wasEve=isEvening(); S.forceCard=wasEve?'morning':'evening';
+    if ((S.forceCard==='evening')===(new Date().getHours()>=(S.settings.handoverHour??16))) S.forceCard=null;
+    render(); return; }
+  if (a==='jump'){ const k=el.dataset.k;
+    if (k==='bowl'){ S.forceCard='evening'; S.cursor=toIso(toDay(localToday())-1); S.tab='day'; }
+    else { S.forceCard='morning'; }
+    render(); return; }
+  if (a==='dayshift'){ const n=Number(el.dataset.n);
+    const next=toIso(toDay(S.cursor)+n);
+    if (toDay(next)>=toDay(S.settings.startDate) && toDay(next)<=toDay(localToday())) S.cursor=next;
+    render(); return; }
+  if (a==='range'){ S.range=Number(el.dataset.r); render(); return; }
+  if (a==='theme'){ saveSettings({theme:el.dataset.t}); applyTheme(); return; }
+
+  if (a==='bcs'){ const v=Number(el.dataset.v); saveDay(iso,{bcs: d.bcs===v?null:v}); return; }
+  if (a==='event'){ const id=el.dataset.id; const cur=d.events||[];
+    saveDay(iso,{events: cur.includes(id)?cur.filter(x=>x!==id):[...cur,id]}); return; }
+
+  if (a==='openstool'){ S.adding=iso; stoolFlags={mucus:false,blood:false}; render(); return; }
+  if (a==='cancelstool'){ S.adding=null; render(); return; }
+  if (a==='tog-mucus'){ stoolFlags.mucus=!stoolFlags.mucus; el.classList.toggle('on'); return; }
+  if (a==='tog-blood'){ stoolFlags.blood=!stoolFlags.blood; el.classList.toggle('on'); return; }
+  if (a==='addstool'){
+    const t=($('#st-t')||{}).value||nowHHMM();
+    const st=[...(d.stools||[]), {id:'s'+Date.now().toString(36), time:t, bristol:Number(el.dataset.b), mucus:stoolFlags.mucus, blood:stoolFlags.blood}];
+    S.adding=null; saveDay(iso,{stools:st}); return; }
+  if (a==='delstool'){ saveDay(iso,{stools:(d.stools||[]).filter(x=>x.id!==el.dataset.id)}); return; }
+  if (a==='swapattr'){
+    const to=el.dataset.to||'';
+    saveDay(iso,{stools:(d.stools||[]).map(x=>x.id===el.dataset.id?{...x, mealOverride: to||undefined}:x)}); return; }
+
+  if (a==='pick'){
+    const r=el.dataset.id, meal=d.meal||{};
+    if (meal.recipe===r && !meal.fedAt){ saveDay(iso,{meal:null}); return; }
+    const b=bowlFor(iso,r,S.settings,S.changes,{egg:!!meal.egg,broth:!!meal.broth});
+    saveDay(iso,{meal:{...meal, recipe:r, darfPlanned:b.darfG, oilMl:b.oilMl, fibreG:b.fibreG}});
+    return; }
+  if (a==='pickday'){
+    const r=el.dataset.id, meal=d.meal||{};
+    if (meal.recipe===r){ saveDay(iso,{meal:null}); return; }
+    const b=bowlFor(iso,r,S.settings,S.changes,{egg:!!meal.egg,broth:!!meal.broth});
+    saveDay(iso,{meal:{...meal, recipe:r, darfPlanned:b.darfG, darfFed:meal.darfFed??b.darfG, oilMl:b.oilMl, fibreG:b.fibreG, fedAt:meal.fedAt||'19:00'}});
+    return; }
+  if (a==='extra'){
+    const k=el.dataset.k, meal=d.meal||{};
+    const next={...meal, [k]:!meal[k]};
+    if (meal.recipe){ const b=bowlFor(iso,meal.recipe,S.settings,S.changes,{egg:!!next.egg,broth:!!next.broth});
+      next.darfPlanned=b.darfG; if (!meal.fedAt) next.darfFed=undefined; }
+    saveDay(iso,{meal:next}); return; }
+  if (a==='fed'){
+    const meal=d.meal||{}; const r=meal.recipe||el.dataset.r; if (!r) return;
+    const b=bowlFor(iso,r,S.settings,S.changes,{egg:!!meal.egg,broth:!!meal.broth});
+    saveDay(iso,{meal:{...meal, recipe:r, fedAt:nowHHMM(), darfPlanned:b.darfG, darfFed:b.darfG, oilMl:b.oilMl, fibreG:b.fibreG}});
+    return; }
+  if (a==='unfeed'){ const meal={...(d.meal||{})}; delete meal.fedAt; saveDay(iso,{meal}); return; }
+  if (a==='bowl'){ const meal=d.meal||{}; if (!meal.fedAt && S.tab==='today') return;
+    saveDay(iso,{meal:{...meal, bowl: meal.bowl===el.dataset.k?null:el.dataset.k}}); return; }
+
+  if (a==='applyadv'){
+    const adv=weeklyAdvice(); if (!adv.applied) return;
+    await saveChange({date:localToday(), deltaG:adv.adjustmentG, source:'rule', reason:adv.reason});
+    S.banner={kind:'good',title:'Applied',text:`DARF moves ${adv.adjustmentG>0?'up':'down'} ${Math.abs(adv.adjustmentG)} g from tonight. The rule will not fire again until next Monday.`};
+    render(); return; }
+  if (a==='refuseadv'){
+    await saveChange({date:localToday(), deltaG:0, source:'refused', refused:true, reason:'Refused: '+weeklyAdvice().reason});
+    S.banner={kind:'plain',title:'Refused',text:'Nothing changed. The rule will look again next Monday.'};
+    render(); return; }
+  if (a==='applyfibre'){
+    const g=Number(el.dataset.g);
+    saveSettings({fibreSchedule:[...(S.settings.fibreSchedule||[]), {from:localToday(), g}]});
+    S.banner={kind:'good',title:`Pro-Fibre now ${g} g`,text:'The streak restarts from tomorrow.'};
+    render(); return; }
+  if (a==='dismissfibre'){ S.banner={kind:'plain',title:'Left as it is',text:'It will come back tomorrow.'}; render(); return; }
+  if (a==='setfibre'){
+    const g=Number(el.dataset.g);
+    if (g>S.settings.fibreRestG && !confirm(`${g} g is above the ${S.settings.fibreRestG} g ceiling the audit set. Stool that does not settle at ${S.settings.fibreRestG} g is a clinical question rather than a dose question. Set it anyway?`)) return;
+    saveSettings({fibreSchedule:[...(S.settings.fibreSchedule||[]), {from:localToday(), g}]}); return; }
+  if (a==='addregime'){ saveSettings({regimeChanges:[...(S.settings.regimeChanges||[]), localToday()]}); return; }
+  if (a==='delregime'){ saveSettings({regimeChanges:(S.settings.regimeChanges||[]).filter(x=>x!==el.dataset.d)}); return; }
+  if (a==='delchange'){ removeChange(el.dataset.id); return; }
+
+  if (a==='exportmonth'){ exportMonthCsv(); return; }
+  if (a==='exportmd'){ exportMonthMd(); return; }
+  if (a==='exportall'){ exportAll(); return; }
+  if (a==='selftest'){ selfTest(); return; }
+  if (a==='erase'){
+    if (!confirm('Delete every day and every recorded change? Settings are kept. Export first.')) return;
+    if (prompt('Type ERASE to confirm')!=='ERASE') return;
+    for (const k of Object.keys(S.days)) await deleteDoc(doc(db,'days',k));
+    for (const c of S.changes) await deleteDoc(doc(db,'changes',c.id));
+    S.banner={kind:'plain',title:'Erased',text:'Settings were kept.'}; render(); return; }
+});
+
+const tdeb=new Map();
+document.addEventListener('input', (ev)=>{
+  const el=ev.target.closest('[data-act]'); if (!el) return;
+  const a=el.dataset.act;
+  if (a==='import'){ if (el.files&&el.files[0]) importJson(el.files[0]); return; }
+  const iso=el.dataset.date||S.cursor||localToday();
+  const key=a+'|'+iso+'|'+(el.dataset.k||'');
+  clearTimeout(tdeb.get(key));
+  tdeb.set(key, setTimeout(()=>{
+    tdeb.delete(key);
+    const v=el.value;
+    if (a==='weight'){ const n=parseFloat(v);
+      if (v==='') return saveDay(iso,{weight:null});
+      if (!Number.isFinite(n)||n<10||n>30) return;
+      const m=windowMean(weightsList().filter(w=>toDay(w.date)<toDay(iso)),toDay(iso)-1,7);
+      if (m.mean && Math.abs(n-m.mean)/m.mean>0.05 &&
+          !confirm(`${n} kg is ${((n-m.mean)/m.mean*100).toFixed(0)}% from the recent average of ${m.mean.toFixed(2)} kg. Keep it?`)) { el.value=''; return; }
+      saveDay(iso,{weight:n}); return; }
+    if (a==='walkMin'||a==='activeMin'||a==='treats'){ saveDay(iso,{[a]: v===''?null:Math.round(Number(v))}); return; }
+    if (a==='walkKm'){ saveDay(iso,{walkKm: v===''?null:Number(v)}); return; }
+    if (a==='notes'){ saveDay(iso,{notes:v}); return; }
+    if (a==='darfFed'){ const meal=S.days[iso]?.meal||{}; saveDay(iso,{meal:{...meal, darfFed: v===''?null:Math.round(Number(v))}}); return; }
+    if (a==='setnum'){ const n=Number(v); if (Number.isFinite(n)) saveSettings({[el.dataset.k]:n}); return; }
+  }, 700));
+});
+
+document.addEventListener('change', (ev)=>{
+  const el=ev.target.closest('[data-act]');
+  if (el && el.dataset.act==='import' && el.files && el.files[0]) importJson(el.files[0]);
+});
+
+$('#tabbar').addEventListener('click', (ev)=>{
+  const b=ev.target.closest('button[data-tab]'); if (!b) return;
+  S.tab=b.dataset.tab; S.forceCard=null; if (S.tab==='day'&&!S.cursor) S.cursor=localToday();
+  render();
+});
+
+/* =====================================================================
+   AUTH AND BOOT
+   ===================================================================== */
+async function doSignIn(){
+  const em=$('#em').value.trim(), pw=$('#pw').value;
+  const err=$('#gate-err'); err.classList.add('hide');
+  if (!em||!pw){ err.textContent='Enter both an email address and a password.'; err.classList.remove('hide'); return; }
+  $('#signin').disabled=true; $('#signin').innerHTML='<span class="spin"></span>';
+  try { await signInWithEmailAndPassword(auth, em, pw); }
+  catch(e){
+    const map={
+      'auth/invalid-credential':'That email and password do not match an account.',
+      'auth/wrong-password':'That password is not right.',
+      'auth/user-not-found':'No account with that email address.',
+      'auth/invalid-email':'That does not look like an email address.',
+      'auth/too-many-requests':'Too many attempts. Wait a few minutes and try again.',
+      'auth/network-request-failed':'No connection. A first sign-in on a device needs one.'
+    };
+    err.textContent = map[e.code] || ('Sign-in failed: '+(e.message||e.code));
+    err.classList.remove('hide');
+  }
+  finally { $('#signin').disabled=false; $('#signin').textContent='Sign in'; }
+}
+$('#signin').addEventListener('click', doSignIn);
+$('#pw').addEventListener('keydown', e=>{ if (e.key==='Enter') doSignIn(); });
+
+onAuthStateChanged(auth, (u)=>{
+  S.user=u;
+  $('#gate').classList.toggle('hide', !!u);
+  $('#app').classList.toggle('hide', !u);
+  if (u && !S.subscribed){ S.subscribed=true; S.cursor=localToday(); subscribe(); }
+  if (u) render();
+});
+
+window.addEventListener('online', ()=>setStatus('Synced'));
+window.addEventListener('offline', ()=>setStatus('Offline, queued','warn'));
+
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
