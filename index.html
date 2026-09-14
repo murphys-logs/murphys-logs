@@ -22,6 +22,8 @@
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
   --compact:"SF Compact Text","SF Compact",var(--sans);
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
+  --sl:max(var(--s4),env(safe-area-inset-left)); --sr:max(var(--s4),env(safe-area-inset-right));
   --tabh:4rem;
 }
 :root[data-theme="light"]{
@@ -44,14 +46,15 @@ body{
   -webkit-font-smoothing:antialiased; overscroll-behavior-y:contain;
 }
 button,input,select,textarea{font:inherit;color:inherit}
-button{background:none;border:0;cursor:pointer;padding:0;text-align:left;min-width:44px;min-height:44px}
+button{background:none;border:0;cursor:pointer;padding:0;text-align:left;min-width:44px;min-height:44px;overflow-wrap:anywhere}
 input,select,.btn{min-height:44px}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
 .hide{display:none !important}
-.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.num,.row .v,.field input,.scale button,.bristol b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.g{--tone:var(--good)} .a{--tone:var(--watch)} .r{--tone:var(--alert)}
 
 /* shell */
-#gate{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}
+#gate{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:var(--s5)}
 .gate-card{width:100%;max-width:380px}
 .gate-card h1{font-size:1.625rem;font-weight:650;letter-spacing:-.02em;margin:0 0 4px}
 .gate-card p.sub{color:var(--ink-2);font-size:.9rem;margin:0 0 26px}
@@ -60,25 +63,25 @@ input,select,.btn{min-height:44px}
 .topbar{
   position:sticky;top:0;z-index:20;background:var(--paper);
   border-bottom:1px solid var(--rule);
-  padding:calc(env(safe-area-inset-top) + 11px) 16px 10px;
-  display:flex;justify-content:space-between;align-items:baseline;gap:12px;
+  padding:calc(env(safe-area-inset-top) + var(--s3)) var(--sr) var(--s2) var(--sl);
+  display:flex;justify-content:space-between;align-items:baseline;gap:var(--s3);
 }
 .topbar .who{font-size:.75rem;font-weight:600;letter-spacing:.14em}
 .topbar .state{font-size:.75rem;color:var(--ink-3)}
 .topbar .state.warn{color:var(--watch)}
 .topbar .state.bad{color:var(--alert)}
 
-main{flex:1;padding:14px 16px calc(var(--tabh) + env(safe-area-inset-bottom) + 26px);max-width:620px;width:100%;margin:0 auto}
+main{flex:1;padding:var(--s4) var(--sr) calc(var(--tabh) + env(safe-area-inset-bottom) + var(--s6)) var(--sl);max-width:42rem;width:100%;margin:0 auto}
 
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;z-index:20;
-  display:grid;grid-template-columns:repeat(5,1fr);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(max(20%,8ch),1fr));font:.75rem/1.5 var(--compact);
   background:var(--surface);border-top:1px solid var(--rule-2);
-  padding-bottom:env(safe-area-inset-bottom);
+  padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 .tabbar button{
-  position:relative;text-align:center;padding:7px 2px;font-size:.75rem;color:var(--ink-3);
-  font-family:var(--compact);min-height:var(--tabh);
+  position:relative;text-align:center;padding:var(--s2) 2px;font:inherit;color:var(--ink-3);white-space:nowrap;
+  min-height:44px;min-width:0;
 }
 .tabbar button.on{color:var(--accent-ink);font-weight:600;box-shadow:inset 0 2px 0 var(--accent)}
 .tabbar svg{display:block;width:22px;height:22px;margin:0 auto 2px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -88,79 +91,78 @@ main{flex:1;padding:14px 16px calc(var(--tabh) + env(safe-area-inset-bottom) + 2
 .moment{
   display:inline-block;font-size:.6875rem;font-weight:700;
   letter-spacing:.17em;text-transform:uppercase;color:var(--on-accent);
-  background:var(--accent);padding:3px 9px;border-radius:2px;margin-bottom:12px;
+  background:var(--accent);padding:var(--s1) var(--s2);border-radius:2px;margin-bottom:var(--s3);
 }
-h2.screen{font-size:1.3125rem;font-weight:650;letter-spacing:-.015em;margin:0 0 14px;line-height:1.2}
+h2.screen{font-size:1.3125rem;font-weight:650;letter-spacing:-.015em;margin:0 0 var(--s4);line-height:1.2}
 
-.card{background:var(--surface);border:1px solid var(--rule);border-radius:9px;margin-bottom:12px;overflow:hidden}
-.sec{padding:13px 15px;border-bottom:1px solid var(--rule)}
-.sec:last-child{border-bottom:0}
-.lab{font-size:.6875rem;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:12px;margin-bottom:var(--s4);overflow:hidden}
+.sec{padding:var(--s4)}
+.card>.sec+.sec{border-top:1px solid var(--rule)}
+.lab{font-size:.75rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin:0 0 var(--s3)}
+.sec>.lab:not(:first-child){margin-top:var(--s4)}
+summary{min-height:44px;cursor:pointer;font-weight:600;list-style-position:inside;overflow-wrap:anywhere}
+details[open]>summary{margin-bottom:var(--s3)}
+details.card>summary{padding:var(--s4);margin:0;outline-offset:-4px}
 .row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:5px}
 .row:last-child{margin-bottom:0}
-.row .k{color:var(--ink-2);font-size:.875rem}
-.row .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:.875rem;font-weight:500}
+.row .k{color:var(--ink-2);font-size:.875rem;min-width:0;overflow-wrap:anywhere}
+.row .v{font-size:.875rem;font-weight:500}
 .sub{font-size:.75rem;color:var(--ink-3);margin:3px 0 0;font-variant-numeric:tabular-nums}
 
 /* buttons */
-.btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:.9375rem;padding:13px;border-radius:7px}
+.btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:.9375rem;padding:var(--s3);border-radius:8px}
 .btn[disabled]{opacity:.4}
 .btn.ghost{background:transparent;color:var(--accent-ink);border:1px solid var(--rule-2)}
-.btn.sm{font-size:.875rem;padding:9px}
+.btn.sm{font-size:.875rem;padding:var(--s2)}
 .btn.danger{background:var(--alert);color:var(--on-accent)}
-.btnrow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btnrow{display:grid;grid-template-columns:1fr 1fr;gap:var(--s3);margin-top:var(--s3)}
+[data-form]+.chip{margin-top:var(--s3)}
 .link{color:var(--accent-ink);font-weight:500;font-size:.8125rem}
 
 /* inputs */
-.field{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--rule-2);border-radius:7px;padding:4px 6px 4px 12px;background:var(--surface)}
-.field label{font-size:.8125rem;color:var(--ink-3)}
+.field{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s2);border-bottom:1px solid var(--rule-2);padding:var(--s2) 0}
+.field label{flex:1;font-size:.8125rem;color:var(--ink-2)}
 .field input{
-  border:0;background:transparent;text-align:right;font-family:var(--mono);
-  font-size:1.0625rem;font-weight:600;font-variant-numeric:tabular-nums;width:7rem;padding:7px 6px;
+  border:0;background:transparent;text-align:right;
+  font-size:1.0625rem;font-weight:600;width:7rem;max-width:100%;min-width:0;padding:var(--s2);
 }
-.tin{width:100%;border:1px solid var(--rule-2);border-radius:7px;padding:10px 12px;background:var(--surface);font-size:1rem}
+.tin{width:100%;max-width:100%;border:1px solid var(--rule-2);border-radius:8px;padding:var(--s3);background:var(--surface);font-size:1rem}
 textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
-.inline-lab{display:block;font-size:.8125rem;color:var(--ink-3);margin:0 0 5px}
+.inline-lab{display:block;font-size:.8125rem;color:var(--ink-2);margin:0 0 var(--s2)}
 
 /* chips */
-.chips{display:flex;flex-wrap:wrap;gap:5px}
-.chip{font-size:.8125rem;padding:6px 11px;border:1px solid var(--rule-2);border-radius:15px;color:var(--ink-2);background:var(--surface)}
-.chip.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:var(--s2)}
+.chips,.meal-flags,.seg{margin-block:var(--s3)}
+.meal-flags{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s2)}
+.chip{font-size:.8125rem;padding:var(--s2) var(--s3);border:1px solid var(--rule-2);border-radius:8px;color:var(--ink-2);background:transparent}
+.chip.on,.seg button.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 .chip.on.ev{background:var(--alert);border-color:var(--alert)}
 
 /* segmented */
-.seg{display:flex;border:1px solid var(--rule-2);border-radius:7px;overflow:hidden}
-.seg button{flex:1;text-align:center;padding:9px 3px;font-size:.8125rem;color:var(--ink-2);border-right:1px solid var(--rule-2);background:var(--surface)}
+.seg{display:flex;border:1px solid var(--rule-2);border-radius:8px;overflow:hidden}
+.seg button{flex:1;min-width:0;text-align:center;padding:var(--s2) var(--s1);font-size:.8125rem;color:var(--ink-2);border-right:1px solid var(--rule-2)}
 .seg button:last-child{border-right:0}
-.seg button.on{background:var(--accent);color:var(--on-accent);font-weight:600}
 
 /* bristol + bcs scales */
-.bristol,.scale{display:grid;grid-template-columns:repeat(auto-fit,minmax(4rem,1fr));gap:4px}
-.bristol button{text-align:center;padding:9px 1px 7px;border:1px solid var(--rule-2);border-radius:6px;background:var(--surface);line-height:1.1}
-.bristol b{display:block;font-family:var(--mono);font-size:.9375rem;font-weight:600}
+.bristol,.scale{display:grid;grid-template-columns:repeat(var(--steps,4),minmax(0,1fr));gap:var(--s2);margin-block:var(--s3)}
+:is(.bristol,.scale) button{text-align:center;border:1px solid var(--rule-2);border-radius:6px;background:var(--surface)}
+.bristol button{padding:9px 1px 7px;line-height:1.1}
+.bristol b{display:block;font-size:.9375rem;font-weight:600;color:var(--tone)}
 .bristol i{display:block;font-style:normal;font-size:.625rem;color:var(--ink-3);margin-top:3px}
-.bristol button.g b{color:var(--good)} .bristol button.a b{color:var(--watch)} .bristol button.r b{color:var(--alert)}
 
 .scale button{
-  text-align:center;padding:11px 0;font-family:var(--mono);font-size:.8125rem;font-weight:600;
-  border:1px solid var(--rule-2);border-radius:6px;background:var(--surface);font-variant-numeric:tabular-nums;
+  padding:11px 0;font-size:.8125rem;font-weight:600;color:var(--tone);
 }
-.scale button.g{color:var(--good)} .scale button.a{color:var(--watch)} .scale button.r{color:var(--alert)}
 .bristol button.on b,.bristol button.on i,.scale button.on{color:var(--on-accent)}
-:is(.bristol,.scale) .on.g{background:var(--good);border-color:var(--good)}
-:is(.bristol,.scale) .on.a{background:var(--watch);border-color:var(--watch)}
-:is(.bristol,.scale) .on.r{background:var(--alert);border-color:var(--alert)}
+:is(.bristol,.scale) .on{background:var(--tone);border-color:var(--tone)}
 
 /* stool entries */
-.stool{display:flex;align-items:flex-start;gap:9px;padding:8px 0;border-bottom:1px solid var(--rule)}
+.stool{display:flex;align-items:flex-start;gap:var(--s3);padding:var(--s2) 0;border-bottom:1px solid var(--rule)}
 .stool:last-of-type{border-bottom:0}
-.dot{width:9px;height:9px;border-radius:2px;flex:none;margin-top:5px}
-.dot.g{background:var(--good)} .dot.a{background:var(--watch)} .dot.r{background:var(--alert)}
+.dot{width:9px;height:9px;border-radius:2px;flex:none;margin-top:5px;background:var(--tone)}
 .stool .body{flex:1;min-width:0}
 .stool .t{font-size:.875rem}
 .stool .attr{display:block;font-size:.75rem;color:var(--ink-3);margin-top:2px}
-.stool .attr button{color:var(--accent-ink);text-decoration:underline}
-.stool .del{color:var(--ink-3);font-size:1.0625rem;padding:0 4px;flex:none}
 
 /* callouts */
 .note{border-radius:7px;padding:11px 13px;font-size:.8125rem;line-height:1.5;margin-bottom:10px;color:var(--ink-2)}
@@ -192,8 +194,7 @@ svg.chart{display:block;width:100%;height:auto}
 table{border-collapse:collapse;width:100%;font-size:.8125rem}
 th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);white-space:nowrap}
 thead th{font-size:.6875rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:var(--surface-2)}
-td{color:var(--ink-2);font-variant-numeric:tabular-nums}
-td.g{color:var(--good)} td.a{color:var(--watch)} td.r{color:var(--alert)}
+td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 tr.tap{cursor:pointer}
 
 /* date bar */
@@ -205,11 +206,15 @@ tr.tap{cursor:pointer}
 /* misc */
 .muted{color:var(--ink-3);font-size:.8125rem}
 .err{color:var(--alert);font-size:.875rem;margin-top:10px}
-.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--rule-2);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
-@keyframes sp{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;transition-duration:.01ms !important}}
-.stack{display:grid;gap:9px}
+.stack{display:grid;gap:var(--s3)}
 .pre{font-family:var(--mono);font-size:.75rem;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border-radius:6px;padding:10px;color:var(--ink-2);max-height:320px;overflow:auto}
+@media(min-width:64rem){
+  main.wide{max-width:68rem}
+  .daily{--steps:7;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4);margin-bottom:var(--s4)}
+  .daily>.card{margin:0}
+  .daily>.card:last-child{grid-column:1/-1}
+  .tabbar{max-width:42rem;margin:auto;border:1px solid var(--rule);border-radius:12px 12px 0 0}
+}
 </style>
 </head>
 <body>
@@ -229,7 +234,7 @@ tr.tap{cursor:pointer}
       </div>
       <button class="btn" id="signin">Sign in</button>
     </div>
-    <p class="err hide" id="gate-err"></p>
+    <p class="err hide" id="gate-err" role="alert"></p>
     <p class="muted" style="margin-top:22px">Two accounts only. There is no sign-up here; accounts are added in the Firebase console.</p>
   </div>
 </div>
@@ -237,7 +242,7 @@ tr.tap{cursor:pointer}
 <div id="app" class="hide">
   <div class="topbar">
     <span class="who">MURPHY</span>
-    <span class="state" id="state">Connecting</span>
+    <span class="state" id="state" role="status">Connecting</span>
   </div>
   <main id="main"></main>
   <nav class="tabbar" id="tabbar" aria-label="Primary navigation">
@@ -256,7 +261,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '3.1.1';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -339,12 +344,6 @@ function inForce(sch, iso, key){
 }
 const oilMlOn  = (iso,s) => { const v=inForce(s.oilSchedule,iso,'ml');  return v===null?0:v; };
 const fibreGOn = (iso,s) => { const v=inForce(s.fibreSchedule,iso,'g'); return v===null?0:v; };
-function fibreDoseSince(iso,s){
-  let best=null;
-  for (const e of (s.fibreSchedule||[])) if (toDay(e.from)<=toDay(iso))
-    if (best===null || toDay(e.from)>=toDay(best)) best=e.from;
-  return best;
-}
 const adjustmentOn = (iso, ch) => (ch||[]).reduce((a,c)=> toDay(c.date)<=toDay(iso) ? a+(c.deltaG||0) : a, 0);
 
 function bowlFor(iso, recipeId, s, changes, extras){
@@ -475,7 +474,7 @@ function fibreStreak(days, sinceIso, todayIso){
   return { count, days:out };
 }
 function fibreAdvice(days, todayIso, s){
-  const dose = fibreGOn(todayIso,s), since = fibreDoseSince(todayIso,s);
+  const dose = fibreGOn(todayIso,s), since = inForce(s.fibreSchedule,todayIso,'from');
   const res = { dose, since, streak:0, chips:[], advice:null, review:false, note:'' };
   if (!since) return res;
   const st = fibreStreak(days, since, todayIso);
@@ -564,7 +563,7 @@ function vetItems(days, todayIso, weights, s){
 const S = {
   user:null, days:{}, changes:[], settings:{...DEFAULTS},
   ready:false, tab:'today', cursor:null, adding:null,
-  status:'Connecting', statusClass:'', banner:null, testOut:null, forceCard:null, subscribed:false
+  status:'Connecting', banner:null, testOut:null, forceCard:null, subscribed:false
 };
 
 function localToday(){
@@ -581,7 +580,7 @@ function fmtDate(iso){
 }
 function fmtShort(iso){ const d=new Date(toDay(iso)*DAY_MS); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; }
 
-function setStatus(text, cls){ S.status=text; S.statusClass=cls||''; const el=$('#state'); if (el){ el.textContent=text; el.className='state '+(cls||''); } }
+function setStatus(text, cls){ S.status=text; const el=$('#state'); if (el){ el.textContent=text; el.className='state '+(cls||''); } }
 
 let flushing=false, writeClock=0, unsubs=[];
 const queuePrefix=()=>`murphy-outbox:${S.user.uid}:`;
@@ -807,14 +806,15 @@ function missingFor(iso){
   return miss;
 }
 function bandOfBristol(n){ return (BRISTOL[n]||{}).band||'a'; }
-function bandOfBcs(v){ const s=BCS_STEPS.find(x=>x.v===v); return s?s.band:(v>=4.5&&v<=5.5?'g':(v===4||v===6?'a':'r')); }
 
 /* RENDER */
-
+const refocus=id=>document.getElementById(id)?.focus({preventScroll:true});
+let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
-  if (!S.ready){$('#main').innerHTML=bannerHtml()+'<p role="status">Loading saved records…</p>';return;}
-  if (!force && ($('#main [data-dirty]')||$('#main [data-stool]'))) return;
+  if (!S.ready){rendered='';$('#main').innerHTML=bannerHtml()+'<p role="status">Loading saved records…</p>';return;}
+  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;return;}
+  renderPending=false;
   if (!S.cursor) S.cursor=localToday();
   $$('#tabbar button').forEach(b=>{
     const active=b.dataset.tab===S.tab;
@@ -823,11 +823,17 @@ function render(force=false){
   });
   const needs=insights().vet.length||weeklyAdvice().applied||insights().fib.advice;
   $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
-  $('#main').innerHTML=S.tab==='today'?viewToday():S.tab==='day'?viewDay():S.tab==='status'?viewStatus():S.tab==='history'?viewHistory():viewMore();
-  $$('.chip,.seg button,.scale button').forEach(b=>b.setAttribute('aria-pressed',b.classList.contains('on')));
+  $('#main').className=['today','day','history'].includes(S.tab)?'wide':'';
+  const html=S.tab==='today'?viewToday():S.tab==='day'?viewDay():S.tab==='status'?viewStatus():S.tab==='history'?viewHistory():viewMore();
+  if(!force&&html===rendered)return;
+  rendered=html;
+  const expanded=$$('#main details[id]').map(e=>[e.id,e.open]), focus=document.activeElement?.id;
+  $('#main').innerHTML=html;
+  for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
+  if(focus)refocus(focus);
 }
 function leaveDraft(){
-  if (!$('#main [data-dirty]')&&!$('#main [data-stool]')) return true;
+  if (!$('#main [data-dirty],#main [data-stool]')) return true;
   if (!confirm('Discard the unconfirmed draft?')) return false;
   S.adding=null; stoolDraft=null; render(true); return true;
 }
@@ -854,55 +860,57 @@ function viewToday(){
 }
 
 function row(k,v){ return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
-function panel(title,body){ return `<section class="card"><div class="sec"><h3 class="lab">${title}</h3>${body}</div></section>`; }
+function choice(on,cls=''){return `class="${cls}${on?' on':''}" aria-pressed="${!!on}"`;}
+function panel(title,body){ return `<section class="card sec"><h3 class="lab">${title}</h3>${body}</section>`; }
+function fold(title,body,id,open=false){return `<details class="card" id="${id}" ${open?'open':''}><summary class="sec">${title}</summary><div class="sec">${body}</div></details>`;}
 function inputField(iso,k,label,min=0,max=600,step=1){
   const d=S.days[iso]||{}, value=k==='setnum'?S.settings[label]:k==='darfFed'?d.meal?.darfFed:d[k];
   const id='in-'+k+'-'+(k==='setnum'?label:iso);
   return `<div data-form data-date="${iso}" data-key="${k}" data-setting="${esc(label)}">
     ${k==='notes'?`<label class="inline-lab" for="${id}">Notes for ${fmtDate(iso)}</label><textarea id="${id}" class="tin" data-act="notes">${esc(value||'')}</textarea>`:
     `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" type="number" inputmode="${step<1?'decimal':'numeric'}" min="${min}" max="${max}" step="${step}" value="${esc(value??'')}" data-act="${k}" placeholder="—"></div>`}
-    <div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput">Save ${k==='notes'?'notes':'value'}</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>
   </div>`;
 }
 function dailyFields(iso){
   const d=S.days[iso]||{};
-  return stoolsCard(iso)+panel('Weight',inputField(iso,'weight','Pre-feed weight, kg',10,30,.01)+
-    `<button class="chip ${d.weightMissed?'on':''}" data-act="missed" data-date="${iso}" aria-pressed="${d.weightMissed===true}">Pre-feed weight missed</button>`+weightHint(iso))+
+  return '<div class="daily">'+stoolsCard(iso)+panel('Weight',inputField(iso,'weight','Pre-feed weight, kg',10,30,.01)+
+    `<button ${choice(d.weightMissed,'chip')} data-act="missed" data-date="${iso}">Pre-feed weight missed</button>`+weightHint(iso))+
     panel('Condition',bcsScale(iso,d.bcs)+'<p class="sub">An informed, subjective assessment of ribs, waist and tuck. Excellent: 4.5–5.5; ideal centre: 5.0.</p>')+
     panel('Walk','<div class="stack">'+inputField(iso,'walkMin','Minutes walked')+inputField(iso,'walkKm','Kilometres',0,80,.1)+inputField(iso,'activeMin','Active minutes',0,1440)+'</div>')+
     panel('Treats',inputField(iso,'treats','Dried necks and feet',0,10))+
-    panel('Events',`<div class="chips">${EVENTS.map(e=>`<button class="chip ${(d.events||[]).includes(e.id)?'on ev':''}" aria-pressed="${(d.events||[]).includes(e.id)}" data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>`)+
-    panel('Notes',inputField(iso,'notes','Notes'));
+    panel('Events',`<div class="chips">${EVENTS.map(e=>`<button ${choice((d.events||[]).includes(e.id),'chip ev')} data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>`)+
+    panel('Notes',inputField(iso,'notes','Notes'))+'</div>';
 }
 const MEAL_FLAGS={egg:'Whole egg',broth:'Bone broth',fibreGiven:'Fibre',oilGiven:'Salmon oil'};
 function mealFlags(iso,m){
-  return `<div class="chips">${Object.entries(MEAL_FLAGS).map(([k,label])=>`<button class="chip ${m[k]===true?'on':''}" aria-pressed="${m[k]===true}" data-act="extra" data-k="${k}" data-date="${iso}">${label}: ${m[k]===true?'Yes':m[k]===false?'No':'not recorded'}</button>`).join('')}</div>`;
+  return `<div class="meal-flags">${Object.entries(MEAL_FLAGS).map(([k,label])=>`<button ${choice(m[k]===true,'chip')} data-act="extra" data-k="${k}" data-date="${iso}">${label}: ${m[k]===true?'Yes':m[k]===false?'No':'not recorded'}</button>`).join('')}</div>`;
 }
 function mealSummary(m){
   return `${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g<br>${Object.entries(MEAL_FLAGS).map(([k,l])=>l+': '+(m[k]===true?'Yes':m[k]===false?'No':'not recorded')).join(' · ')}`;
 }
-function mealEditor(iso,live=false,details=''){
+function mealEditor(iso,live=false,details='',previous=false){
   const m=S.days[iso]?.meal||{}, r=RECIPES.find(x=>x.id===m.recipe), fed=!!m.fedAt;
   const disabled=live&&!fed;
-  return panel('Evening meal',`<p class="sub">${fmtDate(iso)}</p>
-    ${!live?(r?`<p>${esc(r.name)} · ${esc(m.darfFed??m.darfPlanned??'?')} g</p><p class="sub">${mealSummary(m)}</p>`:'<p class="muted">No meal recorded.</p>'):''}
-    <div class="chips">${RECIPES.map(x=>`<button class="chip ${m.recipe===x.id?'on':''}" aria-pressed="${m.recipe===x.id}" data-act="pickday" data-id="${x.id}" data-date="${iso}">${x.short}</button>`).join('')}</div>
+  const body=`<label class="inline-lab" for="recipe-${iso}">Recipe · ${fmtDate(iso)}</label>
+    <select class="tin" id="recipe-${iso}" data-act="recipe" data-date="${iso}"><option value="" disabled ${!m.recipe?'selected':''}>Choose a recipe</option>${m.recipe&&!r?`<option selected value="${esc(m.recipe)}">${esc(m.recipe)}</option>`:''}${RECIPES.map(x=>`<option value="${x.id}" ${m.recipe===x.id?'selected':''}>${x.name}</option>`).join('')}</select>
+    ${!live&&m.recipe?`<p class="sub">${esc(m.darfFed??m.darfPlanned??'?')} g · ${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g</p>`:''}
     ${details}${mealFlags(iso,m)}
     ${r?`${live?`${fed?row('Fed at '+esc(m.fedAt),esc(m.darfFed??m.darfPlanned??'?')+' g'):''}<button class="btn ${fed?'ghost sm':''}" data-act="${fed?'unfeed':'fed'}" data-date="${iso}">${fed?'Undo Fed':'Fed'}</button>`:''}
       ${!disabled?inputField(iso,'darfFed','Grams actually fed',0,400):''}
-      <p class="lab">How the bowl went</p><div class="seg">${['cleared','left','refused'].map(k=>`<button class="${m.bowl===k?'on':''}" aria-pressed="${m.bowl===k}" ${disabled?'disabled':''} data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
-      ${disabled?'<p class="sub">Selectable once Fed is pressed.</p>':''}`:''}`);
+      <p class="lab">How the bowl went</p><div class="seg">${['cleared','left','refused'].map(k=>`<button ${choice(m.bowl===k)} ${disabled?'disabled':''} data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
+      ${disabled?'<p class="sub">Selectable once Fed is pressed.</p>':''}`:''}`;
+  return previous?fold(`Evening meal <span class="sub">${r?esc(r.short)+' · '+esc(m.darfFed??m.darfPlanned??'?')+' g · '+esc(m.bowl||'bowl not recorded'):'Not recorded'}</span>`,body,'meal-'+iso,!m.recipe||!m.bowl):panel('Evening meal',body);
 }
 function cardMorning(iso){
   const miss=missingFor(iso);
   return `<span class="moment">Morning</span><h2 class="screen">${fmtDate(iso)}</h2>`+
-    mealEditor(toIso(toDay(iso)-1))+dailyFields(iso)+
+    mealEditor(toIso(toDay(iso)-1),false,'',true)+dailyFields(iso)+
     `<div class="note ${miss.length?'plain':'good'}">${miss.length?'<b>Still to log</b>'+miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', '):'<b>Morning complete</b>Evening meal controls are ready when needed.'}</div>`;
 }
 
 function weightHint(iso){
   const d=S.days[iso]||{};
-  const m=windowMean(weightsList().filter(w=>toDay(w.date)<=toDay(iso)), toDay(iso), 7);
+  const m=windowMean(weightsList(),toDay(iso),7);
   if (!m.mean) return '';
   let extra='';
   if (Number.isFinite(d.weight) && Math.abs(d.weight-m.mean)/m.mean>0.05)
@@ -912,7 +920,7 @@ function weightHint(iso){
 
 function bcsScale(iso,val){
   return `<div class="scale">${BCS_STEPS.map(s=>
-    `<button class="${s.band}${val===s.v?' on':''}" data-act="bcs" data-v="${s.v}" data-date="${iso}">${s.v}</button>`).join('')}</div>`;
+    `<button ${choice(val===s.v,s.band)} data-act="bcs" data-v="${s.v}" data-date="${iso}">${s.v}</button>`).join('')}</div>`;
 }
 
 function stoolsCard(iso){
@@ -920,15 +928,17 @@ function stoolsCard(iso){
   const rows=st.map(s=>{
     const b=BRISTOL[s.bristol]||{word:'?',band:'a'}, at=attributionFor(iso,s.time,meals,S.settings,s.mealOverride);
     const attr=at.primary?`after ${RECIPES.find(x=>x.id===at.primary.recipe)?.short||at.primary.recipe}${at.assumed?', assumed':''}${at.overridden?', set by hand':''}`:'no earlier meal';
-    return `<div class="stool"><span class="dot ${b.band}"></span><span class="body"><span class="t">${esc(s.time)} · Bristol ${esc(s.bristol)}, ${b.word}${s.mucus?' · mucus':''}${s.blood?' · blood':''}</span><span class="attr">${esc(attr)}
-      ${at.secondary?`<button data-act="swapattr" data-date="${iso}" data-id="${esc(s.id)}" data-to="${at.overridden?'':at.secondary.date}">Change meal</button>`:''}</span></span>
-      <button class="link" data-act="editstool" data-date="${iso}" data-id="${esc(s.id)}">Edit</button><button class="del" data-act="delstool" data-date="${iso}" data-id="${esc(s.id)}" aria-label="Delete stool at ${esc(s.time)}">×</button></div>`;
+    return `<div class="stool"><span class="dot ${b.band}"></span><div class="body"><span class="t">${esc(s.time)} · Bristol ${esc(s.bristol)}, ${b.word}${s.mucus?' · mucus':''}${s.blood?' · blood':''}</span><span class="attr">${esc(attr)}</span>
+      <details id="stool-${esc(s.id)}"><summary class="link" aria-label="Stool actions at ${esc(s.time)}">Actions</summary><div class="chips">
+      <button class="link" data-act="editstool" data-date="${iso}" data-id="${esc(s.id)}">Edit</button>
+      ${at.secondary?`<button class="link" data-act="swapattr" data-date="${iso}" data-id="${esc(s.id)}" data-to="${at.overridden?'':at.secondary.date}">Change meal</button>`:''}
+      <button class="link" data-act="delstool" data-date="${iso}" data-id="${esc(s.id)}" aria-label="Delete stool at ${esc(s.time)}">Delete</button></div></details></div></div>`;
   }).join('');
   const f=stoolDraft;
   const form=S.adding===iso&&f?`<div data-stool data-date="${iso}">
     <label class="inline-lab" for="st-t">Time</label><input class="tin" id="st-t" type="time" required value="${esc(f.time)}">
-    <div class="bristol">${BRISTOL.slice(1).map(b=>`<button class="${b.band}${f.bristol===b.n?' on':''}" aria-pressed="${f.bristol===b.n}" aria-label="Bristol ${b.n}, ${b.word}" data-act="stooltype" data-b="${b.n}"><b>${b.n}</b><i>${b.word}</i></button>`).join('')}</div>
-    <div class="chips">${['mucus','blood'].map(k=>`<button class="chip ${f[k]?'on':''}" aria-pressed="${!!f[k]}" data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
+    <div class="bristol">${BRISTOL.slice(1).map(b=>`<button ${choice(f.bristol===b.n,b.band)} aria-label="Bristol ${b.n}, ${b.word}" data-act="stooltype" data-b="${b.n}"><b>${b.n}</b><i>${b.word}</i></button>`).join('')}</div>
+    <div class="chips">${['mucus','blood'].map(k=>`<button ${choice(f[k],'chip')} data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
     <div class="btnrow"><button class="btn" data-act="savestool">Save stool entry</button><button class="btn ghost" data-act="cancelstool">Cancel</button></div>
   </div>`:`<button class="link" data-act="openstool" data-date="${iso}">+ Add stool</button>`;
   return panel('Stools',(rows||'<p class="muted">None logged.</p>')+form);
@@ -940,7 +950,8 @@ function cardEvening(iso){
   const next=oil.filter(e=>e.from>iso).sort((a,b)=>a.from.localeCompare(b.from))[0];
   const recent=[...oil,...fibre].map(e=>e.from).filter(d=>d<=iso&&toDay(iso)-toDay(d)<=7).sort().at(-1);
   const last6=mealsList().filter(m=>m.date<iso).slice(-6).reverse().map(m=>RECIPES.find(r=>r.id===m.recipe)?.short||m.recipe);
-  const details=(last6.length?`<p class="sub">Last six: ${esc(last6.join(', '))}</p>`:'')+
+  const details=`<p class="sub">Regime: Pro-Fibre ${fibreGOn(iso,s)} g · oil ${oilMlOn(iso,s)} ml${next?` · changes to ${next.ml} ml in ${toDay(next.from)-toDay(iso)} days`:''}</p>`+
+    (last6.length?`<p class="sub">Last six: ${esc(last6.join(', '))}</p>`:'')+
     (b?`<h3 class="lab">The bowl</h3>${row('Bella &amp; Duke',b.bdGrams+' g')}
       ${row('DARF Active',`<strong style="font-size:1.5rem">${b.darfG} g</strong>`)}
       ${row('Salmon oil',b.oilMl?b.oilMl+' ml':'none tonight')}${row('Pro-Fibre',b.fibreG+' g')}
@@ -948,7 +959,6 @@ function cardEvening(iso){
       '<p class="muted">Choose a recipe to see tonight’s amounts.</p>')+
     (recent?`<p class="sub" style="color:var(--watch)">Fibre or oil changed on ${fmtDate(recent)}. An extra now will muddy the read-out.</p>`:'');
   return `<span class="moment">Evening</span><h2 class="screen">Tonight's bowl</h2>`+
-    panel('Regime tonight',`<p class="sub">Pro-Fibre ${fibreGOn(iso,s)} g · oil ${oilMlOn(iso,s)} ml${next?` · changes to ${next.ml} ml in ${toDay(next.from)-toDay(iso)} days`:''}</p>`)+
     mealEditor(iso,true,details)+eveningFoot(iso);
 }
 
@@ -1008,7 +1018,7 @@ function viewStatus(){
       return `<span class="${c.verdict}" title="${fmtShort(c.date)}">${c.verdict==='clean'?'&check;':c.verdict==='broken'?'&times;':'&ndash;'}</span>`;
     }).join('')}</div>` : '';
 
-  let fibHtml = `${row(`Current dose`,`${fib.dose} g`)}${chips}`;
+  let fibHtml = row('Current dose',fib.dose+' g')+chips;
   if (fib.dose < s.fibreRestG) fibHtml += `<p class="sub">${fib.streak} of ${s.fibreStreakDays} clean days since ${fmtShort(fib.since)}. A day with no stool pauses rather than resets.</p>`;
   if (fib.advice) fibHtml += `<div class="note warn" style="margin-top:9px"><b>${fib.advice.kind==='up'?'Step up':'Step back'}</b>${esc(fib.advice.text)}</div>
     <div class="btnrow"><button class="btn sm" data-act="applyfibre" data-g="${fib.advice.toG}">Apply</button>
@@ -1021,14 +1031,10 @@ function viewStatus(){
 
   const ctx=weekContext(today);
   const tonight=RECIPES.map(r=>{const b=bowlFor(today,r.id,s,S.changes,{});
-    return `${row(`${r.short}`,`${b.darfG} g`)}`;}).join('');
+    return row(r.short,b.darfG+' g');}).join('');
 
-  return bannerHtml()+`
-  <h2 class="screen">Status</h2>
-  <div class="card"><div class="sec"><p class="lab">Vet items</p>${vetHtml}</div></div>
-  <div class="card"><div class="sec"><p class="lab">This week's ration</p>${advHtml}${windows}</div></div>
-  <div class="card"><div class="sec"><p class="lab">Pro-Fibre</p>${fibHtml}</div></div>
-  <div class="card">
+  return bannerHtml()+'<h2 class="screen">Status</h2>'+panel('Vet items',vetHtml)+
+    panel("This week's ration",advHtml+windows)+panel('Pro-Fibre',fibHtml)+`<div class="card">
     <div class="sec"><p class="lab">Weight</p>
       ${latest?`${row(`Latest, ${fmtShort(latest.date)}`,`${latest.kg.toFixed(2)} kg`)}`:'<p class="muted">No weights yet.</p>'}
       ${meanRows(today,true)}
@@ -1042,9 +1048,7 @@ function viewStatus(){
       ${S.changes.length?S.changes.slice(-4).reverse().map(c=>`${row(`${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g`)}`).join(''):'<p class="muted">No changes recorded.</p>'}
       <p class="sub">Oil changes adjust the base ration, not this offset.</p>
     </div>
-  </div>
-  <div class="card"><div class="sec"><p class="lab">This week against last</p>${ctx}</div></div>
-  <div class="card"><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></div>`;
+  </div>`+panel('This week against last',ctx)+panel('Tonight by recipe',tonight);
 }
 
 function weekContext(today){
@@ -1083,7 +1087,7 @@ function viewHistory(){
   const from=Math.max(toDay(s.startDate), toDay(today)-range+1);
   const isos=[]; for (let d=from;d<=toDay(today);d++) isos.push(toIso(d));
 
-  const chips=[14,28,56,'All'].map(r=>`<button class="chip ${(r==='All'?9999:r)===range?'on':''}" data-act="range" data-r="${r==='All'?9999:r}">${r}</button>`).join('');
+  const chips=[14,28,56,9999].map(r=>`<button ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r}</button>`).join('');
   const W=weightsList().filter(w=>toDay(w.date)>=from);
   const B=isos.map(i=>({date:i,v:(S.days[i]||{}).bcs})).filter(x=>Number.isFinite(x.v));
 
@@ -1109,11 +1113,10 @@ function viewHistory(){
   <div class="card"><div class="sec"><p class="lab">Weight, kg</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg')}</div>
     <div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget)}</div>
     <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
-  <div class="card"><div class="sec"><p class="lab">By recipe</p>${byRecipe(isos)}</div>
-    <div class="sec"><p class="lab">By extra</p>${byExtra(isos)}</div></div>
-  <div class="card"><div class="sec" style="padding:0">
-    <div class="tw"><table><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th>Meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div></div></div>`;
+  <div class="card"><div class="sec"><p class="lab">By recipe</p>${foodTable(isos,false)}</div>
+    <div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div></div>
+  <div class="card tw"><table><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th>Meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
 }
 
 function chartLabels(x0,x1){
@@ -1192,48 +1195,36 @@ function foodTable(isos,extras){
   }).join('');
   return `<div class="tw"><table><thead><tr><th>${extras?'Extra':'Recipe'}</th><th>Nights</th><th>Mean stool</th><th>5+</th>${extras?'':'<th>Mucus</th><th>Read</th>'}</tr></thead><tbody>${rows}</tbody></table></div>${extras?'<p class="legend">Unknown historical flags are excluded. Neither requires a confirmed No for both egg and broth.</p>':''}`;
 }
-const byRecipe=isos=>foodTable(isos,false);
-const byExtra=isos=>foodTable(isos,true);
 
 /* MORE */
 function viewMore(){
   const s=S.settings;
-  const oil=(s.oilSchedule||[]).map(e=>`${row(`${fmtShort(e.from)}`,`${e.ml} ml`)}`).join('');
-  const fib=(s.fibreSchedule||[]).map(e=>`${row(`${fmtShort(e.from)}`,`${e.g} g`)}`).join('');
+  const oil=(s.oilSchedule||[]).map(e=>row(fmtShort(e.from),e.ml+' ml')).join('');
+  const fib=(s.fibreSchedule||[]).map(e=>row(fmtShort(e.from),e.g+' g')).join('');
   const reg=(s.regimeChanges||[]).length
-    ? s.regimeChanges.map(d=>`${row(`${fmtShort(d)}`,`<button class="link" data-act="delregime" data-d="${d}">remove</button>`)}`).join('')
+    ? s.regimeChanges.map(d=>row(fmtShort(d),`<button class="link" data-act="delregime" data-d="${d}">remove</button>`)).join('')
     : '<p class="muted">None recorded.</p>';
   const chg=S.changes.length
-    ? S.changes.slice().reverse().map(c=>`${row(`${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}${c.refused?' (refused)':''}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g <button class="link" data-act="delchange" data-id="${esc(c.id)}">remove</button>`)}`).join('')
+    ? S.changes.slice().reverse().map(c=>row(`${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}${c.refused?' (refused)':''}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g <button class="link" data-act="delchange" data-id="${esc(c.id)}">remove</button>`)).join('')
     : '<p class="muted">None.</p>';
   const num=(k,label,step=1)=>inputField(localToday(),'setnum',k,['deadbandPct','bcsHoldAtOrBelow'].includes(k)?0:Number(step),k==='minWeighIns'?7:k==='bcsHoldAtOrBelow'?9:10000,Number(step)).replace('>'+k+'</label>','>'+label+'</label>');
 
-  return bannerHtml()+`
-  <h2 class="screen">Settings</h2>
-  <div class="card"><div class="sec"><p class="lab">Account</p>
-    ${row(`${esc(S.user?S.user.email:'')}`,`<button class="link" data-act="signout">Sign out</button>`)}
-    <p class="sub">Version ${APP_VERSION} &middot; ${S.status}</p></div>
-    <div class="sec"><p class="lab">Appearance</p>
-      <div class="seg">${['system','light','dark'].map(t=>`<button class="${(s.theme||'system')===t?'on':''}" data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div></div>
-  </div>
-
-  <div class="card">
-    <div class="sec"><p class="lab">Ration</p><div class="stack">
+  return bannerHtml()+'<h2 class="screen">Settings</h2>'+panel('Account',`
+    ${row(esc(S.user?.email||''),'<button class="link" data-act="signout">Sign out</button>')}
+    <p class="sub">Version ${APP_VERSION} · ${S.status}</p>
+    <h3 class="lab">Appearance</h3><div class="seg">${['system','light','dark'].map(t=>`<button ${choice((s.theme||'system')===t)} data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`)+
+    panel('Ration and supplements',`<div class="stack">
       ${num('targetKcal','daily target, kcal')}
       ${num('bdGrams','Bella &amp; Duke, g')}
       ${num('kcalPerGDarf','DARF, kcal per g','0.01')}
       ${num('kcalPerMlOil','oil, kcal per ml','0.01')}
       ${num('darfMinG','ration floor, g')}
-    </div></div>
-    <div class="sec"><p class="lab">Oil schedule</p>${oil}
-      <p class="sub">Changes recalculate the base ration from that date, keeping calories level without changing the cumulative offset.</p></div>
-    <div class="sec"><p class="lab">Pro-Fibre schedule</p>${fib}
-      <div class="chips" style="margin-top:9px">${[2.5,5,7.5,10].map(g=>`<button class="chip" data-act="setfibre" data-g="${g}">Set ${g} g today</button>`).join('')}</div>
-      <p class="sub">Manual doses up to ${s.fibreCapG} g are available here. Above ${s.fibreRestG} g is never advised: persistent soft stool needs vet review.</p></div>
-  </div>
-
-  <div class="card">
-    <div class="sec"><p class="lab">The weekly rule</p><div class="stack">
+    </div><h3 class="lab">Oil schedule</h3>${oil}
+      <p class="sub">Changes recalculate the base ration from that date, keeping calories level without changing the cumulative offset.</p>
+    <h3 class="lab">Pro-Fibre schedule</h3>${fib}
+      <div class="chips">${[2.5,5,7.5,10].map(g=>`<button class="chip" data-act="setfibre" data-g="${g}">Set ${g} g today</button>`).join('')}</div>
+      <p class="sub">Manual doses up to ${s.fibreCapG} g are available here. Above ${s.fibreRestG} g is never advised: persistent soft stool needs vet review.</p>`)+
+    panel('Weekly rule and adjustments',`<div class="stack">
       ${num('deadbandPct','deadband, %','0.1')}
       ${num('damping','damping','0.005')}
       ${num('maxStepG','single-step cap, g')}
@@ -1243,34 +1234,24 @@ function viewMore(){
       ${num('bcsHoldAtOrBelow','hold reductions at or below BCS','0.5')}
       ${num('attributionMinH','attribution floor, hours')}
       ${num('handoverHour','evening card from, hour')}
-    </div></div>
-    <div class="sec"><p class="lab">Regime changes</p>${reg}
-      <button class="link" data-act="addregime" style="margin-top:8px;display:inline-block">+ Mark today as a regime change</button>
-      <p class="sub">Record a changed target, portion, sustained treats or illness. A change in either comparison week suppresses advice.</p></div>
-    <div class="sec"><p class="lab">Adjustment log</p>${chg}</div>
-  </div>
-
-  <div class="card">
-    <div class="sec"><p class="lab">Data</p>
-      <div class="stack">
+    </div><h3 class="lab">Regime changes</h3>${reg}
+      <button class="link" data-act="addregime">+ Mark today as a regime change</button>
+      <p class="sub">Record a changed target, portion, sustained treats or illness. A change in either comparison week suppresses advice.</p>
+    <h3 class="lab">Adjustment log</h3>${chg}`)+
+    panel('Backup and export',`<div class="stack">
         <button class="btn ghost sm" data-act="exportmonth">Export this month as CSV</button>
         <button class="btn ghost sm" data-act="exportmd">Export this month as Markdown</button>
         <button class="btn ghost sm" data-act="exportall">Export everything as JSON</button>
         <label class="inline-lab" for="backup-file">Import JSON</label><input id="backup-file" class="tin" type="file" accept="application/json,.json" data-act="import">
       </div>
       <p class="sub">${Object.keys(S.days).length} days, ${S.changes.length} changes. File the month in the project on the 1st.</p>
-    </div>
-    <div class="sec"><p class="lab">Checks</p>
+    <h3 class="lab">Checks</h3>
       <button class="btn ghost sm" data-act="selftest">Run self-tests</button>
-      ${S.testOut?`<pre class="pre" style="margin-top:10px">${esc(S.testOut)}</pre>`:''}
-    </div>
-    <div class="sec"><p class="lab">When to call the vet</p>
-      <p class="muted" style="font-size:13px;line-height:1.55">Call for repeated monthly upset; blood, marked lethargy or inappetence; soft stool despite ${s.fibreRestG} g Pro-Fibre; further vacant episodes (video these); or weight loss with normal appetite.<br><br><b style="color:var(--alert)">Emergency: unproductive retching with a distended or tense abdomen after a meal needs a same-hour vet call.</b></p>
-    </div>
-    <div class="sec"><p class="lab">Erase</p>
+      ${S.testOut?`<pre class="pre">${esc(S.testOut)}</pre>`:''}
+    <h3 class="lab">When to call the vet</h3><p class="muted">Call for repeated monthly upset; blood, marked lethargy or inappetence; soft stool despite ${s.fibreRestG} g Pro-Fibre; further vacant episodes (video these); or weight loss with normal appetite.<br><br><b style="color:var(--alert)">Emergency: unproductive retching with a distended or tense abdomen after a meal needs a same-hour vet call.</b></p>
+    <h3 class="lab">Erase log data</h3>
       <button class="btn danger sm" data-act="erase">Erase all log data</button>
-      <p class="sub">Deletes days and changes; keeps settings. Export first.</p></div>
-  </div>`;
+      <p class="sub">Deletes days and changes; keeps settings. Export first.</p>`);
 }
 
 /* EXPORT */
@@ -1524,6 +1505,13 @@ function selfTest(){
 /* EVENTS */
 let stoolDraft=null;
 const entryDate=el=>el.dataset.date||(S.tab==='day'?S.cursor:localToday());
+function finishInput(form,keep){
+  const input=$('input,textarea',form);
+  if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
+  form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
+  if(renderPending) render();
+  if(document.activeElement.id!==input.id) refocus(input.id);
+}
 async function confirmInput(form){
   if (!form.hasAttribute('data-dirty')) return;
   const el=$('input,textarea',form), k=form.dataset.key, iso=form.dataset.date, v=el.value;
@@ -1536,19 +1524,19 @@ async function confirmInput(form){
   }
   const patch=k==='notes'?{notes:v}:k==='weight'?{weight:n,weightMissed:null}:k==='darfFed'?{meal:{darfFed:n}}:{[k]:n};
   const saved=k==='setnum'?saveSettings({[form.dataset.setting]:n}):saveDay(iso,patch);
-  if (await saved){form.removeAttribute('data-dirty');render(true);}
+  if (await saved) finishInput(form,true);
 }
 
 document.addEventListener('click', async (ev)=>{
   const el=ev.target.closest('[data-act]'); if (!el) return;
   const a=el.dataset.act, iso=entryDate(el);
-  if (['go','goday','openday','swapcard','jump','dayshift','range','signout'].includes(a)&&!leaveDraft()) return;
+  if (['go','openday','swapcard','jump','dayshift','range','signout'].includes(a)&&!leaveDraft()) return;
   const d=S.days[iso]||{};
 
   if (a==='signin'){ return doSignIn(); }
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
   if (a==='go'){ S.tab=el.dataset.tab; render(); return; }
-  if (a==='goday'||a==='openday'){ S.cursor=el.dataset.date; S.tab='day'; render(); return; }
+  if (a==='openday'){ S.cursor=el.dataset.date; S.tab='day'; render(); return; }
   if (a==='dismiss-banner'){ S.banner=null; render(); return; }
   if (a==='swapcard'){ const wasEve=isEvening(); S.forceCard=wasEve?'morning':'evening';
     if ((S.forceCard==='evening')===(new Date().getHours()>=(S.settings.handoverHour??16))) S.forceCard=null;
@@ -1572,7 +1560,7 @@ document.addEventListener('click', async (ev)=>{
     if (el.disabled) return; el.disabled=true;
     await confirmInput(el.closest('[data-form]')); el.disabled=false; return;
   }
-  if (a==='cancelinput'){ el.closest('[data-form]').removeAttribute('data-dirty'); render(true); return; }
+  if (a==='cancelinput'){ finishInput(el.closest('[data-form]')); return; }
   if (a==='retrysync'){ flushWrites(); return; }
   if (a==='missed'){
     if (Number.isFinite(d.weight)&&!confirm('Replace this recorded weight with a missed marker?')) return;
@@ -1610,16 +1598,6 @@ document.addEventListener('click', async (ev)=>{
   }
 
 
-  if (a==='pick'||a==='pickday'){
-    const r=el.dataset.id, meal=d.meal||{};
-    if (meal.recipe===r) return;
-    const b=bowlFor(iso,r,S.settings,S.changes,meal);
-    const next={recipe:r,darfPlanned:b.darfG};
-    // Dose/time history is retained; a plan is not proof that a meal was fed.
-    if (meal.oilMl==null) next.oilMl=b.oilMl;
-    if (meal.fibreG==null) next.fibreG=b.fibreG;
-    saveDay(iso,{meal:next}); return;
-  }
   if (a==='extra'){
     const k=el.dataset.k;
     if (!Object.hasOwn(MEAL_FLAGS,k)) return;
@@ -1628,7 +1606,7 @@ document.addEventListener('click', async (ev)=>{
     saveDay(iso,{meal}); return;
   }
   if (a==='fed'){
-    const meal=d.meal||{}, r=meal.recipe||el.dataset.r;
+    const meal=d.meal||{}, r=meal.recipe;
     if (!r||meal.fedAt) return;
     const b=bowlFor(iso,r,S.settings,S.changes,meal);
     saveDay(iso,{meal:{recipe:r,fedAt:nowHHMM(),darfPlanned:b.darfG,darfFed:b.darfG,oilMl:b.oilMl,fibreG:b.fibreG}}); return;
@@ -1677,13 +1655,22 @@ document.addEventListener('click', async (ev)=>{
 
 document.addEventListener('input',ev=>{
   const form=ev.target.closest('[data-form]');
-  if (form) form.setAttribute('data-dirty','');
+  if (form&&!form.hasAttribute('data-dirty')){
+    form.setAttribute('data-dirty','');
+    form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
+  }
 });
 
 
 document.addEventListener('change', (ev)=>{
   const el=ev.target.closest('[data-act]');
   if (el && el.dataset.act==='import' && el.files && el.files[0]) importJson(el.files[0]);
+  if(el?.dataset.act==='recipe'){
+    const iso=el.dataset.date,meal=S.days[iso]?.meal||{},r=el.value;
+    if(meal.recipe===r||!RECIPES.some(x=>x.id===r))return;
+    const b=bowlFor(iso,r,S.settings,S.changes,meal);
+    saveDay(iso,{meal:{recipe:r,darfPlanned:b.darfG,oilMl:meal.oilMl??b.oilMl,fibreG:meal.fibreG??b.fibreG}});
+  }
 });
 
 $('#tabbar').addEventListener('click', (ev)=>{
@@ -1698,7 +1685,7 @@ async function doSignIn(){
   const em=$('#em').value.trim(), pw=$('#pw').value;
   const err=$('#gate-err'); err.classList.add('hide');
   if (!em||!pw){ err.textContent='Enter both an email address and a password.'; err.classList.remove('hide'); return; }
-  $('#signin').disabled=true; $('#signin').innerHTML='<span class="spin"></span>';
+  $('#signin').disabled=true; $('#signin').textContent='Signing in…';
   try { await signInWithEmailAndPassword(auth, em, pw); }
   catch(e){
     const map={
