@@ -1,32 +1,22 @@
-/* Murphy's Log service worker.
-   Network first for the page so an update is picked up when online,
-   cache fallback so it opens with no signal at all. */
-const VERSION = 'murphy-3.0.0';
-const SHELL = ['./', './index.html', './sw.js'];
-
-self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+const VERSION='murphy-3.1.0', SDK='https://www.gstatic.com/firebasejs/12.19.0/';
+self.addEventListener('install',e=>{
+  e.waitUntil(caches.open(VERSION).then(c=>c.addAll(['./','./index.html',
+    ...['app','auth','firestore'].map(n=>SDK+'firebase-'+n+'.js')])).then(()=>self.skipWaiting()));
 });
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+self.addEventListener('activate',e=>{
+  e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('murphy-')&&k!==VERSION)
+    .map(k=>caches.delete(k)))).then(()=>self.clients.claim()));
 });
-self.addEventListener('fetch', (e) => {
-  const url = new URL(e.request.url);
-  if (e.request.method !== 'GET') return;
-  // Never touch Firebase or any cross-origin traffic: the SDK does its own
-  // offline handling and caching it here would break sync.
-  if (url.origin !== self.location.origin) return;
-  e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        const copy = res.clone();
-        caches.open(VERSION).then(c => c.put(e.request, copy)).catch(() => {});
-        return res;
-      })
-      .catch(() => caches.match(e.request).then(r => r || caches.match('./index.html')))
-  );
+self.addEventListener('fetch',e=>{
+  const r=e.request, u=new URL(r.url), module=r.url.startsWith(SDK);
+  if(r.method!=='GET'||(!module&&u.origin!==self.location.origin)) return;
+  e.respondWith(caches.open(VERSION).then(async c=>{
+    const cached=await c.match(r);
+    if(module&&cached) return cached;
+    try{
+      const res=await fetch(r);
+      if(!res.ok) throw Error('HTTP '+res.status);
+      e.waitUntil(c.put(r,res.clone())); return res;
+    }catch(error){return cached||(r.mode==='navigate'&&await c.match('./index.html'))||Response.error();}
+  }));
 });
