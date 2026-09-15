@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.1.7">
+<html lang="en-GB" data-version="3.1.8">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -206,7 +206,7 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
   .bcs-scale button{grid-column:span 2;white-space:nowrap}
   .bcs-scale button:nth-child(5){grid-column:2 / span 2}
 }
-#bcs-announcement{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+#bcs-announcement,#history-announcement{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .bristol button.on b,.bristol button.on i,.scale button.on{color:var(--on-accent)}
 :is(.bristol,.scale) .on{background:var(--tone);border-color:var(--tone)}
 
@@ -302,18 +302,15 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 }
 
 /* date bar */
-.datebar{container-type:inline-size;display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:8px;margin-bottom:var(--s5)}
-.datebar button{font-size:1.0625rem;color:var(--ink-2);padding:2px 12px}
+.history-navigation{margin-bottom:var(--s5)}
+.datebar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:8px}
+.datebar button{width:44px;font-size:1.5rem;line-height:1.2;text-align:center;color:var(--ink-2);padding:8px 0}
 .datebar button[disabled]{opacity:.28}
-.datebar .d{font-size:.9375rem;font-weight:600;font-variant-numeric:tabular-nums;min-width:0;text-align:center;flex:1}
-.history-date{flex:1;min-width:0;text-align:center}
-.datebar input{display:block;width:100%;min-width:0;max-width:100%;background:var(--surface);color:var(--accent-ink);border:0;border-radius:6px;font-size:1rem;text-align:center;padding:4px 0}
-.datebar label{font-size:.8125rem;color:var(--ink-3);display:block}
-.datebar button{flex:none}
-@container(max-width:17rem){
-  .history-date{order:-1;flex-basis:100%}
-  .datebar button{flex:1 1 40%;border:1px solid var(--rule);border-radius:8px}
-}
+.datebar .d{font-size:1.0625rem;font-weight:600;font-variant-numeric:tabular-nums;min-width:0;text-align:center;line-height:1.4;overflow-wrap:anywhere}
+.history-date-choice{display:flex;justify-content:center;margin-top:4px}
+.history-picker{width:calc(100% - 32px);max-width:28rem;max-height:calc(100dvh - 32px);overflow:auto;margin:auto;padding:24px;border:1px solid var(--rule);border-radius:12px;background:var(--surface);color:var(--ink)}
+.history-picker::backdrop{background:rgb(0 0 0 / .45)}
+.history-picker h2{font-size:1.25rem;line-height:1.3;margin:0 0 20px}
 
 /* misc */
 .muted{color:var(--ink-3);font-size:.9375rem}
@@ -377,6 +374,17 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   <div id="feedback" class="feedback-region" aria-live="polite" aria-atomic="true"></div>
   <main id="main"></main>
   <div id="bcs-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="history-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
+  <dialog class="history-picker" id="history-picker" aria-labelledby="history-picker-title">
+    <form id="history-picker-form">
+      <h2 id="history-picker-title">Choose date</h2>
+      <label class="inline-lab" for="history-date">History date</label>
+      <input class="tin" id="history-date" type="date" required aria-describedby="history-picker-help history-picker-error">
+      <p class="sub" id="history-picker-help">Choose a date, then show that day’s history. Cancel keeps the current day.</p>
+      <p class="field-error hide" id="history-picker-error" role="alert"></p>
+      <div class="btnrow"><button class="btn" type="submit">Show day</button><button class="btn ghost" type="button" data-act="cancelhistorydate">Cancel</button></div>
+    </form>
+  </dialog>
   <nav class="tabbar" id="tabbar" aria-label="Primary navigation">
     <button data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></svg>Today</button>
     <button data-tab="day"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
@@ -500,7 +508,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.7';
+const APP_VERSION = '3.1.8';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -1312,9 +1320,11 @@ function focusAfterRender(selector){
   target.scrollIntoView({block:'start',behavior:'instant'});
 }
 function navigateTo(tab,{date,target}={}){
+  if(tab==='day'&&!date&&S.tab!=='day')date=shiftDate(localToday(),-1);
   S.tab=tab;if(date)S.cursor=date;
   render();
-  focusAfterRender(target||(tab==='day'?'#history-date':'#main h2.screen'));
+  focusAfterRender(target||(tab==='day'?'#history-heading':'#main h2.screen'));
+  if(tab==='day')announceHistoryDate();
 }
 function refreshSelectionStates(){
   for(const button of $$('#main [data-act="event"],#main [data-act="bowl"],#main [data-act="theme"]')){
@@ -1340,7 +1350,7 @@ function render(force=false){
   syncBcsGuidance();
   if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();return;}
   renderPending=false;
-  if (!S.cursor) S.cursor=localToday();
+  if (!S.cursor) S.cursor=S.tab==='day'?shiftDate(localToday(),-1):localToday();
   $$('#tabbar button').forEach(b=>{
     const active=b.dataset.tab===S.tab;
     b.classList.toggle('on',active);
@@ -1628,11 +1638,32 @@ function earliestHistoryDate(){
 function latestHistoryDate(){
   return cached('latestHistory',()=>[localToday(),...Object.keys(S.days).filter(validDate)].sort().at(-1));
 }
+function historyMinimumDate(){
+  // Yesterday must remain viewable even on the first day of a new log.
+  // Keep the Data tab's existing range calculation unchanged.
+  return [earliestHistoryDate(),shiftDate(localToday(),-1)].sort()[0];
+}
+function permittedHistoryDate(iso){
+  return validDate(iso)&&iso>=historyMinimumDate()&&iso<=latestHistoryDate()&&
+    (iso<=localToday()||Object.hasOwn(S.days,iso));
+}
+const historyDateLabel=iso=>`${fmtDate(iso)} ${iso.slice(0,4)}`;
+function announceHistoryDate(){ $('#history-announcement').textContent=historyDateLabel(S.cursor); }
+function openHistoryPicker(){
+  const input=$('#history-date');
+  input.min=historyMinimumDate();input.max=latestHistoryDate();input.value=S.cursor;
+  input.setCustomValidity('');$('#history-picker-error').classList.add('hide');
+  $('#history-picker').showModal();
+  // A direct user action is required. The visible native field is the fallback.
+  try{input.showPicker?.();}catch{}
+}
 function viewDay(){
   const iso=S.cursor, miss=missingFor(iso);
-  return bannerHtml()+`<h2 class="screen">History</h2><div class="datebar">
-    <button data-act="dayshift" data-n="-1" ${iso<=earliestHistoryDate()?'disabled':''} aria-label="Previous day">‹</button>
-    <div class="history-date"><label class="inline-lab" for="history-date">History date</label><input class="tin" id="history-date" type="date" data-act="historydate" min="${earliestHistoryDate()}" max="${latestHistoryDate()}" value="${iso}"><span class="d">${fmtDate(iso)}</span></div><button data-act="dayshift" data-n="1" ${iso>=latestHistoryDate()?'disabled':''} aria-label="Next day">›</button></div>
+  return bannerHtml()+`<h2 class="screen" id="history-heading">History</h2><div class="history-navigation"><div class="datebar">
+    <button id="history-previous" data-act="dayshift" data-n="-1" ${permittedHistoryDate(shiftDate(iso,-1))?'':'disabled'} aria-label="Previous day">‹</button>
+    <span class="d" id="history-date-label" tabindex="-1">${historyDateLabel(iso)}</span>
+    <button id="history-next" data-act="dayshift" data-n="1" ${permittedHistoryDate(shiftDate(iso,1))?'':'disabled'} aria-label="Next day">›</button></div>
+    <div class="history-date-choice"><button class="link" id="choose-history-date" data-act="choosehistorydate" aria-haspopup="dialog" aria-controls="history-picker">Choose date</button></div></div>
     <div class="note ${miss.length?'plain':'good'}"><b>${miss.length?'Incomplete':'Complete'}</b>${esc(miss.map(x=>x.t).join(', '))}</div>`+dailyFields(iso);
 }
 
@@ -2254,7 +2285,9 @@ document.addEventListener('click', async (ev)=>{
   if (a==='signin'){ return doSignIn(); }
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
   if (a==='go'){ navigateTo(el.dataset.tab); return; }
-  if (a==='openday'){ navigateTo('day',{date:iso,target:el.dataset.target||'#history-date'}); return; }
+  if (a==='openday'){ navigateTo('day',{date:iso,target:el.dataset.target||'#history-date-label'}); return; }
+  if(a==='choosehistorydate'){openHistoryPicker();return;}
+  if(a==='cancelhistorydate'){$('#history-picker').close();return;}
   if (a==='dismiss-banner'){
     if(S.banner?.source==='local-save')S.localSaveError=null;
     S.banner=null;setStatus(navigator.onLine?'Saved on this device':'Offline · saved on this device');render();return;
@@ -2276,13 +2309,13 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if (a==='dayshift'){ const n=Number(el.dataset.n);
-    let next=shiftDate(S.cursor,n);
-    if(next>localToday()){
-      const dates=[localToday(),...Object.keys(S.days).filter(validDate)].sort();
-      next=n<0?dates.filter(date=>date<S.cursor).at(-1):dates.find(date=>date>S.cursor);
+    if(n!==-1&&n!==1)return;
+    const next=shiftDate(S.cursor,n);
+    if(permittedHistoryDate(next)){
+      S.cursor=next;render();announceHistoryDate();
+      if(document.getElementById(el.id)?.disabled)refocus('history-date-label');
     }
-    if (next&&next>=earliestHistoryDate()&&(next<=localToday()||Object.hasOwn(S.days,next))) S.cursor=next;
-    render();focusAfterRender('#history-date');return; }
+    return; }
   if (a==='range'){ S.range=Number(el.dataset.r); render(); return; }
   if (a==='theme'){ if(await saveSettings({theme:el.dataset.t})){applyTheme();refreshSelectionStates();} return; }
 
@@ -2512,12 +2545,6 @@ document.addEventListener('change', async (ev)=>{
     if(eraseBlocksChanges())return;
     importJson(el.files[0]);
   }
-  if(el?.dataset.act==='historydate'){
-    const next=el.value;
-    if(!next||!el.reportValidity()||next<earliestHistoryDate()||(next>localToday()&&!Object.hasOwn(S.days,next))){el.value=S.cursor;return;}
-    if(!leaveDraft()){el.value=S.cursor;return;}
-    navigateTo('day',{date:next,target:'#history-date'});return;
-  }
   if(el?.dataset.act==='recipe'){
     const iso=el.dataset.date,meal=S.days[iso]?.meal||{},r=el.value;
     if(meal.recipe===r||!RECIPES.some(x=>x.id===r))return;
@@ -2530,6 +2557,22 @@ $('#tabbar').addEventListener('click', (ev)=>{
   if (!leaveDraft()) return;
   navigateTo(b.dataset.tab);
 });
+$('#history-date').addEventListener('input',()=>{
+  $('#history-date').setCustomValidity('');$('#history-picker-error').classList.add('hide');
+});
+$('#history-picker-form').addEventListener('submit',ev=>{
+  ev.preventDefault();
+  const input=$('#history-date'),next=input.value;
+  if(!input.reportValidity())return;
+  if(!permittedHistoryDate(next)){
+    const message='Choose today or an earlier date within the range, or a future date already saved in History.';
+    input.setCustomValidity(message);const error=$('#history-picker-error');error.textContent=message;error.classList.remove('hide');input.reportValidity();return;
+  }
+  if(next!==S.cursor&&!leaveDraft())return;
+  $('#history-picker').close();
+  if(next!==S.cursor)navigateTo('day',{date:next,target:'#history-date-label'});
+});
+$('#history-picker').addEventListener('close',()=>{if(S.tab==='day')refocus('choose-history-date');});
 
 /* AUTH AND BOOT */
 // The tab bar can wrap with large text. Reserve its actual height, including the
@@ -2588,7 +2631,7 @@ setInterval(refreshLocalDay,1000);
 window.addEventListener('focus',refreshLocalDay);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshLocalDay();});
 
-window.appCanUpdate=()=>!S.undoBusy&&!S.erasing&&!importing&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
+window.appCanUpdate=()=>!S.undoBusy&&!S.erasing&&!importing&&!$('#history-picker').open&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
 window.addEventListener('app-shell-status',()=>{renderFeedback();if(S.tab==='more')render()});
 for(const [selector,property]of [['.topbar','--headerh'],['#feedback','--feedbackh']]){
   new ResizeObserver(entries=>document.documentElement.style.setProperty(property,entries[0].target.getBoundingClientRect().height+'px')).observe($(selector));
