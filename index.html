@@ -343,7 +343,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.4';
+const APP_VERSION = '3.1.5';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -405,13 +405,17 @@ const DEFAULTS = {
   minWeighIns:5, windowDays:7, suppressOnRegimeChange:true,
   bcsHoldAtOrBelow:5, bcsTarget:5, darfMinG:20,
   attributionMinH:6, handoverHour:16,
-  eggKcal:0, brothKcal:0,
+  eggKcal:74, brothKcal:15, // One egg; one 50 ml serving of broth.
   fibreStepG:2.5, fibreRestG:5, fibreCapG:10, fibreStreakDays:7,
   fibreStepBackDays:14, fibreReviewMinDays:14, fibreReviewWindow:14, fibreReviewBadDays:6,
   oilSchedule:[{from:'2026-01-01', ml:8},{from:'2026-09-28', ml:4}],
   fibreSchedule:[{from:'2026-09-04', g:2.5}],
   regimeChanges:[], vetWindowDays:90, theme:'system'
 };
+
+// These two user-specified values replace legacy configuration (including zero).
+// No saved meal snapshots or schedule entries are migrated.
+const mealSettings = saved => ({...DEFAULTS,...saved,eggKcal:DEFAULTS.eggKcal,brothKcal:DEFAULTS.brothKcal});
 
 const DAY_MS = 86400000;
 const dateDays = new Map();
@@ -443,19 +447,49 @@ const adjustmentOn = (iso, ch) => (ch||[]).reduce((a,c)=> toDay(c.date)<=toDay(i
 
 function bowlFor(iso, recipeId, s, changes, extras){
   const r = RECIPES.find(x=>x.id===recipeId); if (!r) return null;
+  s = mealSettings(s);
+  const ex = mealDefaults({...extras,recipe:recipeId});
   const bdKcal = r.kcal100 * (s.bdGrams/100);
-  const oilMl = r.noOil ? 0 : oilMlOn(iso,s);
+  const oilMl = ex.oilGiven ? oilMlOn(iso,s) : 0;
   const oilKcal = round1(oilMl * s.kcalPerMlOil);
-  const fibreG = fibreGOn(iso,s);
-  const ex = extras||{};
-  const extrasKcal = (ex.egg?s.eggKcal:0) + (ex.broth?s.brothKcal:0);
+  const fibreG = ex.fibreGiven ? fibreGOn(iso,s) : 0;
+  const eggKcal = ex.egg ? s.eggKcal : 0, brothKcal = ex.broth ? s.brothKcal : 0;
+  const extrasKcal = eggKcal + brothKcal;
   const adjustment = adjustmentOn(iso, changes);
   const darfBase = (s.targetKcal - bdKcal - oilKcal - extrasKcal) / s.kcalPerGDarf;
+  const overTarget = bdKcal + oilKcal + extrasKcal > s.targetKcal;
   let darfG = Math.round(darfBase + adjustment), floored = false;
-  if (darfG < s.darfMinG){ darfG = s.darfMinG; floored = true; }
-  return { recipe:r, bdGrams:s.bdGrams, bdKcal, oilMl, oilKcal, fibreG, extrasKcal,
-    adjustment, darfBase:round1(darfBase), darfG, floored,
+  if (darfBase <= 0) darfG = 0;
+  else if (darfG < s.darfMinG){ darfG = s.darfMinG; floored = true; }
+  darfG = Math.max(0,darfG);
+  return { recipe:r, bdGrams:s.bdGrams, bdKcal, oilMl, oilKcal, fibreG, eggKcal, brothKcal, extrasKcal,
+    adjustment, darfBase:round1(darfBase), darfG, floored, overTarget,
     totalKcal: Math.round(bdKcal + oilKcal + extrasKcal + darfG*s.kcalPerGDarf) };
+}
+
+function mealDefaults(meal={}){
+  // An older saved boolean is an explicit choice, even when it is false.
+  const oilDefaultMode = meal.oilDefaultMode!=='auto'&&typeof meal.oilGiven==='boolean' ? 'manual' : 'auto';
+  return {...meal,egg:meal.egg??false,broth:meal.broth??false,fibreGiven:meal.fibreGiven??true,
+    oilDefaultMode,oilGiven:oilDefaultMode==='auto'? !RECIPES.find(r=>r.id===meal.recipe)?.noOil : meal.oilGiven};
+}
+const isEditablePlan = (iso,meal) => iso>=localToday()&&!isFedMeal(meal);
+function calculatedMeal(iso,meal){
+  const m=mealDefaults(meal), b=bowlFor(iso,m.recipe,S.settings,S.changes,m);
+  return b?{...m,darfPlanned:b.darfG,oilMl:b.oilMl,fibreG:b.fibreG,
+    eggKcal:b.eggKcal,brothKcal:b.brothKcal,oilKcal:b.oilKcal,extrasKcal:b.extrasKcal,
+    totalKcal:isFedMeal(m)&&Number.isFinite(m.darfFed)?
+      Math.round(b.bdKcal+b.oilKcal+b.extrasKcal+m.darfFed*S.settings.kcalPerGDarf):b.totalKcal}:m;
+}
+function plannedMeal(iso,meal=S.days[iso]?.meal||{}){
+  // Read-only projection: opening history or rendering a view never writes data.
+  return isEditablePlan(iso,meal)?calculatedMeal(iso,meal):meal;
+}
+function saveMeal(iso,patch){
+  const saved=S.days[iso]?.meal||{};
+  // Persist all defaults with the first edit to this feeding date. Recipe changes
+  // follow automatic oil defaults; manual choices and all fed history survive.
+  return saveDay(iso,{meal:isEditablePlan(iso,saved)?calculatedMeal(iso,{...saved,...patch}):patch});
 }
 
 function windowMean(weights, endDay, len){
@@ -744,7 +778,7 @@ function applyOperation(op){
   }
   if(op.items){ op.items.forEach(applyOperation); return; }
   if(op.col==='days') S.days={...S.days,[op.id]:operationData(op,S.days[op.id])};
-  if(op.col==='settings') S.settings=operationData(op,S.settings);
+  if(op.col==='settings') S.settings=mealSettings(operationData(op,S.settings));
   if(op.col==='changes') S.changes=S.changes.filter(c=>c.id!==op.id)
     .concat(op.erase?[]:[operationData(op,S.changes.find(c=>c.id===op.id))]).sort((a,b)=>toDay(a.date)-toDay(b.date));
 }
@@ -888,7 +922,7 @@ function subscribe(){
   unsubs.push(onSnapshot(doc(db,'settings','main'),{includeMetadataChanges:true},snap=>{
     if(S.user?.uid!==uid) return;
     S.savedSettings=snap.exists()?snap.data():{};
-    S.settings={...DEFAULTS,...S.savedSettings}; received('settings',snap);
+    S.settings=mealSettings(S.savedSettings); received('settings',snap);
   },failed));
   void flushWrites();
 }
@@ -936,7 +970,7 @@ function weightsList(){
 }
 function mealsList(){
   return cached('meals',()=>Object.entries(S.days).filter(([,d])=>d.meal?.recipe)
-    .map(([date,d])=>({...d.meal,date})).sort((a,b)=>a.date.localeCompare(b.date)));
+    .map(([date,d])=>({...plannedMeal(date,d.meal),date})).sort((a,b)=>a.date.localeCompare(b.date)));
 }
 function insights(){
   return cached('insights',()=>({vet:vetItems(S.days,localToday(),weightsList(),S.settings),fib:fibreAdvice(S.days,localToday(),S.settings)}));
@@ -980,7 +1014,7 @@ function render(force=false){
   if (!S.user) return;
   if (!S.ready){rendered='';$('#main').innerHTML=bannerHtml()+'<p role="status">Loading saved records…</p>';return;}
   syncBcsGuidance();
-  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;return;}
+  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();return;}
   renderPending=false;
   if (!S.cursor) S.cursor=localToday();
   $$('#tabbar button').forEach(b=>{
@@ -1062,18 +1096,21 @@ function weightCard(iso){
   return panel('Weight',inputField(iso,'weight','Pre-feed weight, kg',10,30,.01)+weightSwitch(iso,S.days[iso]||{})+weightHint(iso));
 }
 const MEAL_FLAGS={egg:'Egg',broth:'Bone broth',fibreGiven:'Fibre',oilGiven:'Salmon oil'};
-function mealFlagDetail(m,k){
-  const amount=k==='oilGiven'&&m.oilMl!=null?`${m.oilMl} ml saved`:k==='fibreGiven'&&m.fibreG!=null?`${m.fibreG} g saved`:'';
+function mealFlagDetail(m,k,planning=false){
+  const label=planning?'scheduled':'saved';
+  const amount=k==='oilGiven'&&m.oilMl!=null?`${m.oilMl} ml ${label}`:k==='fibreGiven'&&m.fibreG!=null?`${m.fibreG} g ${label}`:
+    planning&&k==='egg'?`1 egg · ${DEFAULTS.eggKcal} kcal`:planning&&k==='broth'?`50 ml · ${DEFAULTS.brothKcal} kcal`:'';
   return (m[k]===true?'Included in this meal':m[k]===false?'Not included in this meal':'Not recorded; turn on to include')+(amount?' · '+amount:'');
 }
 function mealFlags(iso,m){
-  return `<div class="meal-flags" role="group" aria-label="Included in the meal on ${fmtDate(iso)}">${Object.entries(MEAL_FLAGS).map(([k,label])=>switchRow('meal-'+k+'-'+iso,label,m[k],mealFlagDetail(m,k),`data-act="extra" data-k="${k}" data-date="${iso}"`)).join('')}</div><p class="sub">For this meal only. Changing a switch keeps its saved quantity.${Object.keys(MEAL_FLAGS).some(k=>typeof m[k]!=='boolean')?' A dash means inclusion was not recorded. Turn on, then off to confirm an item was not included.':''}</p>`;
+  const planning=isEditablePlan(iso,m);
+  return `<div class="meal-flags" role="group" aria-label="Included in the meal on ${fmtDate(iso)}">${Object.entries(MEAL_FLAGS).map(([k,label])=>switchRow('meal-'+k+'-'+iso,label,m[k],mealFlagDetail(m,k,planning),`data-act="extra" data-k="${k}" data-date="${iso}"`)).join('')}</div><p class="sub">For this meal only. ${planning?'Changing a switch recalculates the bowl; supplement schedules are kept.':'Changing a switch keeps its saved quantity.'}${Object.keys(MEAL_FLAGS).some(k=>typeof m[k]!=='boolean')?' A dash means inclusion was not recorded. Turn on, then off to confirm an item was not included.':''}</p>`;
 }
 function mealSummary(m){
   return `${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g<br>${Object.entries(MEAL_FLAGS).map(([k,l])=>l+': '+(m[k]===true?'Yes':m[k]===false?'No':'not recorded')).join(' · ')}`;
 }
 function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null){
-  const m=S.days[iso]?.meal||{}, r=RECIPES.find(x=>x.id===m.recipe), fed=isFedMeal(m);
+  const m=plannedMeal(iso), r=RECIPES.find(x=>x.id===m.recipe), fed=isFedMeal(m);
   const disabled=live&&!fed;
   const title=previous?"Last night's meal":live?"Tonight's meal":'Evening meal';
   const feedingControls=live?`${fed?row('Fed at '+esc(m.fedAt),esc(m.darfFed??m.darfPlanned??'?')+' g'):''}<button class="btn ${fed?'ghost sm':''}" data-act="${fed?'unfeed':'fed'}" data-date="${iso}">${fed?'Undo Fed':'Fed'}</button>`:
@@ -1084,8 +1121,8 @@ function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null
   const body=`<label class="inline-lab" for="recipe-${iso}">Recipe · ${fmtDate(iso)}</label>
     <select class="tin" id="recipe-${iso}" data-act="recipe" data-date="${iso}"><option value="" disabled ${!m.recipe?'selected':''}>Choose a recipe</option>${m.recipe&&!r?`<option selected value="${esc(m.recipe)}">${esc(m.recipe)}</option>`:''}${RECIPES.map(x=>`<option value="${x.id}" ${m.recipe===x.id?'selected':''}>${x.name}</option>`).join('')}</select>
     ${!live&&m.recipe&&!fed?'<p class="sub">Planned only — not recorded as fed.</p>':''}
-    ${!live&&m.recipe?`<p class="sub">${esc(m.darfFed??m.darfPlanned??'?')} g · ${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g</p>`:''}
-    ${details}${mealFlags(iso,m)}
+    ${!live&&m.recipe&&!isEditablePlan(iso,m)?`<p class="sub">${esc(m.darfFed??m.darfPlanned??'?')} g · ${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g</p>`:''}
+    ${details||(!live&&isEditablePlan(iso,m)?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'')}${mealFlags(iso,m)}
     ${r||(!live&&m.recipe)?`${feedingControls}
       ${!disabled?inputField(iso,'darfFed','Grams actually fed',0,400):''}
       <p class="lab">How the bowl went</p><div class="seg">${['cleared','left','refused'].map(k=>`<button ${choice(m.bowl===k)} ${disabled?'disabled':''} data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
@@ -1154,8 +1191,9 @@ function stoolsCard(iso){
   return panel('Stools',(rows||'<p class="muted">None logged.</p>')+form);
 }
 
-function cardEvening(iso){
-  const s=S.settings, meal=S.days[iso]?.meal||{}, b=bowlFor(iso,meal.recipe,s,S.changes,meal);
+function mealPlanDetails(iso){
+  const s=S.settings, meal=plannedMeal(iso), planning=isEditablePlan(iso,meal);
+  const b=planning?bowlFor(iso,meal.recipe,s,S.changes,meal):null;
   const oil=s.oilSchedule||[], fibre=s.fibreSchedule||[];
   const next=oil.filter(e=>e.from>iso).sort((a,b)=>a.from.localeCompare(b.from))[0];
   const recent=[...oil,...fibre].map(e=>e.from).filter(d=>d<=iso&&toDay(iso)-toDay(d)<=7).sort().at(-1);
@@ -1164,19 +1202,37 @@ function cardEvening(iso){
   const plan=b?`<h3 class="lab">Scheduled amounts</h3>${row('Bella &amp; Duke',b.bdGrams+' g')}
       ${row('DARF Active',`<strong>${b.darfG} g</strong>`)}
       ${row('Salmon oil',b.oilMl?b.oilMl+' ml':'none tonight')}${row('Pro-Fibre',b.fibreG+' g')}
-      <p class="sub">${b.darfBase} g base ${b.adjustment>=0?'+':'−'} ${Math.abs(b.adjustment)} g adjustment · ${b.totalKcal} kcal${b.floored?' · at the ration floor':''}</p>`:
+      ${meal.egg?row('Egg',`1 · ${b.eggKcal} kcal`):''}${meal.broth?row('Bone broth',`50 ml · ${b.brothKcal} kcal`):''}
+      <p class="sub">${b.darfBase} g base ${b.adjustment>=0?'+':'−'} ${Math.abs(b.adjustment)} g adjustment · ${b.totalKcal} kcal${b.floored?' · at the ration floor':''}</p>
+      ${b.overTarget?'<p class="note warn">Other ingredients exceed the calorie target. DARF is 0 g.</p>':''}`:
       '<p class="muted">Choose a recipe to see tonight’s amounts.</p>';
-  const amounts=savedAmounts?`<h3 class="lab">Saved meal amounts</h3>
+  const amounts=!planning&&savedAmounts?`<h3 class="lab">Saved meal amounts</h3>
       ${meal.darfFed!=null?row('DARF actually fed',`<strong>${esc(meal.darfFed)} g</strong>`):''}
       ${row('DARF planned',meal.darfPlanned!=null?esc(meal.darfPlanned)+' g':'not recorded')}
       ${row('Salmon oil',meal.oilMl!=null?esc(meal.oilMl)+' ml saved':'not recorded')}${row('Pro-Fibre',meal.fibreG!=null?esc(meal.fibreG)+' g saved':'not recorded')}
-      ${b?`<details id="recipe-calculation-${iso}" class="recipe-calculation"><summary>Recipe amounts from current settings</summary>${plan}</details>`:''}`:plan;
-  const details=`<p class="sub">Regime: Pro-Fibre ${fibreGOn(iso,s)} g · oil ${oilMlOn(iso,s)} ml${next?` · changes to ${next.ml} ml in ${toDay(next.from)-toDay(iso)} days`:''}</p>`+
+      ${meal.totalKcal!=null?`<p class="sub">${esc(meal.totalKcal)} kcal saved</p>`:''}`:planning?plan:'<p class="muted">Meal amounts not recorded.</p>';
+  return `<p class="sub">Regime: Pro-Fibre ${fibreGOn(iso,s)} g · oil ${oilMlOn(iso,s)} ml${next?` · changes to ${next.ml} ml in ${toDay(next.from)-toDay(iso)} days`:''}</p>`+
     (last6.length?`<p class="sub">Last six: ${esc(last6.join(', '))}</p>`:'')+
     amounts+
     (recent?`<p class="sub" style="color:var(--watch)">Fibre or oil changed on ${fmtDate(recent)}. An extra now will muddy the read-out.</p>`:'');
+}
+function cardEvening(iso){
   return `<span class="moment">Evening</span><h2 class="screen">Tonight's meal</h2>`+
-    mealEditor(iso,true,details)+eveningFoot(iso);
+    mealEditor(iso,true,`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`)+eveningFoot(iso);
+}
+function refreshMealPlans(){
+  // Keep the calculated bowl current even while an unrelated field has a draft.
+  const focus=document.activeElement?.id;
+  for(const el of $$('[data-meal-plan]')){
+    const iso=el.dataset.mealPlan, html=mealPlanDetails(iso);
+    if(el.innerHTML!==html) el.innerHTML=html;
+    const m=plannedMeal(iso);
+    for(const [k,label] of Object.entries(MEAL_FLAGS)){
+      const id='meal-'+k+'-'+iso, control=document.getElementById(id);
+      if(control) control.outerHTML=switchRow(id,label,m[k],mealFlagDetail(m,k,isEditablePlan(iso,m)),`data-act="extra" data-k="${k}" data-date="${iso}"`);
+    }
+  }
+  if(focus&&document.activeElement?.id!==focus) refocus(focus);
 }
 
 function eveningFoot(iso){
@@ -1253,7 +1309,7 @@ function viewStatus(){
   const gauge=`<div class="gauge"><div class="mid"></div><div class="fill" style="${off>=0?`left:50%;width:${pct}%`:`right:50%;width:${pct}%`}"></div></div>`;
 
   const ctx=weekContext(today);
-  const tonight=RECIPES.map(r=>{const b=bowlFor(today,r.id,s,S.changes,{});
+  const tonight=RECIPES.map(r=>{const b=bowlFor(today,r.id,s,S.changes,mealDefaults(S.days[today]?.meal));
     return row(r.short,b.darfG+' g');}).join('');
 
   return bannerHtml()+'<h2 class="screen">Status</h2>'+panel('Vet items',vetHtml)+
@@ -1515,7 +1571,7 @@ function exportMonthCsv(){
   const ym=localToday().slice(0,7), isos=monthIsos(ym);
   const head=['date','worstBristol','stoolCount','mucus','blood','weightKg','bcs','recipe','darfPlanned','darfFed','oilMl','fibreG','egg','broth','bowl','fedAt','walkMin','walkKm','activeMin','treats','events','notes','weightMissed','fibreGiven','oilGiven'];
   const rows=isos.map(i=>{
-    const d=S.days[i], st=d.stools||[], m=d.meal||{};
+    const d=S.days[i], st=d.stools||[], m=d.meal?plannedMeal(i,d.meal):{};
     return [i, st.length?Math.max(...st.map(x=>x.bristol)):'', st.length, st.some(x=>x.mucus)?'Y':'', st.some(x=>x.blood)?'Y':'',
       recordedWeight(d)??'', d.bcs??'', m.recipe??'', m.darfPlanned??'', m.darfFed??'', m.oilMl??'', m.fibreG??'',
       yesNo(m.egg), yesNo(m.broth), m.bowl??'', m.fedAt??'', d.walkMin??'', d.walkKm??'', d.activeMin??'', d.treats??'',
@@ -1549,7 +1605,7 @@ function exportMonthMd(){
   L.push('| Date | Stools | kg | BCS | Meal | DARF | Bowl | Walk | Events |');
   L.push('|---|---|---|---|---|---|---|---|---|');
   isos.forEach(i=>{
-    const d=S.days[i], st=d.stools||[], m=d.meal||{}, r=m.recipe?RECIPES.find(x=>x.id===m.recipe):null;
+    const d=S.days[i], st=d.stools||[], m=d.meal?plannedMeal(i,d.meal):{}, r=m.recipe?RECIPES.find(x=>x.id===m.recipe):null;
     const stool=st.map(x=>`${x.time} B${x.bristol}${x.mucus?'M':''}${x.blood?'!':''}`).join(', ')||'--';
     const extras=['egg','broth','fibreGiven','oilGiven'].map(k=>`${k}: ${yesNo(m[k])||'unknown'}`).join(', ');
     L.push(`| ${fmtShort(i)} | ${stool} | ${d.weightMissed===true?'missed':recordedWeight(d)??'--'} | ${d.bcs??'--'} | ${r?r.short:'--'}; ${extras} | ${m.darfFed??m.darfPlanned??'--'} | ${m.bowl??'--'} | ${d.walkMin??'--'} min | ${(d.events||[]).join(' ')||''} |`);
@@ -1772,7 +1828,7 @@ async function confirmInput(form){
     if (m.mean&&Math.abs(n-m.mean)/m.mean>.05&&!confirm(`${n} kg differs by over 5% from the recent mean. Keep it?`)) return;
   }
   const patch=k==='notes'?{notes:v}:k==='weight'?{weight:n,weightMissed:false,weightBeforeMissed:null}:k==='darfFed'?{meal:{darfFed:n}}:{[k]:n};
-  const saved=k==='setnum'?saveSettings({[form.dataset.setting]:n}):saveDay(iso,patch);
+  const saved=k==='setnum'?saveSettings({[form.dataset.setting]:n}):k==='darfFed'?saveMeal(iso,patch.meal):saveDay(iso,patch);
   if (await saved) finishInput(form,true);
 }
 
@@ -1877,26 +1933,25 @@ document.addEventListener('click', async (ev)=>{
   if (a==='extra'){
     const k=el.dataset.k;
     if (!Object.hasOwn(MEAL_FLAGS,k)) return;
-    // Inclusion belongs to this record. Never recalculate stored amounts from
-    // today's settings while editing an existing or historical meal.
+    // Recalculate editable plans only. A fed or historical record keeps amounts.
     const focus=el.id;
-    if(await saveDay(iso,{meal:{[k]:d.meal?.[k]!==true}})){
+    if(await saveMeal(iso,{[k]:plannedMeal(iso)[k]!==true,...(k==='oilGiven'&&isEditablePlan(iso,d.meal)?{oilDefaultMode:'manual'}:{})})){
       if(renderPending){
         const current=document.getElementById(focus), m=S.days[iso].meal;
-        if(current) current.outerHTML=switchRow(focus,MEAL_FLAGS[k],m[k],mealFlagDetail(m,k),`data-act="extra" data-k="${k}" data-date="${iso}"`);
+        if(current) current.outerHTML=switchRow(focus,MEAL_FLAGS[k],m[k],mealFlagDetail(m,k,isEditablePlan(iso,m)),`data-act="extra" data-k="${k}" data-date="${iso}"`);
       }
       refocus(focus);
     }
     return;
   }
   if (a==='fed'||a==='savefeedingtime'){
-    const meal=d.meal||{}, r=meal.recipe;
+    const meal=plannedMeal(iso), r=meal.recipe;
     if (!r||el.disabled) return;
     if (el.dataset.fedTime==='explicit'){
       const form=el.closest('[data-feeding]'), input=$('input',form);
       if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
       el.disabled=true;
-      if (await saveDay(iso,{meal:{fedAt:input.value}})){
+      if (await saveMeal(iso,{fedAt:input.value,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})})){
         input.defaultValue=input.value; form.removeAttribute('data-dirty'); el.disabled=false; render();
       } else el.disabled=false;
       return;
@@ -1904,7 +1959,7 @@ document.addEventListener('click', async (ev)=>{
     if (a!=='fed'||isFedMeal(meal)||iso!==localToday()) return;
     const b=bowlFor(iso,r,S.settings,S.changes,meal);
     if (!b) return;
-    saveDay(iso,{meal:{recipe:r,fedAt:nowHHMM(),darfPlanned:meal.darfPlanned??b.darfG,darfFed:meal.darfFed??meal.darfPlanned??b.darfG,oilMl:meal.oilMl??b.oilMl,fibreG:meal.fibreG??b.fibreG}}); return;
+    saveMeal(iso,{fedAt:nowHHMM(),darfFed:meal.darfFed??b.darfG}); return;
   }
   if (a==='unfeed'){
     if (el.disabled) return; el.disabled=true;
@@ -1981,9 +2036,7 @@ document.addEventListener('change', (ev)=>{
   if(el?.dataset.act==='recipe'){
     const iso=el.dataset.date,meal=S.days[iso]?.meal||{},r=el.value;
     if(meal.recipe===r||!RECIPES.some(x=>x.id===r))return;
-    // Choosing a recipe does not create historical quantities. A new live meal
-    // remains a calculated plan until Fed explicitly records its amounts.
-    saveDay(iso,{meal:{recipe:r}});
+    saveMeal(iso,{recipe:r});
   }
 });
 
@@ -2036,6 +2089,20 @@ onAuthStateChanged(auth, (u)=>{
 
 window.addEventListener('online', ()=>flushWrites());
 window.addEventListener('offline', ()=>setStatus('Offline, queued','warn'));
+
+// Refresh the local feeding day after midnight, including a suspended/reopened tab.
+// Date-keyed choices are never copied or reset, and render keeps open drafts intact.
+let renderedLocalDay=localToday();
+function refreshLocalDay(){
+  const today=localToday();
+  if(today===renderedLocalDay) return;
+  renderedLocalDay=today;
+  S.forceCard=null;
+  render();
+}
+setInterval(refreshLocalDay,1000);
+window.addEventListener('focus',refreshLocalDay);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshLocalDay();});
 
 if ('serviceWorker' in navigator){
   window.addEventListener('load', ()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
