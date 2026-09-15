@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.2.0">
+<html lang="en-GB" data-version="3.4.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -157,7 +157,6 @@ details.card>summary{padding:var(--s4);margin:0;outline-offset:-4px}
   border:1px solid var(--rule-2);border-radius:8px;background:var(--surface-2);text-align:right;
   font-size:1.0625rem;font-weight:600;width:7.5rem;max-width:100%;min-width:0;padding:var(--s2);
 }
-.field input[type="time"]{width:9rem}
 [aria-invalid="true"]{border-color:var(--alert)!important;outline-color:var(--alert)}
 .field-help,.field-error{font-size:.875rem;line-height:1.5;margin:4px 0 0;color:var(--ink-3)}
 .field-error{color:var(--alert)}
@@ -510,7 +509,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.4.0';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -971,7 +970,20 @@ function applyOperation(op){
     if(patches) S.days={...S.days,[m.from]:mergeData(S.days[m.from]||{},patches[0]),[m.to]:mergeData(S.days[m.to]||{},patches[1])};
     return;
   }
-  if(op.items){ op.items.forEach(applyOperation); return; }
+  if(op.items){
+    // Apply in order, but copy the day map only once for consecutive ordinary
+    // edits. Nested/recovery operations retain their existing paths and may
+    // replace the map, in which case the next ordinary edit takes a fresh copy.
+    let days;
+    op.items.forEach(item=>{
+      if(item?.col==='days'&&!item.recover&&!item.regime&&!item.move&&!item.items&&validDate(item.id)){
+        const value=operationData(item,S.days[item.id]);
+        if(days!==S.days) S.days=days={...S.days};
+        days[item.id]=value;
+      }else applyOperation(item);
+    });
+    return;
+  }
   if(op.col==='days') S.days={...S.days,[op.id]:operationData(op,S.days[op.id])};
   if(op.col==='settings') S.settings=mealSettings(operationData(op,S.settings));
   if(op.col==='changes') S.changes=S.changes.filter(c=>c.id!==op.id)
@@ -1281,6 +1293,12 @@ function mealsList(){
   return cached('meals',()=>Object.entries(S.days).filter(([,d])=>d.meal?.recipe)
     .map(([date,d])=>({...plannedMeal(date,d.meal),date})).sort((a,b)=>a.date.localeCompare(b.date)));
 }
+// The date-keyed saved days already provide the lookup. Fed meals are immutable
+// display snapshots; never calculate a historical meal from current defaults.
+function trackingMeal(iso){
+  const date=shiftDate(iso,-1),meal=S.days[date]?.meal;
+  return isFedMeal(meal)?{...meal,date}:null;
+}
 function insights(){
   return cached('insights',()=>({vet:vetItems(S.days,localToday(),weightsList(),S.settings),fib:fibreAdvice(S.days,localToday(),S.settings)}));
 }
@@ -1336,6 +1354,7 @@ function refreshSelectionStates(){
   }
   syncBcsGuidance();
 }
+// Feedback has its own persistent region, including while a form defers rendering.
 function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
   const b=S.banner,u=S.undo,app=window.AppShell?.state;
@@ -1348,7 +1367,7 @@ let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
   renderFeedback();
-  if (!S.ready){rendered='';$('#main').innerHTML=bannerHtml()+'<p role="status">Loading saved records…</p>';return;}
+  if (!S.ready){rendered='';$('#main').innerHTML='<p role="status">Loading saved records…</p>';return;}
   syncBcsGuidance();
   if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();return;}
   renderPending=false;
@@ -1380,11 +1399,6 @@ function leaveDraft(){
   S.adding=null; stoolDraft=null; stoolOriginal=null; render(true); return true;
 }
 
-function bannerHtml(){
-  // Feedback has its own persistent region, including while a form defers rendering.
-  return '';
-}
-
 /* TODAY */
 function viewToday(){
   const today=localToday();
@@ -1395,7 +1409,7 @@ function viewToday(){
   else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
 
   const miss=missingFor(today);
-  return bannerHtml()+head+`<span class="moment">Today</span><h2 class="screen">${fmtDate(today)}</h2>`+
+  return head+`<span class="moment">Today</span><h2 class="screen">${fmtDate(today)}</h2>`+
     dailyFields(today,{activityDate:shiftDate(today,-1),live:true})+
     `<div class="note ${miss.length?'plain':'good'}">${miss.length?'<b>Still to log</b>'+miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', '):'<b>Core observations recorded</b>Stools, weight and condition are recorded. You can keep editing throughout the day.'}</div>`;
 }
@@ -1425,10 +1439,9 @@ function inputField(iso,k,label,min=0,max=600,step=1,helpText=''){
   const guidance=spec?.help||helpText;
   const help=guidance?`<p class="field-help" id="${id}-help">${esc(guidance)}</p>`:'';
   const attrs=(spec?'required ':'')+(guidance?`aria-describedby="${id}-help ${id}-error"`:'');
-  const type=spec?.type||'number',shownValue=type==='time'?(Number.isInteger(value)&&value>=0&&value<=23?String(value).padStart(2,'0')+':00':''):value;
   return `<div data-form data-date="${iso}" data-key="${k}" data-setting="${esc(label)}">
     ${k==='notes'?`<label class="inline-lab" for="${id}">Notes for ${fmtDate(iso)}</label><textarea id="${id}" class="tin" data-act="notes">${esc(value||'')}</textarea>`:
-    `<div class="field"><label for="${id}">${esc(shownLabel)}</label><input id="${id}" type="${type}" ${type==='time'?'min="00:00" max="23:00" step="3600"':`inputmode="${(spec?.step||step)<1?'decimal':'numeric'}" min="${spec?.min??min}" max="${spec?.max??max}" step="${spec?.step||step}"`} value="${esc(shownValue??'')}" data-act="${k}" ${attrs} ${k==='weight'&&d.weightMissed===true?`disabled aria-describedby="weight-missed-${iso}-help"`:''} placeholder="—"></div>${help}`}
+    `<div class="field"><label for="${id}">${esc(shownLabel)}</label><input id="${id}" type="number" inputmode="${(spec?.step||step)<1?'decimal':'numeric'}" min="${spec?.min??min}" max="${spec?.max??max}" step="${spec?.step||step}" value="${esc(value??'')}" data-act="${k}" ${attrs} ${k==='weight'&&d.weightMissed===true?`disabled aria-describedby="weight-missed-${iso}-help"`:''} placeholder="—"></div>${help}`}
     <p class="field-error hide" id="${id}-error" data-field-error role="alert"></p>
   </div>`;
 }
@@ -1549,10 +1562,10 @@ function syncBcsGuidance(){
 }
 
 function stoolsCard(iso,previousMeal=false){
-  const st=(S.days[iso]?.stools||[]).slice().sort((a,b)=>minsOf(a.time)-minsOf(b.time)), meals=mealsList();
+  const st=(S.days[iso]?.stools||[]).slice().sort((a,b)=>minsOf(a.time)-minsOf(b.time)), meal=trackingMeal(iso);
   const rows=st.map(s=>{
-    const b=BRISTOL[s.bristol]||{word:'?',band:'a'}, at=attributionFor(iso,meals);
-    const attr=at.primary?`Last night's meal: ${RECIPES.find(x=>x.id===at.primary.recipe)?.short||at.primary.recipe}`:"Last night's meal not recorded as fed";
+    const b=BRISTOL[s.bristol]||{word:'?',band:'a'};
+    const attr=meal?`Last night's meal: ${RECIPES.find(x=>x.id===meal.recipe)?.short||meal.recipe}`:"Last night's meal not recorded as fed";
     return `<div class="stool"><span class="dot ${b.band}"></span><div class="body"><span class="t">${esc(s.time)} · Bristol ${esc(s.bristol)}, ${b.word}${s.mucus?' · mucus':''}${s.blood?' · blood':''}</span><span class="attr">${esc(attr)}</span>
       <details id="stool-${esc(s.id)}"><summary class="link" aria-label="Stool actions at ${esc(s.time)}">Actions</summary><div class="chips">
       <button class="link" data-act="editstool" data-date="${iso}" data-id="${esc(s.id)}">Edit</button>
@@ -1566,7 +1579,7 @@ function stoolsCard(iso,previousMeal=false){
     <div class="chips">${['mucus','blood'].map(k=>`<button ${choice(f[k],'chip')} data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
     <div class="btnrow"><button class="btn" data-act="savestool">Save stool entry</button><button class="btn ghost" data-act="cancelstool">Cancel</button></div>
   </div>`:`<button id="add-stool-${iso}" class="link" data-act="openstool" data-date="${iso}">+ Add stool</button>`;
-  const previous=previousMeal?`<div class="previous-meal">${mealEditor(shiftDate(iso,-1),false,'',true,attributionFor(iso,meals).primary)}</div>`:'';
+  const previous=previousMeal?`<div class="previous-meal">${mealEditor(shiftDate(iso,-1),false,'',true,meal)}</div>`:'';
   return panel('Stools',`<div data-stool-log="${iso}">${rows||'<p class="muted">None logged.</p>'}${form}</div>`+previous,'stools-'+iso);
 }
 function refreshStoolLog(iso){
@@ -1614,7 +1627,7 @@ function refreshMealPlans(){
     if(editor.querySelector('[data-dirty]'))continue;
     const iso=editor.dataset.mealEditor,live=editor.dataset.mealLive==='true',previous=editor.dataset.mealPrevious==='true';
     editor.outerHTML=mealEditor(iso,live,live?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'',previous,
-      previous?attributionFor(shiftDate(iso,1),mealsList()).primary:null);
+      previous?trackingMeal(shiftDate(iso,1)):null);
   }
   for(const [id,open]of expanded){const el=document.getElementById(id);if(el)el.open=open;}
   // Inside an editor with a draft, these fragments contain no editable inputs.
@@ -1665,7 +1678,7 @@ function openHistoryPicker(){
 }
 function viewDay(){
   const iso=S.cursor, miss=missingFor(iso);
-  return bannerHtml()+`<h2 class="screen" id="history-heading">History</h2><div class="history-navigation"><div class="datebar">
+  return `<h2 class="screen" id="history-heading">History</h2><div class="history-navigation"><div class="datebar">
     <button id="history-previous" data-act="dayshift" data-n="-1" ${permittedHistoryDate(shiftDate(iso,-1))?'':'disabled'} aria-label="Previous day">‹</button>
     <span class="d" id="history-date-label" tabindex="-1">${historyDateLabel(iso)}</span>
     <button id="history-next" data-act="dayshift" data-n="1" ${permittedHistoryDate(shiftDate(iso,1))?'':'disabled'} aria-label="Next day">›</button></div>
@@ -1729,7 +1742,7 @@ function viewStatus(){
   const tonight=RECIPES.map(r=>{const b=bowlFor(today,r.id,s,S.changes,mealDefaults(S.days[today]?.meal));
     return row(r.short,b.darfG+' g');}).join('');
 
-  return bannerHtml()+'<h2 class="screen">Status</h2>'+panel('Vet items',vetHtml)+
+  return '<h2 class="screen">Status</h2>'+panel('Vet items',vetHtml)+
     panel("This week's ration",advHtml+windows)+panel('Pro-Fibre',fibHtml)+`<div class="card">
     <div class="sec"><p class="lab">Weight</p>
       ${latest?`${row(`Latest, ${fmtShort(latest.date)}`,`${latest.kg.toFixed(2)} kg`)}`:'<p class="muted">No weights yet.</p>'}
@@ -1782,14 +1795,15 @@ function viewHistory(){
   const range=S.range||28;
   const from=range===9999?toDay(earliestHistoryDate()):Math.max(toDay(s.startDate), toDay(today)-range+1);
   const isos=[]; for (let d=from;d<=toDay(today);d++) isos.push(toIso(d));
-  const meals=mealsList(), displayIsos=isos.slice(), tomorrow=shiftDate(today,1);
+  const displayIsos=isos.slice(), tomorrow=shiftDate(today,1);
   // Today's confirmed meal belongs to tomorrow's tracking group. This is only
   // a display row; it must not create or open a future daily record.
-  if(attributionFor(tomorrow,meals).primary) displayIsos.push(tomorrow);
+  if(trackingMeal(tomorrow)) displayIsos.push(tomorrow);
   // Imported date mistakes must remain inspectable without being moved or
   // silently corrected. Only All includes saved dates beyond today.
   if(range===9999){
-    displayIsos.push(...Object.keys(S.days).filter(validDate),...meals.filter(isFedMeal).map(m=>shiftDate(m.date,1)));
+    const dates=Object.keys(S.days);
+    displayIsos.push(...dates.filter(validDate),...dates.filter(i=>isFedMeal(S.days[i].meal)).map(i=>shiftDate(i,1)));
   }
 
   const chips=[14,28,56,9999].map(r=>`<button id="range-${r}" ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r+' days'}</button>`).join('');
@@ -1799,7 +1813,7 @@ function viewHistory(){
   const rows=[...new Set(displayIsos)].sort().reverse().map(i=>{
     const canOpen=i<=today||Object.hasOwn(S.days,i), d=S.days[i]||{}, st=(d.stools||[]);
     const scores=st.map(x=>x.bristol).filter(Number.isFinite),lo=scores.length?Math.min(...scores):null,hi=scores.length?Math.max(...scores):null;
-    const m=attributionFor(i,meals).primary, r=m?RECIPES.find(x=>x.id===m.recipe):null;
+    const m=trackingMeal(i), r=m?RECIPES.find(x=>x.id===m.recipe):null;
     const blood=st.some(x=>x.blood),mucus=st.some(x=>x.mucus),band=blood||scores.some(n=>n===1||n===7)?'r':mucus||scores.some(n=>n<3||n>4)?'a':scores.length?'g':'';
     const observed=lo===null?'—':lo===hi?String(lo):`${lo}–${hi}`;
     const events=(d.events||[]).map(id=>EVENTS.find(e=>e.id===id)?.label||id).join(', ');
@@ -1814,7 +1828,7 @@ function viewHistory(){
       <td><span class="table-flags">${esc(events||'None recorded')}</span></td></tr>`;
   }).join('');
 
-  return bannerHtml()+`
+  return `
   <h2 class="screen">Data</h2>
   <div class="chips data-range" role="group" aria-label="Days to show">${chips}</div>
   <div class="card"><div class="sec"><p class="lab">Weight, kg</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg')}</div>
@@ -1872,9 +1886,8 @@ function foodStats(isos){
     const stats=Object.create(null);
     const get=k=>stats[k]??={n:0,sum:0,cnt:0,loose:0,hard:0,mucus:0,blood:0};
     const keys=m=>[m.recipe,...['egg','broth','fibreGiven','oilGiven'].filter(k=>m[k]===true),...(m.egg===false&&m.broth===false?['none']:[])];
-    const meals=mealsList();
     for(const iso of isos){
-      const m=attributionFor(iso,meals).primary;
+      const m=trackingMeal(iso);
       if(!m) continue;
       const mealKeys=keys(m);
       // Count each confirmed meal once in its tracking date, including nights
@@ -1917,29 +1930,29 @@ function viewMore(){
     : '<p class="muted">None.</p>';
   const num=k=>inputField(localToday(),'setnum',k);
 
-  return bannerHtml()+'<h2 class="screen">Settings</h2>'+panel('Account',`
+  return '<h2 class="screen">Settings</h2>'+panel('Account',`
     ${row(esc(S.user?.email||''),'<button class="link" data-act="signout">Sign out</button>')}
     <p class="sub">Version ${APP_VERSION}</p>
     <h3 class="lab">Appearance</h3><div class="seg">${['system','light','dark'].map(t=>`<button id="theme-${t}" ${choice((s.theme||'system')===t)} data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`)+appReadinessPanel()+
     panel('Ration and supplements',`<div class="stack">
-      ${num('targetKcal','daily target, kcal')}
-      ${num('bdGrams','Bella &amp; Duke, g')}
-      ${num('kcalPerGDarf','DARF, kcal per g','0.01')}
-      ${num('kcalPerMlOil','oil, kcal per ml','0.01')}
-      ${num('darfMinG','ration floor, g')}
+      ${num('targetKcal')}
+      ${num('bdGrams')}
+      ${num('kcalPerGDarf')}
+      ${num('kcalPerMlOil')}
+      ${num('darfMinG')}
     </div><h3 class="lab">Oil schedule</h3>${oil}
       <p class="sub">Changes recalculate the base ration from that date, keeping calories level without changing the cumulative offset.</p>
     <h3 class="lab">Pro-Fibre schedule</h3>${fib}
       <div class="chips">${[2.5,5,7.5,10].map(g=>`<button class="chip" data-act="setfibre" data-g="${g}">Set ${g} g today</button>`).join('')}</div>
       <p class="sub">Manual doses up to ${s.fibreCapG} g are available here. Above ${s.fibreRestG} g is never advised: persistent soft stool needs vet review.</p>`)+
     panel('Weekly rule and adjustments',`<div class="stack">
-      ${num('deadbandPct','deadband, %','0.1')}
-      ${num('damping','damping','0.005')}
-      ${num('maxStepG','single-step cap, g')}
-      ${num('maxCumulativeG','cumulative cap, g')}
-      ${num('minWeighIns','weigh-ins needed per week')}
-      ${num('kcalPerKgTissue','kcal per kg of tissue')}
-      ${num('bcsHoldAtOrBelow','hold reductions at or below BCS','0.5')}
+      ${num('deadbandPct')}
+      ${num('damping')}
+      ${num('maxStepG')}
+      ${num('maxCumulativeG')}
+      ${num('minWeighIns')}
+      ${num('kcalPerKgTissue')}
+      ${num('bcsHoldAtOrBelow')}
     </div><h3 class="lab">Regime changes</h3>${reg}
       <button class="link" data-act="addregime">+ Mark today as a regime change</button>
       <p class="sub">Record a changed target, portion, sustained treats or illness. A change in either comparison week suppresses advice.</p>
@@ -1990,10 +2003,9 @@ function exportMonthCsv(){
   download(`Murphy_Log_${ym}.csv`, [head.join(','),...rows].join('\n'), 'text/csv;charset=utf-8');
   const sh=['date','time','bristol','word','mucus','blood','attributedTo'];
   const srows=[];
-  const meals=mealsList();
   isos.forEach(i=>((S.days[i]||{}).stools||[]).forEach(s=>{
-    const at=attributionFor(i,meals);
-    srows.push([i,s.time,s.bristol,(BRISTOL[s.bristol]||{}).word,s.mucus?'Y':'',s.blood?'Y':'',at.primary?at.primary.date+' '+at.primary.recipe:''].map(csvCell).join(','));
+    const m=trackingMeal(i);
+    srows.push([i,s.time,s.bristol,(BRISTOL[s.bristol]||{}).word,s.mucus?'Y':'',s.blood?'Y':'',m?m.date+' '+m.recipe:''].map(csvCell).join(','));
   }));
   setTimeout(()=>download(`Murphy_Log_${ym}_stools.csv`, [sh.join(','),...srows].join('\n'), 'text/csv;charset=utf-8'), 400);
 }
