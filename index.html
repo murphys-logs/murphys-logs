@@ -343,7 +343,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.3';
+const APP_VERSION = '3.1.4';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -423,6 +423,11 @@ function toDay(iso){
   return dateDays.get(iso);
 }
 const toIso = (d) => new Date(d * DAY_MS).toISOString().slice(0, 10);
+// Calendar labels, not elapsed hours: safe across London midnight and BST changes.
+const shiftDate = (iso, days) => toIso(toDay(iso) + days);
+const validDate = iso => typeof iso==='string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) && Number.isFinite(toDay(iso)) && toIso(toDay(iso))===iso;
+const validTime = time => typeof time==='string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+const isFedMeal = meal => !!meal?.recipe && validTime(meal.fedAt);
 function mondayOf(iso){ const d = toDay(iso); const w = new Date(d*DAY_MS).getUTCDay(); return d - ((w+6)%7); }
 const minsOf = (t) => { const [h,m] = String(t||'00:00').split(':').map(Number); return h*60+m; };
 const round1 = (x) => Math.round(x*10)/10;
@@ -529,24 +534,12 @@ function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustm
   return out;
 }
 
-function attributionFor(stoolIso, stoolTime, meals, cfg, overrideDate){
-  const t=toDay(stoolIso)*1440+minsOf(stoolTime), gap=(cfg.attributionMinH??6)*60;
-  const eligible=[], earlier=[], prior=[];
-  let override=null;
-  const insert=(list,m,at)=>{
-    if(!list[0]||at>=list[0].at){list[1]=list[0];list[0]={m,at};}
-    else if(!list[1]||at>=list[1].at)list[1]={m,at};
-  };
-  for (const m of meals||[]){
-    const day=toDay(m.date), at=day*1440+minsOf(m.fedAt);
-    if (m.date===overrideDate) override=m;
-    if (day<toDay(overrideDate)) insert(prior,m,day);
-    if (t-at>=gap) insert(eligible,m,at);
-    if (at<t) insert(earlier,m,at);
-  }
-  if (override) return {primary:override,secondary:prior[0]?.m||null,assumed:false,overridden:true};
-  const list=eligible.length?eligible:earlier;
-  return {primary:list[0]?.m||null,secondary:list[1]?.m||null,assumed:!eligible.length&&!!earlier.length};
+function attributionFor(stoolIso, meals){
+  // Murphy's tracking convention. Legacy overrides remain stored, but cannot
+  // replace the confirmed meal from exactly the preceding calendar date.
+  const date=shiftDate(stoolIso,-1);
+  return {primary:(meals||[]).find(m=>m.date===date&&isFedMeal(m))||null,
+    secondary:null,assumed:false,overridden:false};
 }
 
 function dayVerdict(day){
@@ -656,11 +649,14 @@ const S = {
   status:'Connecting', banner:null, testOut:null, forceCard:null, subscribed:false
 };
 
-function localToday(){
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const localClock = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London',
+  year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+function londonNow(){
+  const p=Object.fromEntries(localClock.formatToParts(new Date()).map(x=>[x.type,x.value]));
+  return {date:`${p.year}-${p.month}-${p.day}`,time:`${p.hour}:${p.minute}`,hour:Number(p.hour)};
 }
-function nowHHMM(){ const d=new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+function localToday(){ return londonNow().date; }
+function nowHHMM(){ return londonNow().time; }
 const MON=['Jan','Feb','Mar','Apr','May','June','July','Aug','Sept','Oct','Nov','Dec'];
 const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 function fmtDate(iso){
@@ -672,7 +668,7 @@ function fmtShort(iso){ const d=new Date(toDay(iso)*DAY_MS); return `${d.getUTCD
 
 function setStatus(text, cls){ S.status=text; const el=$('#state'); if (el){ el.textContent=text; el.className='state '+(cls||''); } }
 
-let flushing=false, writeClock=0, unsubs=[];
+let flushing=false, writeClock=0, unsubs=[], savedDays=null;
 const queuePrefix=()=>`murphy-outbox:${S.user.uid}:`;
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 function mergeData(base, patch){
@@ -709,6 +705,13 @@ function queuedWrites(){
   }
   return entries.sort(([a],[b])=>a.localeCompare(b));
 }
+function replayQueuedWrites(queued=queuedWrites()){
+  // Rebase on the saved snapshot, never on an already-replayed local move.
+  // Settings/changes can arrive before the first days snapshot at startup.
+  if(savedDays===null) return;
+  S.days=savedDays;
+  queued.forEach(([,op])=>applyOperation(op));
+}
 function stoolMerge(stools, delta){
   const put=new Map(delta.put.map(s=>[s.id,s]));
   return (stools||[]).filter(s=>!delta.drop.includes(s.id)).map(s=>{
@@ -721,7 +724,24 @@ function operationData(op, current={}, remote=false){
   if(op.stools) body.stools=stoolMerge(current.stools,op.stools);
   return body;
 }
+function stoolMovePatches(move, source={}, target={}){
+  const existing=(source.stools||[]).find(s=>s.id===move.id);
+  const arrived=(target.stools||[]).find(s=>s.id===move.id);
+  // A committed move may be replayed after closing before its outbox removal.
+  if(!existing&&arrived) return null;
+  if(!existing) throw Error('This stool was removed or moved elsewhere. Review its saved date before retrying.');
+  if(arrived) throw Error('The destination already contains this stool ID. Review both dates before moving it.');
+  return [
+    {date:move.from,updatedAt:move.updatedAt,stools:(source.stools||[]).filter(s=>s.id!==move.id)},
+    {date:move.to,updatedAt:move.updatedAt,stools:[...(target.stools||[]),{...existing,...move.patch}]}
+  ];
+}
 function applyOperation(op){
+  if(op.move){
+    const m=op.move, patches=stoolMovePatches(m,S.days[m.from],S.days[m.to]);
+    if(patches) S.days={...S.days,[m.from]:mergeData(S.days[m.from]||{},patches[0]),[m.to]:mergeData(S.days[m.to]||{},patches[1])};
+    return;
+  }
   if(op.items){ op.items.forEach(applyOperation); return; }
   if(op.col==='days') S.days={...S.days,[op.id]:operationData(op,S.days[op.id])};
   if(op.col==='settings') S.settings=operationData(op,S.settings);
@@ -743,6 +763,14 @@ async function write(op){
   void flushWrites(); return true;
 }
 async function sendOperation(op){
+  if(op.move){
+    const m=op.move, sourceRef=doc(db,'days',m.from), targetRef=doc(db,'days',m.to);
+    return runTransaction(db,async tx=>{
+      const source=await tx.get(sourceRef), target=await tx.get(targetRef);
+      const patches=stoolMovePatches(m,source.exists()?source.data():{},target.exists()?target.data():{});
+      if(patches){tx.set(sourceRef,patches[0],{merge:true});tx.set(targetRef,patches[1],{merge:true});}
+    });
+  }
   if(op.items){ for(const item of op.items) await sendOperation(item); return; }
   const ref=doc(db,op.col,op.id);
   if(op.erase) return deleteDoc(ref);
@@ -807,6 +835,24 @@ function saveDay(iso,patch){
   data.date=iso; data.updatedAt=new Date().toISOString();
   return write(op);
 }
+function moveStool(from,to,stool,original=null){
+  if(!validDate(from)||!validDate(to)||to>localToday()||from===to){storeError(Error('Choose a valid stool date on or before today'));return false;}
+  const old=(S.days[from]?.stools||[]).find(s=>s.id===stool.id);
+  if(!old||!stool.id){storeError(Error('The original stool could not be found'));return false;}
+  const updatedAt=new Date().toISOString();
+  // Transfer the current source record; patch only fields this form can edit.
+  // A snapshot arriving during the draft must not overwrite newer legacy fields.
+  const baseline=original||old, patch={id:stool.id};
+  for(const k of ['time','bristol','mucus','blood']) if(stool[k]!==baseline[k]) patch[k]=stool[k];
+  const move={from,to,id:stool.id,patch,updatedAt};
+  try{stoolMovePatches(move,S.days[from],S.days[to]);}catch(e){storeError(e);return false;}
+  // One durable entry, one remote transaction. The ordinary items also retain
+  // a readable representation for an older application with a pending outbox.
+  return write({move,items:[
+    {col:'days',id:from,patch:{date:from,updatedAt},stools:{put:[],drop:[stool.id]}},
+    {col:'days',id:to,patch:{date:to,updatedAt},stools:{put:[{...old,...stool}],drop:[]}}
+  ]});
+}
 function saveSettings(patch){return write({col:'settings',id:'main',patch});}
 function saveChange(c){
   const id=c.id||'c'+crypto.randomUUID();
@@ -817,12 +863,12 @@ function removeChange(id){return write({col:'changes',id,erase:true});}
 function subscribe(){
   unsubs.forEach(fn=>fn()); unsubs=[];
   const uid=S.user.uid, seen=new Set();
-  S.days={}; S.changes=[]; S.settings={...DEFAULTS}; S.ready=false;
+  S.days={}; savedDays=null; S.changes=[]; S.settings={...DEFAULTS}; S.ready=false;
   const received=(name,snap)=>{
     if(S.user?.uid!==uid) return;
     seen.add(name); S.ready=seen.size===3;
     let queued;
-    try{queued=queuedWrites();queued.forEach(([,op])=>applyOperation(op));}catch(e){storeError(e);return;}
+    try{queued=queuedWrites();replayQueuedWrites(queued);}catch(e){storeError(e);return;}
     setStatus(queued.length?'Saved locally; syncing':snap.metadata.fromCache?'Cached; checking sync':'Synced');
     applyTheme(); render();
   };
@@ -831,7 +877,7 @@ function subscribe(){
     if(S.user?.uid!==uid) return;
     // Firestore can notify only a sync-status change. Keeping the same data
     // reference in that case also keeps the derived lists and statistics cached.
-    if(!seen.has('days')||snap.docChanges().length) S.days=Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
+    if(!seen.has('days')||snap.docChanges().length) savedDays=Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
     received('days',snap);
   },failed));
   unsubs.push(onSnapshot(collection(db,'changes'),{includeMetadataChanges:true},snap=>{
@@ -847,7 +893,9 @@ function subscribe(){
   void flushWrites();
 }
 window.addEventListener('storage',e=>{
-  if(S.user&&e.key?.startsWith(queuePrefix())){queuedWrites().forEach(([,op])=>applyOperation(op));render();void flushWrites();}
+  if(S.user&&e.key?.startsWith(queuePrefix())){
+    try{replayQueuedWrites();render();void flushWrites();}catch(error){storeError(error);}
+  }
 });
 
 function applyTheme(){
@@ -912,7 +960,7 @@ function weeklyAdvice(){
 }
 function isEvening(){
   if (S.forceCard) return S.forceCard==='evening';
-  return new Date().getHours() >= (S.settings.handoverHour ?? 16);
+  return londonNow().hour >= (S.settings.handoverHour ?? 16);
 }
 function missingFor(iso){
   const d=S.days[iso]||{}, miss=[];
@@ -955,7 +1003,7 @@ function render(force=false){
 function leaveDraft(){
   if (!$('#main [data-dirty],#main [data-stool]')) return true;
   if (!confirm('Discard the unconfirmed draft?')) return false;
-  S.adding=null; stoolDraft=null; render(true); return true;
+  S.adding=null; stoolDraft=null; stoolOriginal=null; render(true); return true;
 }
 
 function bannerHtml(){
@@ -1024,23 +1072,31 @@ function mealFlags(iso,m){
 function mealSummary(m){
   return `${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g<br>${Object.entries(MEAL_FLAGS).map(([k,l])=>l+': '+(m[k]===true?'Yes':m[k]===false?'No':'not recorded')).join(' · ')}`;
 }
-function mealEditor(iso,live=false,details='',previous=false){
-  const m=S.days[iso]?.meal||{}, r=RECIPES.find(x=>x.id===m.recipe), fed=!!m.fedAt;
+function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null){
+  const m=S.days[iso]?.meal||{}, r=RECIPES.find(x=>x.id===m.recipe), fed=isFedMeal(m);
   const disabled=live&&!fed;
+  const title=previous?"Last night's meal":live?"Tonight's meal":'Evening meal';
+  const feedingControls=live?`${fed?row('Fed at '+esc(m.fedAt),esc(m.darfFed??m.darfPlanned??'?')+' g'):''}<button class="btn ${fed?'ghost sm':''}" data-act="${fed?'unfeed':'fed'}" data-date="${iso}">${fed?'Undo Fed':'Fed'}</button>`:
+    `<div data-feeding data-date="${iso}"><label class="inline-lab" for="fed-time-${iso}">Actual feeding time · ${fmtDate(iso)}</label>
+      <input class="tin" id="fed-time-${iso}" type="time" required value="${fed?esc(m.fedAt):''}">
+      <div class="btnrow"><button class="btn sm" data-act="${fed?'savefeedingtime':'fed'}" data-fed-time="explicit" data-date="${iso}">${fed?'Save feeding time':'Fed'}</button><button class="btn ghost sm" data-act="cancelfeedingtime" data-date="${iso}">Cancel</button>${fed?`<button class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button>`:''}</div>
+      <p class="sub">${fed?'Changing the time keeps the saved meal amounts.':'Enter the time this meal was actually fed, then press Fed. Amounts stay as recorded.'}</p></div>`;
   const body=`<label class="inline-lab" for="recipe-${iso}">Recipe · ${fmtDate(iso)}</label>
     <select class="tin" id="recipe-${iso}" data-act="recipe" data-date="${iso}"><option value="" disabled ${!m.recipe?'selected':''}>Choose a recipe</option>${m.recipe&&!r?`<option selected value="${esc(m.recipe)}">${esc(m.recipe)}</option>`:''}${RECIPES.map(x=>`<option value="${x.id}" ${m.recipe===x.id?'selected':''}>${x.name}</option>`).join('')}</select>
+    ${!live&&m.recipe&&!fed?'<p class="sub">Planned only — not recorded as fed.</p>':''}
     ${!live&&m.recipe?`<p class="sub">${esc(m.darfFed??m.darfPlanned??'?')} g · ${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g</p>`:''}
     ${details}${mealFlags(iso,m)}
-    ${r?`${live?`${fed?row('Fed at '+esc(m.fedAt),esc(m.darfFed??m.darfPlanned??'?')+' g'):''}<button class="btn ${fed?'ghost sm':''}" data-act="${fed?'unfeed':'fed'}" data-date="${iso}">${fed?'Undo Fed':'Fed'}</button>`:''}
+    ${r||(!live&&m.recipe)?`${feedingControls}
       ${!disabled?inputField(iso,'darfFed','Grams actually fed',0,400):''}
       <p class="lab">How the bowl went</p><div class="seg">${['cleared','left','refused'].map(k=>`<button ${choice(m.bowl===k)} ${disabled?'disabled':''} data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
       ${disabled?'<p class="sub">Selectable once Fed is pressed.</p>':''}`:''}`;
-  return previous?fold(`Evening meal <span class="sub">${r?esc(r.short)+' · '+esc(m.darfFed??m.darfPlanned??'?')+' g · '+esc(m.bowl||'bowl not recorded'):'Not recorded'}</span>`,body,'meal-'+iso,!m.recipe||!m.bowl):panel('Evening meal',body);
+  const summary=attributedMeal?`${esc(RECIPES.find(x=>x.id===attributedMeal.recipe)?.short||attributedMeal.recipe)} · ${esc(attributedMeal.darfFed??'?')} g · ${esc(attributedMeal.bowl||'bowl not recorded')}`:'Not recorded as fed';
+  return previous?fold(`${title} <span class="sub">${summary}</span>`,body,'meal-'+iso,!attributedMeal||!m.bowl):panel(title,body);
 }
 function cardMorning(iso){
   const miss=missingFor(iso);
   return `<span class="moment">Morning</span><h2 class="screen">${fmtDate(iso)}</h2>`+
-    mealEditor(toIso(toDay(iso)-1),false,'',true)+dailyFields(iso)+
+    mealEditor(shiftDate(iso,-1),false,'',true,attributionFor(iso,mealsList()).primary)+dailyFields(iso)+
     `<div class="note ${miss.length?'plain':'good'}">${miss.length?'<b>Still to log</b>'+miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', '):'<b>Morning complete</b>Evening meal controls are ready when needed.'}</div>`;
 }
 
@@ -1080,16 +1136,16 @@ function syncBcsGuidance(){
 function stoolsCard(iso){
   const st=(S.days[iso]?.stools||[]).slice().sort((a,b)=>minsOf(a.time)-minsOf(b.time)), meals=mealsList();
   const rows=st.map(s=>{
-    const b=BRISTOL[s.bristol]||{word:'?',band:'a'}, at=attributionFor(iso,s.time,meals,S.settings,s.mealOverride);
-    const attr=at.primary?`after ${RECIPES.find(x=>x.id===at.primary.recipe)?.short||at.primary.recipe}${at.assumed?', assumed':''}${at.overridden?', set by hand':''}`:'no earlier meal';
+    const b=BRISTOL[s.bristol]||{word:'?',band:'a'}, at=attributionFor(iso,meals);
+    const attr=at.primary?`Last night's meal: ${RECIPES.find(x=>x.id===at.primary.recipe)?.short||at.primary.recipe}`:"Last night's meal not recorded as fed";
     return `<div class="stool"><span class="dot ${b.band}"></span><div class="body"><span class="t">${esc(s.time)} · Bristol ${esc(s.bristol)}, ${b.word}${s.mucus?' · mucus':''}${s.blood?' · blood':''}</span><span class="attr">${esc(attr)}</span>
       <details id="stool-${esc(s.id)}"><summary class="link" aria-label="Stool actions at ${esc(s.time)}">Actions</summary><div class="chips">
       <button class="link" data-act="editstool" data-date="${iso}" data-id="${esc(s.id)}">Edit</button>
-      ${at.secondary?`<button class="link" data-act="swapattr" data-date="${iso}" data-id="${esc(s.id)}" data-to="${at.overridden?'':at.secondary.date}">Change meal</button>`:''}
       <button class="link" data-act="delstool" data-date="${iso}" data-id="${esc(s.id)}" aria-label="Delete stool at ${esc(s.time)}">Delete</button></div></details></div></div>`;
   }).join('');
   const f=stoolDraft;
   const form=S.adding===iso&&f?`<div data-stool data-date="${iso}">
+    <label class="inline-lab" for="st-date">Date</label><input class="tin" id="st-date" type="date" required max="${localToday()}" value="${iso}">
     <label class="inline-lab" for="st-t">Time</label><input class="tin" id="st-t" type="time" required value="${esc(f.time)}">
     <div class="bristol">${BRISTOL.slice(1).map(b=>`<button ${choice(f.bristol===b.n,b.band)} aria-label="Bristol ${b.n}, ${b.word}" data-act="stooltype" data-b="${b.n}"><b>${b.n}</b><i>${b.word}</i></button>`).join('')}</div>
     <div class="chips">${['mucus','blood'].map(k=>`<button ${choice(f[k],'chip')} data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
@@ -1119,7 +1175,7 @@ function cardEvening(iso){
     (last6.length?`<p class="sub">Last six: ${esc(last6.join(', '))}</p>`:'')+
     amounts+
     (recent?`<p class="sub" style="color:var(--watch)">Fibre or oil changed on ${fmtDate(recent)}. An extra now will muddy the read-out.</p>`:'');
-  return `<span class="moment">Evening</span><h2 class="screen">Tonight's bowl</h2>`+
+  return `<span class="moment">Evening</span><h2 class="screen">Tonight's meal</h2>`+
     mealEditor(iso,true,details)+eveningFoot(iso);
 }
 
@@ -1134,11 +1190,14 @@ function eveningFoot(iso){
 function earliestHistoryDate(){
   return cached('earliestHistory',()=>[S.settings.startDate,...Object.keys(S.days),localToday()].filter(d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(toDay(d))).sort()[0]);
 }
+function latestHistoryDate(){
+  return cached('latestHistory',()=>[localToday(),...Object.keys(S.days).filter(validDate)].sort().at(-1));
+}
 function viewDay(){
   const iso=S.cursor, miss=missingFor(iso);
   return bannerHtml()+`<h2 class="screen">History</h2><div class="datebar">
     <button data-act="dayshift" data-n="-1" ${iso<=earliestHistoryDate()?'disabled':''} aria-label="Previous day">‹</button>
-    <div class="history-date"><label class="inline-lab" for="history-date">History date</label><input class="tin" id="history-date" type="date" data-act="historydate" min="${earliestHistoryDate()}" max="${localToday()}" value="${iso}"><span class="d">${fmtDate(iso)}</span></div><button data-act="dayshift" data-n="1" ${iso>=localToday()?'disabled':''} aria-label="Next day">›</button></div>
+    <div class="history-date"><label class="inline-lab" for="history-date">History date</label><input class="tin" id="history-date" type="date" data-act="historydate" min="${earliestHistoryDate()}" max="${latestHistoryDate()}" value="${iso}"><span class="d">${fmtDate(iso)}</span></div><button data-act="dayshift" data-n="1" ${iso>=latestHistoryDate()?'disabled':''} aria-label="Next day">›</button></div>
     <div class="note ${miss.length?'plain':'good'}"><b>${miss.length?'Incomplete':'Complete'}</b>${esc(miss.map(x=>x.t).join(', '))}</div>`+mealEditor(iso)+dailyFields(iso);
 }
 
@@ -1248,26 +1307,35 @@ function weekContext(today){
 function viewHistory(){
   const today=localToday(), s=S.settings;
   const range=S.range||28;
-  const from=Math.max(toDay(s.startDate), toDay(today)-range+1);
+  const from=range===9999?toDay(earliestHistoryDate()):Math.max(toDay(s.startDate), toDay(today)-range+1);
   const isos=[]; for (let d=from;d<=toDay(today);d++) isos.push(toIso(d));
+  const meals=mealsList(), displayIsos=isos.slice(), tomorrow=shiftDate(today,1);
+  // Today's confirmed meal belongs to tomorrow's tracking group. This is only
+  // a display row; it must not create or open a future daily record.
+  if(attributionFor(tomorrow,meals).primary) displayIsos.push(tomorrow);
+  // Imported date mistakes must remain inspectable without being moved or
+  // silently corrected. Only All includes saved dates beyond today.
+  if(range===9999){
+    displayIsos.push(...Object.keys(S.days).filter(validDate),...meals.filter(isFedMeal).map(m=>shiftDate(m.date,1)));
+  }
 
   const chips=[14,28,56,9999].map(r=>`<button ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r}</button>`).join('');
-  const W=weightsList().filter(w=>toDay(w.date)>=from);
+  const W=weightsList().filter(w=>toDay(w.date)>=from&&w.date<=today);
   const B=isos.map(i=>({date:i,v:(S.days[i]||{}).bcs})).filter(x=>Number.isFinite(x.v));
 
-  const rows=isos.slice().reverse().map(i=>{
-    const d=S.days[i]||{}, st=(d.stools||[]);
+  const rows=[...new Set(displayIsos)].sort().reverse().map(i=>{
+    const canOpen=i<=today||Object.hasOwn(S.days,i), d=S.days[i]||{}, st=(d.stools||[]);
     const worst=st.length?Math.max(...st.map(x=>x.bristol)):null;
-    const m=d.meal||{}, r=m.recipe?RECIPES.find(x=>x.id===m.recipe):null;
+    const m=attributionFor(i,meals).primary, r=m?RECIPES.find(x=>x.id===m.recipe):null;
     const band=worst?bandOfBristol(worst):'';
-    return `<tr class="tap" data-act="openday" data-date="${i}">
-      <td><button class="link" data-act="openday" data-date="${i}">${fmtShort(i)}</button></td>
+    return `<tr${canOpen?` class="tap" data-act="openday" data-date="${i}"`:''}>
+      <td>${canOpen?`<button class="link" data-act="openday" data-date="${i}">${fmtShort(i)}</button>`:fmtShort(i)}</td>
       <td class="${band}">${worst?worst+(st.length>1?' ('+st.length+')':''):'--'}</td>
       <td>${d.weightMissed===true?'Missed':recordedWeight(d)!==null?d.weight.toFixed(2):'--'}</td>
       <td>${Number.isFinite(d.bcs)?d.bcs:'--'}</td>
-      <td class="meal-column">${r?r.short:'--'}<div class="sub meal-detail">${mealSummary(m)}</div></td>
-      <td>${m.darfFed??m.darfPlanned??'--'}</td>
-      <td>${esc(m.bowl||'--')}</td>
+      <td class="meal-column"${m?` data-act="openday" data-date="${m.date}"`:''}>${m?`<button class="link" data-act="openday" data-date="${m.date}" aria-label="Edit meal fed on ${fmtDate(m.date)}">${esc(r?.short||m.recipe)}</button><div class="sub meal-detail">${mealSummary(m)}</div>`:'--'}</td>
+      <td${m?` data-act="openday" data-date="${m.date}"`:''}>${m?.darfFed??m?.darfPlanned??'--'}</td>
+      <td${m?` data-act="openday" data-date="${m.date}"`:''}>${esc(m?.bowl||'--')}</td>
       <td>${(d.events||[]).length?'&#9679;':''}</td></tr>`;
   }).join('');
 
@@ -1279,7 +1347,7 @@ function viewHistory(){
     <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
   <div class="card"><div class="sec"><p class="lab">By recipe</p>${foodTable(isos,false)}</div>
     <div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div></div>
-  <div class="card tw"><table class="log-table"><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th class="meal-heading">Meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
+  <div class="card tw"><table class="log-table"><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th class="meal-heading">Last night's meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -1343,12 +1411,15 @@ function foodStats(isos){
     const stats=Object.create(null);
     const get=k=>stats[k]??={n:0,sum:0,cnt:0,loose:0,mucus:0};
     const keys=m=>[m.recipe,...['egg','broth','fibreGiven','oilGiven'].filter(k=>m[k]===true),...(m.egg===false&&m.broth===false?['none']:[])];
-    const dates=new Set(isos), meals=mealsList();
-    for(const m of meals) if(dates.has(m.date)) for(const k of keys(m)) get(k).n++;
-    for(const iso of isos) for(const stool of S.days[iso]?.stools||[]){
-      const at=attributionFor(iso,stool.time,meals,S.settings,stool.mealOverride);
-      if(!at.primary||at.assumed) continue;
-      for(const k of keys(at.primary)){
+    const meals=mealsList();
+    for(const iso of isos){
+      const m=attributionFor(iso,meals).primary;
+      if(!m) continue;
+      const mealKeys=keys(m);
+      // Count each confirmed meal once in its tracking date, including nights
+      // with no stools. Every stool on that date uses this same meal.
+      for(const k of mealKeys) get(k).n++;
+      for(const stool of S.days[iso]?.stools||[]) for(const k of mealKeys){
         const x=get(k);x.sum+=stool.bristol;x.cnt++;
         if(stool.bristol>=5)x.loose++;if(stool.mucus)x.mucus++;
       }
@@ -1402,7 +1473,6 @@ function viewMore(){
       ${num('minWeighIns','weigh-ins needed per week')}
       ${num('kcalPerKgTissue','kcal per kg of tissue')}
       ${num('bcsHoldAtOrBelow','hold reductions at or below BCS','0.5')}
-      ${num('attributionMinH','attribution floor, hours')}
       ${num('handoverHour','evening card from, hour')}
     </div><h3 class="lab">Regime changes</h3>${reg}
       <button class="link" data-act="addregime">+ Mark today as a regime change</button>
@@ -1456,7 +1526,7 @@ function exportMonthCsv(){
   const srows=[];
   const meals=mealsList();
   isos.forEach(i=>((S.days[i]||{}).stools||[]).forEach(s=>{
-    const at=attributionFor(i,s.time,meals,S.settings,s.mealOverride);
+    const at=attributionFor(i,meals);
     srows.push([i,s.time,s.bristol,(BRISTOL[s.bristol]||{}).word,s.mucus?'Y':'',s.blood?'Y':'',at.primary?at.primary.date+' '+at.primary.recipe:''].map(csvCell).join(','));
   }));
   setTimeout(()=>download(`Murphy_Log_${ym}_stools.csv`, [sh.join(','),...srows].join('\n'), 'text/csv;charset=utf-8'), 400);
@@ -1632,12 +1702,15 @@ function selfTest(){
   ok('already fired', adjust(up,{lastAdjustmentWeek:'2026-09-16',bcs7dMean:6}).applied, false);
   ok('regime change suppresses', adjust(up,{bcs7dMean:6,regimeChanges:['2026-09-09']}).applied, false);
 
-  L.push('ATTRIBUTION, 6 hour floor');
+  L.push('ATTRIBUTION, previous confirmed evening');
   const meals=[{date:'2026-09-09',fedAt:'19:00',recipe:'beef'},{date:'2026-09-10',fedAt:'19:00',recipe:'turkey'},{date:'2026-09-11',fedAt:'19:00',recipe:'lamb'}];
-  ok('morning to last night', attributionFor('2026-09-12','07:10',meals,s).primary.date, '2026-09-11');
-  ok('21:30 skips tonight', attributionFor('2026-09-11','21:30',meals,s).primary.date, '2026-09-10');
-  ok('01:30 to the evening before', attributionFor('2026-09-12','01:30',meals,s).primary.date, '2026-09-11');
-  ok('override wins', attributionFor('2026-09-12','00:30',meals,s,'2026-09-11').primary.date, '2026-09-11');
+  ok('previous evening', attributionFor('2026-09-12',meals).primary.date, '2026-09-11');
+  ok('tonight is never eligible', attributionFor('2026-09-11',meals).primary.date, '2026-09-10');
+  ok('planned tonight ignored', attributionFor('2026-09-12',[...meals,{date:'2026-09-12',recipe:'fish'}]).primary.date, '2026-09-11');
+  ok('older meal is not substituted', attributionFor('2026-09-13',meals).primary, null);
+  ok('unconfirmed previous meal excluded', attributionFor('2026-09-13',[...meals,{date:'2026-09-12',recipe:'fish'}]).primary, null);
+  ok('BST spring calendar step', shiftDate('2026-03-30',-1), '2026-03-29');
+  ok('BST autumn calendar step', shiftDate('2026-10-26',-1), '2026-10-25');
 
   L.push('PRO-FIBRE');
   const mk=o=>{const d={};Object.entries(o).forEach(([k,v])=>{d[k]=v===null?{}:{stools:v.map(b=>({bristol:b,mucus:false,blood:false}))}});return d;};
@@ -1675,7 +1748,7 @@ function selfTest(){
 }
 
 /* EVENTS */
-let stoolDraft=null;
+let stoolDraft=null, stoolOriginal=null;
 const entryDate=el=>el.dataset.date||(S.tab==='day'?S.cursor:localToday());
 function finishInput(form,keep){
   const input=$('input,textarea',form);
@@ -1715,15 +1788,19 @@ document.addEventListener('click', async (ev)=>{
   if (a==='openday'){ S.cursor=el.dataset.date; S.tab='day'; render(); return; }
   if (a==='dismiss-banner'){ S.banner=null; render(); return; }
   if (a==='swapcard'){ const wasEve=isEvening(); S.forceCard=wasEve?'morning':'evening';
-    if ((S.forceCard==='evening')===(new Date().getHours()>=(S.settings.handoverHour??16))) S.forceCard=null;
+    if ((S.forceCard==='evening')===(londonNow().hour>=(S.settings.handoverHour??16))) S.forceCard=null;
     render(); return; }
   if (a==='jump'){ const k=el.dataset.k;
     if (k==='bowl'){ S.forceCard='evening'; S.cursor=toIso(toDay(localToday())-1); S.tab='day'; }
     else { S.forceCard='morning'; }
     render(); return; }
   if (a==='dayshift'){ const n=Number(el.dataset.n);
-    const next=toIso(toDay(S.cursor)+n);
-    if (next>=earliestHistoryDate() && next<=localToday()) S.cursor=next;
+    let next=shiftDate(S.cursor,n);
+    if(next>localToday()){
+      const dates=[localToday(),...Object.keys(S.days).filter(validDate)].sort();
+      next=n<0?dates.filter(date=>date<S.cursor).at(-1):dates.find(date=>date>S.cursor);
+    }
+    if (next&&next>=earliestHistoryDate()&&(next<=localToday()||Object.hasOwn(S.days,next))) S.cursor=next;
     render(); return; }
   if (a==='range'){ S.range=Number(el.dataset.r); render(); return; }
   if (a==='theme'){ saveSettings({theme:el.dataset.t}); applyTheme(); return; }
@@ -1737,6 +1814,10 @@ document.addEventListener('click', async (ev)=>{
     await confirmInput(el.closest('[data-form]')); el.disabled=false; return;
   }
   if (a==='cancelinput'){ finishInput(el.closest('[data-form]')); return; }
+  if (a==='cancelfeedingtime'){
+    const form=el.closest('[data-feeding]'), input=$('input',form);
+    input.value=input.defaultValue; form.removeAttribute('data-dirty'); render(); return;
+  }
   if (a==='retrysync'){ flushWrites(); return; }
   if (a==='missed'){
     if(el.disabled||$(`[data-form][data-key="weight"][data-date="${iso}"][data-dirty]`)) return;
@@ -1754,10 +1835,11 @@ document.addEventListener('click', async (ev)=>{
   if (a==='openstool'||a==='editstool'){
     if (!leaveDraft()) return;
     const old=(d.stools||[]).find(x=>x.id===el.dataset.id);
+    stoolOriginal=old?{...old}:null;
     stoolDraft=old?{...old}:{id:'s'+crypto.randomUUID(),time:nowHHMM(),mucus:false,blood:false};
     S.adding=iso; render(true); $('#st-t')?.focus(); return;
   }
-  if (a==='cancelstool'){ S.adding=null; stoolDraft=null; render(true); return; }
+  if (a==='cancelstool'){ S.adding=null; stoolDraft=null; stoolOriginal=null; render(true); return; }
   if (a==='stooltype'){
     if (!stoolDraft) return;
     stoolDraft.bristol=Number(el.dataset.b);
@@ -1770,17 +1852,26 @@ document.addEventListener('click', async (ev)=>{
   if (a==='savestool'){
     if (el.disabled||!stoolDraft) return;
     if (!stoolDraft.bristol){setStatus('Choose a Bristol type first','warn');return;}
-    const time=$('#st-t');if (!time.reportValidity()) return;
+    const time=$('#st-t'), dateInput=$('#st-date');
+    if (!time.reportValidity()||!dateInput.reportValidity()||!validDate(dateInput.value)||dateInput.value>localToday()) return;
+    if(stoolOriginal&&!(S.days[S.adding]?.stools||[]).some(s=>s.id===stoolOriginal.id)){
+      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'));return;
+    }
     el.disabled=true;
-    const date=S.adding, list=S.days[date]?.stools||[], next={...stoolDraft,time:time.value};
+    const originalDate=S.adding, date=dateInput.value, list=S.days[date]?.stools||[], edited={...stoolDraft,time:time.value};
+    const moving=date!==originalDate&&!!stoolOriginal;
+    const changes=stoolOriginal?Object.fromEntries(['time','bristol','mucus','blood'].filter(k=>edited[k]!==stoolOriginal[k]).map(k=>[k,edited[k]])):{};
+    const next=stoolOriginal&&!moving?{...list.find(s=>s.id===stoolOriginal.id),...changes}:edited;
     const st=list.some(x=>x.id===next.id)?list.map(x=>x.id===next.id?next:x):[...list,next];
-    if (await saveDay(date,{stools:st})){S.adding=null;stoolDraft=null;render(true);}else el.disabled=false;
+    const saved=moving?moveStool(originalDate,date,next,stoolOriginal):saveDay(date,{stools:st});
+    if (await saved){
+      S.adding=null;stoolDraft=null;stoolOriginal=null;
+      if(date!==originalDate){S.cursor=date;S.tab='day';}
+      render(true);
+    }else el.disabled=false;
     return;
   }
   if (a==='delstool'){ saveDay(iso,{stools:(d.stools||[]).filter(x=>x.id!==el.dataset.id)}); return; }
-  if (a==='swapattr'){
-    saveDay(iso,{stools:(d.stools||[]).map(x=>x.id===el.dataset.id?{...x,mealOverride:el.dataset.to||null}:x)}); return;
-  }
 
 
   if (a==='extra'){
@@ -1798,13 +1889,30 @@ document.addEventListener('click', async (ev)=>{
     }
     return;
   }
-  if (a==='fed'){
+  if (a==='fed'||a==='savefeedingtime'){
     const meal=d.meal||{}, r=meal.recipe;
-    if (!r||meal.fedAt) return;
+    if (!r||el.disabled) return;
+    if (el.dataset.fedTime==='explicit'){
+      const form=el.closest('[data-feeding]'), input=$('input',form);
+      if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
+      el.disabled=true;
+      if (await saveDay(iso,{meal:{fedAt:input.value}})){
+        input.defaultValue=input.value; form.removeAttribute('data-dirty'); el.disabled=false; render();
+      } else el.disabled=false;
+      return;
+    }
+    if (a!=='fed'||isFedMeal(meal)||iso!==localToday()) return;
     const b=bowlFor(iso,r,S.settings,S.changes,meal);
+    if (!b) return;
     saveDay(iso,{meal:{recipe:r,fedAt:nowHHMM(),darfPlanned:meal.darfPlanned??b.darfG,darfFed:meal.darfFed??meal.darfPlanned??b.darfG,oilMl:meal.oilMl??b.oilMl,fibreG:meal.fibreG??b.fibreG}}); return;
   }
-  if (a==='unfeed'){ saveDay(iso,{meal:{fedAt:null}}); return; }
+  if (a==='unfeed'){
+    if (el.disabled) return; el.disabled=true;
+    if (await saveDay(iso,{meal:{fedAt:null}})){
+      el.closest('[data-feeding]')?.removeAttribute('data-dirty'); el.disabled=false; render();
+    } else el.disabled=false;
+    return;
+  }
   if (a==='bowl'){
     if (!d.meal?.fedAt&&S.tab==='today'&&iso===localToday()) return;
     saveDay(iso,{meal:{bowl:d.meal?.bowl===el.dataset.k?null:el.dataset.k}}); return;
@@ -1847,6 +1955,8 @@ document.addEventListener('click', async (ev)=>{
 });
 
 document.addEventListener('input',ev=>{
+  const feeding=ev.target.closest('[data-feeding]');
+  if(feeding){feeding.setAttribute('data-dirty','');return;}
   const form=ev.target.closest('[data-form]');
   if (form&&!form.hasAttribute('data-dirty')){
     form.setAttribute('data-dirty','');
@@ -1864,7 +1974,7 @@ document.addEventListener('change', (ev)=>{
   if (el && el.dataset.act==='import' && el.files && el.files[0]) importJson(el.files[0]);
   if(el?.dataset.act==='historydate'){
     const next=el.value;
-    if(!next||!el.reportValidity()||next<earliestHistoryDate()||next>localToday()){el.value=S.cursor;return;}
+    if(!next||!el.reportValidity()||next<earliestHistoryDate()||(next>localToday()&&!Object.hasOwn(S.days,next))){el.value=S.cursor;return;}
     if(!leaveDraft()){el.value=S.cursor;return;}
     S.cursor=next;render();return;
   }
