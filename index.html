@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB">
+<html lang="en-GB" data-version="3.1.6">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -25,7 +25,7 @@
   --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px; --s6:32px;
   --sl:max(20px,env(safe-area-inset-left)); --sr:max(20px,env(safe-area-inset-right));
-  --tabh:5rem;
+  --tabh:5rem; --headerh:3rem; --feedbackh:0px;
 }
 :root[data-theme="light"]{
   color-scheme:light;
@@ -53,7 +53,7 @@
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{font:-apple-system-body;scroll-padding-top:5rem;scroll-padding-bottom:calc(var(--tabh) + 1rem)}
+html{font:-apple-system-body;scroll-padding-top:calc(var(--headerh) + var(--feedbackh) + 1rem);scroll-padding-bottom:calc(var(--tabh) + 1rem)}
 html,body{margin:0;padding:0}
 body{
   background:var(--paper); color:var(--ink);
@@ -72,8 +72,8 @@ input,select,.btn{min-height:44px}
 button:disabled{cursor:default}
 button:disabled:not(.btn){color:var(--ink-3)}
 .switch-row:disabled .switch-track{border:1px dashed currentColor;box-shadow:none;opacity:.5}
-button:not(:disabled):active{filter:brightness(.88)}
-input,select,textarea{scroll-margin-block:5rem calc(var(--tabh) + 2rem)}
+button:not(:disabled):active{filter:brightness(.88);box-shadow:inset 0 0 0 2px var(--ink-3)}
+input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + var(--feedbackh) + 1rem) calc(var(--tabh) + 2rem)}
 .hide{display:none !important}
 .num,.row .v,.field input,.scale button,.bristol b{font-variant-numeric:tabular-nums}
 .g{--tone:var(--good)} .a{--tone:var(--watch)} .r{--tone:var(--alert)}
@@ -97,6 +97,12 @@ input,select,textarea{scroll-margin-block:5rem calc(var(--tabh) + 2rem)}
 .topbar .state.bad{color:var(--alert)}
 
 main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s6)) var(--sl);max-width:42rem;width:100%;margin:0 auto;min-width:0}
+.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow:auto}
+.feedback-region:empty{display:none}
+.feedback-region .note{margin:12px 0;padding:12px 16px;border:1px solid var(--rule-2);border-left-width:3px}
+.feedback-actions{display:flex;flex-wrap:wrap;gap:4px 20px;margin-top:4px}
+.feedback-actions .link{font-size:.875rem}
+.feedback-region .note b{margin-bottom:2px}
 
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;z-index:20;
@@ -151,6 +157,10 @@ details.card>summary{padding:var(--s4);margin:0;outline-offset:-4px}
   border:1px solid var(--rule-2);border-radius:8px;background:var(--surface-2);text-align:right;
   font-size:1.0625rem;font-weight:600;width:7.5rem;max-width:100%;min-width:0;padding:var(--s2);
 }
+.field input[type="time"]{width:9rem}
+[aria-invalid="true"]{border-color:var(--alert)!important;outline-color:var(--alert)}
+.field-help,.field-error{font-size:.875rem;line-height:1.5;margin:4px 0 0;color:var(--ink-3)}
+.field-error{color:var(--alert)}
 input:disabled{color:var(--ink-3);opacity:1;border-style:dashed}
 .tin{width:100%;max-width:100%;border:1px solid var(--rule-2);border-radius:8px;padding:var(--s3);background:var(--surface);font-size:1rem}
 textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
@@ -229,30 +239,66 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .gauge .mid{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--rule-2)}
 .gauge .fill{position:absolute;top:0;bottom:0;background:var(--accent)}
 
-/* charts */
-svg.chart{display:block;width:100%;height:auto}
-.legend{font-size:.875rem;color:var(--ink-3);margin-top:8px}
+/* Charts keep their text in the document's text scale, outside the drawing. */
+.chart-frame{display:grid;grid-template-columns:3.6rem minmax(0,1fr);gap:8px;padding-block:10px 0;margin-top:16px}
+.chart-axis{position:relative;font-size:.875rem;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.chart-axis span{position:absolute;right:0;transform:translateY(-50%);line-height:1.2}
+.chart-plot{height:11rem;position:relative;min-width:0}
+svg.chart{display:block;width:100%;height:100%;overflow:visible}
+svg.chart :is(path,line){vector-effect:non-scaling-stroke}
+.chart-point{position:absolute;width:.4375rem;height:.4375rem;border-radius:50%;background:var(--surface);border:2px solid var(--accent);transform:translate(-50%,-50%)}
+.chart-point.stool-point{width:.5rem;height:.5rem;border:0;background:var(--tone)}
+.chart-point.stool-point.r{border-radius:0}
+.chart-point.stool-point.a{border-radius:0;transform:translate(-50%,-50%) rotate(45deg)}
+.chart-mark{position:absolute;width:.5rem;height:.5rem;transform:translate(-50%,-50%)}
+.chart-mark .stool-point{left:50%;top:50%}
+.chart-mark.blood::before,.chart-mark.mucus::after{content:"";position:absolute;inset:-.25rem;border:1.5px solid var(--alert);border-radius:50%}
+.chart-mark.mucus::after{inset:-.375rem;border-style:dashed;border-color:var(--watch)}
+.chart-dates{grid-column:2;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 16px;font-size:.875rem;color:var(--ink-2);font-variant-numeric:tabular-nums;margin-top:6px}
+.chart-summary{font-size:.9375rem;line-height:1.6;color:var(--ink-2);margin:0 0 12px}
+.legend{font-size:.875rem;line-height:1.6;color:var(--ink-3);margin:12px 0 0}
+.chart-values{margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
+.chart-values summary{display:flex;align-items:center;gap:8px;font-size:.9375rem;color:var(--accent-ink)}
+.chart-values summary::before{content:"+";font-weight:600}
+.chart-values[open] summary::before{content:"−"}
+.chart-values .tw{margin-top:8px}
 
 /* tables */
-.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;outline-offset:-3px}
 table{border-collapse:collapse;width:100%;font-size:.875rem}
 th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);white-space:nowrap}
 thead th{font-size:.8125rem;font-weight:600;color:var(--ink-3);background:var(--surface-2)}
 td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
-tr.tap{cursor:pointer}
-/* Keep iPhone meal summaries at the table's scale instead of allowing a wide,
-   unbroken cell to trigger text inflation. rem units still follow enlarged text;
-   viewport zoom stays enabled. Larger desktop/tablet typography is unchanged. */
-@media(max-width:600px),(max-width:960px) and (orientation:landscape){
-  .log-table .meal-column{
-    --meal-readable-width:calc(100vw - var(--sl) - var(--sr) - 24px);
-    width:clamp(12rem,60vw,16rem);
-    min-width:min(12rem,var(--meal-readable-width));max-width:min(16rem,var(--meal-readable-width));
-    white-space:normal;overflow-wrap:anywhere;vertical-align:top;
-    font-size:.8125rem;line-height:1.35;padding:6px 8px;
-    -webkit-text-size-adjust:100%;text-size-adjust:100%;
-  }
-  .log-table .meal-column .meal-detail{font-size:inherit;line-height:inherit;margin-top:4px}
+.table-intro{padding:20px;border-bottom:1px solid var(--rule)}
+.table-intro .lab{margin-bottom:4px}
+.table-guide{font-size:.875rem;line-height:1.5;margin:8px 0 0;color:var(--ink-2)}
+.log-table{font-size:.9375rem;--date-width:clamp(88px,26vw,112px)}
+.log-table th{padding:12px;font-size:.8125rem}
+.log-table td{padding:12px;vertical-align:top}
+.log-table .date-column{position:sticky;left:0;z-index:2;min-width:var(--date-width);width:var(--date-width);max-width:var(--date-width);white-space:normal;overflow-wrap:anywhere;background:var(--surface);border-right:1px solid var(--rule-2)}
+.log-table th.date-column{background:var(--surface-2);z-index:3}
+.log-table .date-column .link{display:block;font-size:.9375rem;white-space:normal;line-height:1.4}
+.log-table .meal-column{min-width:16rem;width:20rem;white-space:normal;overflow-wrap:anywhere;font-size:1rem;line-height:1.5;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+.meal-title{display:block;font-size:1rem;padding-top:0;min-height:44px;line-height:1.4}
+.meal-meta{font-size:.875rem;line-height:1.5;color:var(--ink-3);margin:0 0 8px}
+.meal-detail{font-size:1rem;line-height:1.5;color:var(--ink-2);margin:0}
+.meal-disclosure{margin-top:4px}
+.meal-disclosure summary{display:flex;align-items:center;gap:8px;font-size:.875rem;color:var(--accent-ink)}
+.meal-disclosure summary::before{content:"+"}
+.meal-disclosure[open] summary::before{content:"−"}
+.meal-facts{margin:0;display:grid;gap:8px}
+.meal-facts>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+.meal-facts dt{color:var(--ink-3);font-size:.875rem}
+.meal-facts dd{margin:0;font-size:.875rem;font-variant-numeric:tabular-nums}
+.meal-correction{margin-top:20px;padding-top:16px;border-top:1px solid var(--rule)}
+.table-flags{display:block;white-space:normal;font-size:.8125rem;margin-top:6px;max-width:12rem;color:var(--ink-2)}
+.log-table .table-reading{display:block;min-height:44px;padding-top:8px}
+.data-range{margin-bottom:20px}
+@media(max-width:600px){
+  .log-table .meal-column{min-width:calc(100vw - var(--sl) - var(--sr) - var(--date-width) - 2px);width:calc(100vw - var(--sl) - var(--sr) - var(--date-width) - 2px);max-width:calc(100vw - var(--sl) - var(--sr) - var(--date-width) - 2px)}
+  .log-table td{padding:12px 10px}
+  .meal-facts>div{grid-template-columns:1fr}
+  .meal-facts dd{margin-top:-5px}
 }
 
 /* date bar */
@@ -276,8 +322,6 @@ tr.tap{cursor:pointer}
 .pre{font-family:var(--mono);font-size:.75rem;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border-radius:6px;padding:10px;color:var(--ink-2);max-height:320px;overflow:auto}
 @media(max-width:360px){:root{--sl:max(12px,env(safe-area-inset-left));--sr:max(12px,env(safe-area-inset-right))}.sec{padding:16px}.switch-row{gap:8px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
-/* Pressed feedback changes the inset edge without shifting any control. */
-button:not(:disabled):active{filter:brightness(.78);box-shadow:inset 0 0 0 2px var(--ink-3)}
 @media(forced-colors:active){
   .switch-track{forced-color-adjust:none;background:Canvas;border:1px solid ButtonText}
   .switch-thumb{background:ButtonText}
@@ -295,6 +339,8 @@ button:not(:disabled):active{filter:brightness(.78);box-shadow:inset 0 0 0 2px v
   .daily>.card{margin:0}
   .daily>.card:last-child{grid-column:1/-1}
   .tabbar{max-width:42rem;margin:auto;border:1px solid var(--rule);border-radius:12px 12px 0 0}
+  .topbar{padding-inline:max(var(--sl),calc((100vw - 65.5rem)/2)) max(var(--sr),calc((100vw - 65.5rem)/2))}
+  .chart-plot{height:14rem}
 }
 </style>
 </head>
@@ -313,7 +359,8 @@ button:not(:disabled):active{filter:brightness(.78);box-shadow:inset 0 0 0 2px v
         <label class="inline-lab" for="pw">Password</label>
         <input class="tin" type="password" id="pw" autocomplete="current-password">
       </div>
-      <button class="btn" id="signin">Sign in</button>
+      <button class="btn" id="signin" data-act="signin" disabled>Loading app…</button>
+      <button class="btn ghost hide" id="boot-retry" type="button">Try loading again</button>
     </div>
     <p class="err hide" id="gate-err" role="alert"></p>
     <p class="muted" style="margin-top:22px">Sign in with your existing Murphy’s Log account to continue.</p>
@@ -325,6 +372,7 @@ button:not(:disabled):active{filter:brightness(.78);box-shadow:inset 0 0 0 2px v
     <span class="who">Murphy’s Log</span>
     <span class="state" id="state" role="status">Connecting</span>
   </div>
+  <div id="feedback" class="feedback-region" aria-live="polite" aria-atomic="true"></div>
   <main id="main"></main>
   <div id="bcs-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <nav class="tabbar" id="tabbar" aria-label="Primary navigation">
@@ -335,6 +383,113 @@ button:not(:disabled):active{filter:brightness(.78);box-shadow:inset 0 0 0 2px v
     <button data-tab="more"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m4 0h7M4 17h9m4 0h3M9 4v6m4 4v6"/></svg>Settings</button>
   </nav>
 </div>
+<script>
+// Independent of the data modules: a failed download must still offer recovery.
+(() => {
+  const pageVersion=document.documentElement.dataset.version;
+  const state={offlineReady:null,updateReady:false,busy:false,message:'',available:'serviceWorker' in navigator};
+  let registration=null,started=false,startupFailed=false,requestedReload=false,lastCheck=0,checking=false;
+  const emit=()=>window.dispatchEvent(new Event('app-shell-status'));
+  const canReload=()=>!document.querySelector('#main [data-dirty],#main [data-stool]')&&(!window.appCanUpdate||window.appCanUpdate());
+  function startupFailure(){
+    if(started)return;
+    startupFailed=true;const error=document.getElementById('gate-err');
+    error.textContent='Murphy’s Log could not finish loading. Check your connection, then try again. Retrying does not reset your log.';
+    error.classList.remove('hide');document.getElementById('boot-retry').classList.remove('hide');
+    document.getElementById('signin').textContent='App unavailable';
+  }
+  const deadline=setTimeout(startupFailure,20000);
+  function message(worker,type,timeout=2500){
+    if(!worker)return Promise.resolve(null);
+    return new Promise(resolve=>{
+      const channel=new MessageChannel();
+      const finish=value=>{clearTimeout(timer);channel.port1.close();resolve(value)};
+      const timer=setTimeout(()=>finish(null),timeout);
+      channel.port1.onmessage=event=>finish(event.data?.type==='MURPHY_STATUS'?event.data:null);
+      try{worker.postMessage({type},[channel.port2])}catch{finish(null)}
+    });
+  }
+  async function inspect(){
+    if(!registration)return;
+    const [active,waiting]=await Promise.all([message(registration.active,'MURPHY_STATUS'),message(registration.waiting,'MURPHY_STATUS')]);
+    state.activeVersion=active?.version||null;
+    state.offlineReady=active?.version===pageVersion?active.offlineReady:null;
+    state.updateReady=!!registration.waiting||!!(active&&active.version!==pageVersion);
+    state.waitingReady=waiting?.offlineReady===true;
+    emit();
+  }
+  function watch(reg){
+    registration=reg;
+    const track=()=>{
+      const worker=reg.installing;if(!worker)return;
+      worker.addEventListener('statechange',()=>{
+        if(worker.state==='installed'||worker.state==='activated')void inspect();
+        if(worker.state==='redundant'){state.message='The update could not be prepared. Your current app and saved records are kept.';emit();}
+      });
+    };
+    if(!reg.__murphyWatched){reg.__murphyWatched=true;reg.addEventListener('updatefound',track);}
+    track();void inspect();
+  }
+  async function check(repair=false){
+    if(!state.available||checking)return;
+    checking=true;state.busy=true;state.message='';emit();lastCheck=Date.now();
+    try{
+      if(!registration||!registration.active&&!registration.waiting&&!registration.installing)watch(await navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}));
+      else if(navigator.onLine){
+        try{await registration.update()}catch(error){
+          if(error.name==='InvalidStateError')watch(await navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}));else throw error;
+        }
+      }
+      if(repair){
+        const worker=registration.waiting||registration.active;
+        const result=await message(worker,'MURPHY_REPAIR',25000);
+        state.message=result?.error||(result?.offlineReady?'App files are ready for offline opening.':worker?'Offline opening could not be confirmed. Reconnect and try again.':'Preparing offline opening. Check again once the app finishes downloading.');
+      }
+    }catch{
+      state.message=navigator.onLine?'Could not check the app files. Try again when connected.':'You are offline. Update checks will resume when connected.';
+    }finally{await inspect();checking=false;state.busy=false;emit();}
+  }
+  async function update(){
+    if(state.busy)return;
+    if(!canReload()){state.message='Save or cancel unfinished entries before updating.';emit();return;}
+    if(!registration){await check();return;}
+    if(!registration.waiting){
+      if(state.activeVersion&&state.activeVersion!==pageVersion&&canReload())location.reload();
+      else await check();
+      return;
+    }
+    state.busy=true;state.message='';requestedReload=true;emit();
+    const result=await message(registration.waiting,'MURPHY_ACTIVATE');
+    if(!result?.offlineReady){requestedReload=false;state.busy=false;state.message='The update files are not ready. Use Check app files in Settings when connected.';emit();}
+  }
+  window.AppShell={state,check,update,ready(){
+    started=true;clearTimeout(deadline);document.getElementById('boot-retry').classList.add('hide');
+    if(startupFailed){document.getElementById('gate-err').classList.add('hide');document.getElementById('gate-err').textContent='';startupFailed=false;}
+    document.getElementById('signin').disabled=false;document.getElementById('signin').textContent='Sign in';
+  }};
+  document.getElementById('boot-retry').addEventListener('click',()=>location.reload());
+  document.addEventListener('click',event=>{
+    const action=event.target.closest('[data-shell-act]')?.dataset.shellAct;
+    if(action==='update')void update();if(action==='check')void check(true);
+  });
+  window.addEventListener('error',startupFailure,true);
+  window.addEventListener('unhandledrejection',startupFailure);
+  if(state.available){
+    navigator.serviceWorker.addEventListener('message',event=>{if(event.data?.type==='MURPHY_STATUS')void inspect()});
+    navigator.serviceWorker.addEventListener('controllerchange',async()=>{
+      await inspect();
+      if(requestedReload){
+        requestedReload=false;state.busy=false;
+        if(canReload())location.reload();
+        else{state.updateReady=true;state.message='The update is ready. Save or cancel the entry you started, then choose Update app.';emit();}
+      }
+    });
+    window.addEventListener('load',()=>void check());
+    window.addEventListener('online',()=>void check());
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-lastCheck>60000)void check()});
+  }
+})();
+</script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut }
@@ -343,7 +498,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.5';
+const APP_VERSION = '3.1.6';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -680,7 +835,8 @@ function vetItems(days, todayIso, weights, s){
 const S = {
   user:null, days:{}, changes:[], settings:{...DEFAULTS},
   ready:false, tab:'today', cursor:null, adding:null,
-  status:'Connecting', banner:null, testOut:null, forceCard:null, subscribed:false
+  status:'Connecting', banner:null, testOut:null, forceCard:null, subscribed:false,
+  undo:null, undoBusy:false, erasing:false, fibreSnooze:null, fibreSnoozedUntil:null, localSaveError:null
 };
 
 const localClock = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London',
@@ -700,10 +856,19 @@ function fmtDate(iso){
 }
 function fmtShort(iso){ const d=new Date(toDay(iso)*DAY_MS); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; }
 
-function setStatus(text, cls){ S.status=text; const el=$('#state'); if (el){ el.textContent=text; el.className='state '+(cls||''); } }
+function setStatus(text, cls){
+  if(S.erasing){text='Erasing log data…';cls='';}
+  if(S.localSaveError){text='Not saved';cls='bad';}
+  S.status=text; const el=$('#state');
+  if(el){el.textContent=text;el.className='state '+(cls||'');}
+  renderFeedback();
+}
 
-let flushing=false, writeClock=0, unsubs=[], savedDays=null;
+let flushing=false, flushTask=null, writeClock=0, unsubs=[], savedDays=null;
 const queuePrefix=()=>`murphy-outbox:${S.user.uid}:`;
+// An older open app can drain ordinary writes, but cannot interpret the new
+// guarded restoration commands. Keep those commands outside its queue prefix.
+const guardedQueuePrefix=()=>`murphy-outbox-guarded:${S.user.uid}:`;
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 function mergeData(base, patch){
   const out={...base};
@@ -732,12 +897,12 @@ function cleanDay(patch, remove=[], path=[], base={}){
 }
 function queuedWrites(){
   if(!S.user) return [];
-  const prefix=queuePrefix(), entries=[];
+  const prefixes=[queuePrefix(),guardedQueuePrefix()], entries=[];
   for(let i=0;i<localStorage.length;i++){
     const key=localStorage.key(i);
-    if(key.startsWith(prefix)) entries.push([key,JSON.parse(localStorage.getItem(key))]);
+    if(prefixes.some(prefix=>key.startsWith(prefix)))entries.push([key,JSON.parse(localStorage.getItem(key))]);
   }
-  return entries.sort(([a],[b])=>a.localeCompare(b));
+  return entries.sort(([a],[b])=>a.slice(a.lastIndexOf(':')+1).localeCompare(b.slice(b.lastIndexOf(':')+1)));
 }
 function replayQueuedWrites(queued=queuedWrites()){
   // Rebase on the saved snapshot, never on an already-replayed local move.
@@ -771,6 +936,24 @@ function stoolMovePatches(move, source={}, target={}){
   ];
 }
 function applyOperation(op){
+  if(op.recover){
+    const r=op.recover;
+    if(r.kind==='stool'){
+      // An Undo adds only the missing record; newer same-ID entries always win.
+      if(!Object.values(S.days).some(d=>(d.stools||[]).some(s=>s.id===r.record.id))){
+        const d=S.days[r.date]||{}, stools=[...(d.stools||[])];
+        stools.splice(Math.min(r.index??stools.length,stools.length),0,r.record);
+        S.days={...S.days,[r.date]:{...d,date:r.date,stools}};
+      }
+    }else if(r.kind==='change'&&!S.changes.some(c=>c.id===r.record.id)){
+      S.changes=[...S.changes,r.record].sort((a,b)=>toDay(a.date)-toDay(b.date));
+    }
+    return;
+  }
+  if(op.regime){
+    S.settings={...S.settings,regimeChanges:regimeDates(S.settings.regimeChanges,op.regime)};
+    return;
+  }
   if(op.move){
     const m=op.move, patches=stoolMovePatches(m,S.days[m.from],S.days[m.to]);
     if(patches) S.days={...S.days,[m.from]:mergeData(S.days[m.from]||{},patches[0]),[m.to]:mergeData(S.days[m.to]||{},patches[1])};
@@ -782,21 +965,64 @@ function applyOperation(op){
   if(op.col==='changes') S.changes=S.changes.filter(c=>c.id!==op.id)
     .concat(op.erase?[]:[operationData(op,S.changes.find(c=>c.id===op.id))]).sort((a,b)=>toDay(a.date)-toDay(b.date));
 }
-function storeError(e){
+function storeError(e,scope=null){
+  if(scope) S.localSaveError=scope;
   setStatus('Not saved','bad');
-  S.banner={kind:'bad',title:'Could not save locally',text:String(e.message||e)+'. Keep this form open and retry.'};
+  S.banner={kind:'bad',source:'local-save',title:'Could not save locally',text:String(e.message||e)+'. Your previous saved information is unchanged. Keep any unfinished entry open and try saving again.'};
   render();
 }
+const writeScope=op=>op.move?'move:'+op.move.id:op.recover?'recover:'+op.recover.id:op.regime?'regime:'+op.regime.date:
+  op.col+':'+op.id+':'+Object.keys(op.patch||{}).filter(k=>!['date','updatedAt'].includes(k)).sort().join(',')+(op.stools?':stools':'');
+function eraseBlocksChanges(){
+  if(!S.erasing)return false;
+  S.banner={kind:'plain',source:'erase',title:'Erasing log data…',text:'Wait for the erase to finish before saving, importing or signing out. Any unfinished entry stays open.'};
+  renderFeedback();return true;
+}
 async function write(op){
+  if(eraseBlocksChanges())return false;
   try{
     if(!S.user) throw Error('Sign in before saving');
     writeClock=Math.max(Date.now(),writeClock+1);
-    localStorage.setItem(queuePrefix()+writeClock+'-'+crypto.randomUUID(),JSON.stringify(op));
-  }catch(e){storeError(e);return false;}
+    const prefix=op.recover||op.regime?guardedQueuePrefix():queuePrefix();
+    localStorage.setItem(prefix+writeClock+'-'+crypto.randomUUID(),JSON.stringify(op));
+  }catch(e){storeError(e,writeScope(op));return false;}
+  if(S.localSaveError===writeScope(op)){
+    S.localSaveError=null;
+    if(S.banner?.source==='local-save') S.banner=null;
+  }
   applyOperation(op); setStatus('Saved locally; syncing','warn'); render();
   void flushWrites(); return true;
 }
 async function sendOperation(op){
+  if(op.recover){
+    const r=op.recover, ref=doc(db,r.kind==='stool'?'days':'changes',r.kind==='stool'?r.date:r.record.id);
+    const kept=await runTransaction(db,async tx=>{
+      const snap=await tx.get(ref), current=snap.exists()?snap.data():{};
+      if(r.kind==='change'){
+        if(snap.exists())return current;
+        tx.set(ref,r.record);
+      }else if(!(current.stools||[]).some(s=>s.id===r.record.id)){
+        const stools=[...(current.stools||[])];
+        stools.splice(Math.min(r.index??stools.length,stools.length),0,r.record);
+        tx.set(ref,{date:r.date,stools},{merge:true});
+      }else return current;
+    });
+    // A guarded no-op need not produce a Firestore snapshot. Rebase immediately
+    // on the newer saved record so an optimistic Undo cannot linger on screen.
+    if(kept){
+      if(r.kind==='stool')savedDays={...(savedDays||S.days),[r.date]:kept};
+      else S.changes=S.changes.filter(c=>c.id!==r.record.id).concat({...kept,id:r.record.id}).sort((a,b)=>toDay(a.date)-toDay(b.date));
+      replayQueuedWrites();render();
+    }
+    return;
+  }
+  if(op.regime){
+    const ref=doc(db,'settings','main');
+    return runTransaction(db,async tx=>{
+      const snap=await tx.get(ref), current=snap.exists()?snap.data():{};
+      tx.set(ref,{regimeChanges:regimeDates(current.regimeChanges,op.regime)},{merge:true});
+    });
+  }
   if(op.move){
     const m=op.move, sourceRef=doc(db,'days',m.from), targetRef=doc(db,'days',m.to);
     return runTransaction(db,async tx=>{
@@ -822,8 +1048,8 @@ async function sendOperation(op){
     tx.set(ref,operationData(op,current,true),{merge:true});
   });
 }
-async function flushWrites(){
-  if(flushing||!S.user) return;
+function flushWrites(){
+  if(flushTask||!S.user)return flushTask||Promise.resolve();
   flushing=true;
   const uid=S.user.uid;
   const flush=async()=>{
@@ -837,15 +1063,19 @@ async function flushWrites(){
         await sendOperation(op); localStorage.removeItem(key);
       }
     }
-    setStatus(navigator.onLine?'Synced':'Offline','');
-  };
-  try{
-    if(navigator.locks) await navigator.locks.request('murphy-sync:'+uid,flush); else await flush();
-  }catch(e){
-    setStatus('Saved locally; retry sync','warn');
-    S.banner={kind:'warn',title:'Sync pending',text:'Your confirmed entry is kept on this device. Retry sync when connected. '+String(e.message||e)};
+    if(S.banner?.source==='sync') S.banner=null;
+    setStatus(navigator.onLine?'Synced':'Offline · saved on this device','');
     render();
-  }finally{flushing=false;}
+  };
+  return flushTask=(async()=>{
+    try{
+      if(navigator.locks)await navigator.locks.request('murphy-sync:'+uid,flush);else await flush();
+    }catch(e){
+      setStatus('Saved locally; retry sync','warn');
+      if(S.banner?.source!=='local-save')S.banner={kind:'warn',source:'sync',retry:true,title:'Sync pending',text:'Your confirmed entries are saved on this device. Retry sync when connected. '+String(e.message||e)};
+      render();
+    }finally{flushing=false;flushTask=null;}
+  })();
 }
 function saveDay(iso,patch){
   if(Object.hasOwn(patch,'weight')&&patch.weight!=null&&!validWeight(patch.weight)){
@@ -887,22 +1117,88 @@ function moveStool(from,to,stool,original=null){
     {col:'days',id:to,patch:{date:to,updatedAt},stools:{put:[{...old,...stool}],drop:[]}}
   ]});
 }
-function saveSettings(patch){return write({col:'settings',id:'main',patch});}
+function saveSettings(patch){
+  for(const [key,value] of Object.entries(patch)){
+    const spec=settingsSpec[key];
+    if(spec&&(!Number.isFinite(value)||value<spec.min||value>spec.max||Math.abs((value-spec.min)/spec.step-Math.round((value-spec.min)/spec.step))>1e-7)){
+      storeError(Error('Enter a valid '+spec.label.toLowerCase()));return false;
+    }
+  }
+  return write({col:'settings',id:'main',patch});
+}
 function saveChange(c){
   const id=c.id||'c'+crypto.randomUUID();
   return write({col:'changes',id,patch:{...c,id}});
 }
-function removeChange(id){return write({col:'changes',id,erase:true});}
+
+// Recovery and advice postponement belong to this device/account, outside the
+// clinical settings and record schema. No saved database migration is needed.
+const deviceKey=name=>`murphy-device:${S.user.uid}:${name}`;
+function regimeDates(dates=[],delta){
+  if(delta.drop) return dates.filter(d=>d!==delta.date);
+  const count=dates.filter(d=>d===delta.date).length,missing=Math.max(0,(delta.count||1)-count),next=[...dates];
+  for(let i=0;i<missing;i++)next.splice(Math.min(delta.indices?.[count+i]??next.length,next.length),0,delta.date);
+  return next;
+}
+function recoveryMissing(r){
+  if(r.kind==='stool')return !Object.values(S.days).some(d=>(d.stools||[]).some(s=>s.id===r.record.id));
+  if(r.kind==='change')return !S.changes.some(c=>c.id===r.record.id);
+  return !(S.settings.regimeChanges||[]).includes(r.date);
+}
+function loadDeviceState(){
+  try{
+    const r=JSON.parse(localStorage.getItem(deviceKey('undo'))||'null');
+    S.undo=r&&['stool','change','regime'].includes(r.kind)&&recoveryMissing(r)?r:null;
+    S.fibreSnooze=JSON.parse(localStorage.getItem(deviceKey('fibre-snooze'))||'null');
+    S.fibreSnoozedUntil=S.fibreSnooze?.until||null;
+  }catch(e){console.warn('Device preferences could not be read.',e);}
+}
+const fibreAdviceKey=fib=>JSON.stringify([fib.advice?.kind,fib.advice?.toG,fib.dose,fib.since]);
+function fibreAdviceVisible(fib){
+  return !!fib.advice&&!(S.fibreSnooze&&localToday()<S.fibreSnooze.until&&S.fibreSnooze.advice===fibreAdviceKey(fib));
+}
+async function removeWithUndo(recovery,operation){
+  const previous=S.undo, r={...recovery,id:crypto.randomUUID(),state:'prepared'};
+  try{localStorage.setItem(deviceKey('undo'),JSON.stringify(r));}
+  catch(e){storeError(Error('Could not keep an Undo copy. '+String(e.message||e)));return false;}
+  if(!await write(operation)){
+    try{if(previous)localStorage.setItem(deviceKey('undo'),JSON.stringify(previous));else localStorage.removeItem(deviceKey('undo'));}catch{}
+    S.undo=previous;render();return false;
+  }
+  r.state='removed';S.undo=r;
+  // If this small final write fails, the prepared copy remains recoverable after
+  // the durable removal is replayed on reopening.
+  try{localStorage.setItem(deviceKey('undo'),JSON.stringify(r));}catch{}
+  render();return true;
+}
+async function undoRemoval(){
+  const r=S.undo;if(!r||S.undoBusy)return;
+  if(!recoveryMissing(r)){
+    S.banner={kind:'plain',title:'Record already present',text:'A saved entry already has this identity. Undo has kept that entry as it is.'};
+    render();return;
+  }
+  S.undoBusy=true;renderFeedback();
+  const op=r.kind==='regime'?{regime:{date:r.date,count:r.count||1,indices:r.indices}}:{recover:r};
+  if(await write(op)){
+    try{localStorage.removeItem(deviceKey('undo'));}catch{}
+    S.undo=null;
+    S.banner={kind:'good',title:'Restored on this device',text:'The removed item has been restored. Other saved entries are kept.'};
+  }
+  S.undoBusy=false;render();
+}
 
 function subscribe(){
   unsubs.forEach(fn=>fn()); unsubs=[];
   const uid=S.user.uid, seen=new Set();
   S.days={}; savedDays=null; S.changes=[]; S.settings={...DEFAULTS}; S.ready=false;
+  S.undo=null;S.fibreSnooze=null;S.fibreSnoozedUntil=null;S.localSaveError=null;S.banner=null;
   const received=(name,snap)=>{
     if(S.user?.uid!==uid) return;
     seen.add(name); S.ready=seen.size===3;
     let queued;
     try{queued=queuedWrites();replayQueuedWrites(queued);}catch(e){storeError(e);return;}
+    loadDeviceState();
+    if(!queued.length&&S.banner?.source==='sync')S.banner=null;
     setStatus(queued.length?'Saved locally; syncing':snap.metadata.fromCache?'Cached; checking sync':'Synced');
     applyTheme(); render();
   };
@@ -927,7 +1223,8 @@ function subscribe(){
   void flushWrites();
 }
 window.addEventListener('storage',e=>{
-  if(S.user&&e.key?.startsWith(queuePrefix())){
+  if(S.user&&e.key?.startsWith(`murphy-device:${S.user.uid}:`)){loadDeviceState();render();}
+  if(S.user&&[queuePrefix(),guardedQueuePrefix()].some(prefix=>e.key?.startsWith(prefix))){
     try{replayQueuedWrites();render();void flushWrites();}catch(error){storeError(error);}
   }
 });
@@ -1009,12 +1306,41 @@ function bandOfBristol(n){ return (BRISTOL[n]||{}).band||'a'; }
 
 /* RENDER */
 const refocus=id=>document.getElementById(id)?.focus({preventScroll:true});
+function focusAfterRender(selector){
+  const target=$(selector); if(!target)return;
+  for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+  if(!target.matches('input,select,textarea,button,a,summary,[tabindex]'))target.tabIndex=-1;
+  target.focus({preventScroll:true});
+  target.scrollIntoView({block:'start',behavior:'instant'});
+}
+function navigateTo(tab,{date,target}={}){
+  S.tab=tab;if(date)S.cursor=date;
+  render();
+  focusAfterRender(target||(tab==='day'?'#history-date':'#main h2.screen'));
+}
+function refreshSelectionStates(){
+  for(const button of $$('#main [data-act="event"],#main [data-act="bowl"],#main [data-act="theme"]')){
+    const d=S.days[button.dataset.date]||{};
+    const on=button.dataset.act==='event'?(d.events||[]).includes(button.dataset.id):button.dataset.act==='bowl'?d.meal?.bowl===button.dataset.k:(S.settings.theme||'system')===button.dataset.t;
+    button.classList.toggle('on',on);button.setAttribute('aria-pressed',String(on));
+  }
+  syncBcsGuidance();
+}
+function renderFeedback(){
+  const region=$('#feedback');if(!region||!S.user)return;
+  const b=S.banner,u=S.undo,app=window.AppShell?.state;
+  let html=b?`<div class="note ${esc(b.kind)}" ${b.kind==='bad'?'role="alert"':''}><b>${esc(b.title)}</b>${esc(b.text)}<div class="feedback-actions">${b.retry?'<button id="retry-sync" class="link" data-act="retrysync">Retry sync</button>':''}<button id="dismiss-notice" class="link" data-act="dismiss-banner">Dismiss</button></div></div>`:'';
+  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
+  if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
+  if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
+}
 let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
+  renderFeedback();
   if (!S.ready){rendered='';$('#main').innerHTML=bannerHtml()+'<p role="status">Loading saved records…</p>';return;}
   syncBcsGuidance();
-  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();return;}
+  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();return;}
   renderPending=false;
   if (!S.cursor) S.cursor=localToday();
   $$('#tabbar button').forEach(b=>{
@@ -1022,7 +1348,7 @@ function render(force=false){
     b.classList.toggle('on',active);
     if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
   });
-  const needs=insights().vet.length||weeklyAdvice().applied||insights().fib.advice;
+  const needs=insights().vet.length||weeklyAdvice().applied||fibreAdviceVisible(insights().fib);
   $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
   $('#main').className=['today','day','history'].includes(S.tab)?'wide':'';
   const html=S.tab==='today'?viewToday():S.tab==='day'?viewDay():S.tab==='status'?viewStatus():S.tab==='history'?viewHistory():viewMore();
@@ -1041,10 +1367,8 @@ function leaveDraft(){
 }
 
 function bannerHtml(){
-  if (!S.banner) return '';
-  const b=S.banner;
-  return `<div class="note ${b.kind}"><b>${esc(b.title)}</b>${esc(b.text)}
-    <div style="margin-top:8px"><button class="link" data-act="retrysync">Retry sync</button> <button class="link" data-act="dismiss-banner">Dismiss</button></div></div>`;
+  // Feedback has its own persistent region, including while a form defers rendering.
+  return '';
 }
 
 /* TODAY */
@@ -1054,7 +1378,7 @@ function viewToday(){
   let head='';
   if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>v.title).join('. '))}. <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
   if (adv.applied) head += `<div class="note warn"><b>This week's ration advice is waiting</b>${esc(adv.reason)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
-  else if (fib.advice) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
+  else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
 
   const toggle = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
     <button class="link" data-act="swapcard">${isEvening()?'Show the morning log':"Show tonight's bowl"}</button></div>`;
@@ -1063,23 +1387,43 @@ function viewToday(){
 
 function row(k,v){ return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 function choice(on,cls=''){return `class="${cls}${on?' on':''}" aria-pressed="${!!on}"`;}
-function panel(title,body){ return `<section class="card sec"><h3 class="lab">${title}</h3>${body}</section>`; }
+function panel(title,body,id=''){ return `<section class="card sec" ${id?`id="${id}" tabindex="-1"`:''}><h3 class="lab">${title}</h3>${body}</section>`; }
 function fold(title,body,id,open=false){return `<details class="card" id="${id}" ${open?'open':''}><summary class="sec">${title}</summary><div class="sec">${body}</div></details>`;}
+const settingsSpec={
+  targetKcal:{label:'Daily target, kcal',min:1,max:10000,step:1,help:'The daily energy target used to calculate the planned bowl.'},
+  bdGrams:{label:'Bella & Duke, g',min:1,max:10000,step:1,help:'The Bella & Duke portion in each planned meal.'},
+  kcalPerGDarf:{label:'DARF, kcal per g',min:.01,max:10000,step:.01,help:'Energy per gram, as stated for the food you use.'},
+  kcalPerMlOil:{label:'Oil, kcal per ml',min:.01,max:10000,step:.01,help:'Energy per millilitre of salmon oil.'},
+  darfMinG:{label:'DARF portion floor, g',min:1,max:10000,step:1,help:'The smallest planned DARF portion when calories remain.'},
+  deadbandPct:{label:'Weight-change threshold, %',min:0,max:100,step:.1,help:'Changes smaller than this percentage do not trigger a weekly adjustment.'},
+  damping:{label:'Adjustment fraction',min:.005,max:1,step:.005,help:'The fraction of the calculated correction to use. 0.125 means one eighth.'},
+  maxStepG:{label:'Maximum weekly step, g',min:1,max:10000,step:1,help:'Limits the size of a single weekly adjustment.'},
+  maxCumulativeG:{label:'Maximum total adjustment, g',min:1,max:10000,step:1,help:'Limits the combined adjustment above or below the base ration.'},
+  minWeighIns:{label:'Weigh-ins needed per week',min:1,max:7,step:1,help:'Each comparison week needs this many recorded weights.'},
+  kcalPerKgTissue:{label:'Tissue energy, kcal per kg',min:1,max:10000,step:1,help:'The energy conversion used by the existing weekly weight rule.'},
+  bcsHoldAtOrBelow:{label:'Hold reductions at or below condition score',min:0,max:9,step:.5,help:'A mean condition score at or below this value holds a reduction. Zero disables this hold.'},
+  handoverHour:{label:'Show tonight’s bowl from',min:0,max:23,step:1,type:'time',help:'The Now tab changes from morning to evening at this London time, in whole hours.'}
+};
 function inputField(iso,k,label,min=0,max=600,step=1){
   const d=S.days[iso]||{}, value=k==='setnum'?S.settings[label]:k==='darfFed'?d.meal?.darfFed:k==='weight'?recordedWeight(d):d[k];
   const id='in-'+k+'-'+(k==='setnum'?label:iso);
+  const spec=k==='setnum'?settingsSpec[label]:null,shownLabel=spec?.label||label;
+  const help=spec?`<p class="field-help" id="${id}-help">${esc(spec.help)}</p>`:'';
+  const attrs=spec?`required aria-describedby="${id}-help ${id}-error"`:'';
+  const type=spec?.type||'number',shownValue=type==='time'?(Number.isInteger(value)&&value>=0&&value<=23?String(value).padStart(2,'0')+':00':''):value;
   return `<div data-form data-date="${iso}" data-key="${k}" data-setting="${esc(label)}">
     ${k==='notes'?`<label class="inline-lab" for="${id}">Notes for ${fmtDate(iso)}</label><textarea id="${id}" class="tin" data-act="notes">${esc(value||'')}</textarea>`:
-    `<div class="field"><label for="${id}">${esc(label)}</label><input id="${id}" type="number" inputmode="${step<1?'decimal':'numeric'}" min="${min}" max="${max}" step="${step}" value="${esc(value??'')}" data-act="${k}" ${k==='weight'&&d.weightMissed===true?`disabled aria-describedby="weight-missed-${iso}-help"`:''} placeholder="—"></div>`}
+    `<div class="field"><label for="${id}">${esc(shownLabel)}</label><input id="${id}" type="${type}" ${type==='time'?'min="00:00" max="23:00" step="3600"':`inputmode="${(spec?.step||step)<1?'decimal':'numeric'}" min="${spec?.min??min}" max="${spec?.max??max}" step="${spec?.step||step}"`} value="${esc(shownValue??'')}" data-act="${k}" ${attrs} ${k==='weight'&&d.weightMissed===true?`disabled aria-describedby="weight-missed-${iso}-help"`:''} placeholder="—"></div>${help}`}
+    <p class="field-error hide" id="${id}-error" data-field-error role="alert"></p>
   </div>`;
 }
 function dailyFields(iso){
   const d=S.days[iso]||{};
   return '<div class="daily">'+stoolsCard(iso)+weightCard(iso)+
-    panel('Condition',bcsScale(iso,d.bcs)+`<p class="sub" data-bcs-guidance data-date="${iso}">${bcsDescription(d.bcs)}</p>`)+
+    panel('Condition',bcsScale(iso,d.bcs)+`<p class="sub" data-bcs-guidance data-date="${iso}">${bcsDescription(d.bcs)}</p>`,'condition-'+iso)+
     panel('Walk','<div class="stack">'+inputField(iso,'walkMin','Minutes walked')+inputField(iso,'walkKm','Kilometres',0,80,.1)+inputField(iso,'activeMin','Active minutes',0,1440)+'</div>')+
     panel('Treats',inputField(iso,'treats','Dried necks and feet',0,10))+
-    panel('Events',`<div class="chips">${EVENTS.map(e=>`<button ${choice((d.events||[]).includes(e.id),'chip ev')} data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>`)+
+    panel('Events',`<div class="chips">${EVENTS.map(e=>`<button id="event-${iso}-${e.id}" ${choice((d.events||[]).includes(e.id),'chip ev')} data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>`)+
     panel('Notes',inputField(iso,'notes','Notes'))+'</div>';
 }
 function switchRow(id,label,value,detail,attributes){
@@ -1097,17 +1441,30 @@ function weightCard(iso){
 }
 const MEAL_FLAGS={egg:'Egg',broth:'Bone broth',fibreGiven:'Fibre',oilGiven:'Salmon oil'};
 function mealFlagDetail(m,k,planning=false){
-  const label=planning?'scheduled':'saved';
+  const label=planning?'scheduled':'original quantity';
   const amount=k==='oilGiven'&&m.oilMl!=null?`${m.oilMl} ml ${label}`:k==='fibreGiven'&&m.fibreG!=null?`${m.fibreG} g ${label}`:
     planning&&k==='egg'?`1 egg · ${DEFAULTS.eggKcal} kcal`:planning&&k==='broth'?`50 ml · ${DEFAULTS.brothKcal} kcal`:'';
-  return (m[k]===true?'Included in this meal':m[k]===false?'Not included in this meal':'Not recorded; turn on to include')+(amount?' · '+amount:'');
+  return (m[k]===true?'Included in this meal':m[k]===false?'Not given':'Inclusion not recorded; turn on to include')+(amount?' · '+amount:'');
 }
 function mealFlags(iso,m){
   const planning=isEditablePlan(iso,m);
-  return `<div class="meal-flags" role="group" aria-label="Included in the meal on ${fmtDate(iso)}">${Object.entries(MEAL_FLAGS).map(([k,label])=>switchRow('meal-'+k+'-'+iso,label,m[k],mealFlagDetail(m,k,planning),`data-act="extra" data-k="${k}" data-date="${iso}"`)).join('')}</div><p class="sub">For this meal only. ${planning?'Changing a switch recalculates the bowl; supplement schedules are kept.':'Changing a switch keeps its saved quantity.'}${Object.keys(MEAL_FLAGS).some(k=>typeof m[k]!=='boolean')?' A dash means inclusion was not recorded. Turn on, then off to confirm an item was not included.':''}</p>`;
+  return `<div class="meal-flags" role="group" aria-label="Included in the meal on ${fmtDate(iso)}">${Object.entries(MEAL_FLAGS).map(([k,label])=>switchRow('meal-'+k+'-'+iso,label,m[k],mealFlagDetail(m,k,planning),`data-act="extra" data-k="${k}" data-date="${iso}"`)).join('')}</div><p class="sub">For this meal only. ${planning?'Changing a switch recalculates the planned bowl; supplement schedules are kept.':'Recipe and inclusion corrections keep the original amounts and saved calorie estimate. Use Correct supplement amounts below to change a quantity explicitly.'}${Object.keys(MEAL_FLAGS).some(k=>typeof m[k]!=='boolean')?' A dash means inclusion was not recorded. Turn on, then off to confirm an item was not included.':''}</p>`;
 }
 function mealSummary(m){
-  return `${m.fedAt?esc(m.fedAt)+' · ':''}oil ${esc(m.oilMl??'?')} ml · fibre ${esc(m.fibreG??'?')} g<br>${Object.entries(MEAL_FLAGS).map(([k,l])=>l+': '+(m[k]===true?'Yes':m[k]===false?'No':'not recorded')).join(' · ')}`;
+  return `<dl class="meal-facts">${Object.entries(MEAL_FLAGS).map(([k,l])=>{
+    const quantity=k==='oilGiven'&&m.oilMl!=null?`${m.oilMl} ml`:k==='fibreGiven'&&m.fibreG!=null?`${m.fibreG} g`:null;
+    const inclusion=m[k]===true?'Included':m[k]===false?'Not given':'Inclusion not recorded';
+    const text=quantity?(m[k]===true?quantity:`${inclusion} · ${quantity} originally recorded`):inclusion;
+    return `<div><dt>${l}</dt><dd>${esc(text)}</dd></div>`;
+  }).join('')}</dl>`;
+}
+function mealAmountEditor(iso,m){
+  if(isEditablePlan(iso,m)||!m.recipe)return '';
+  const fields=[['oilMl','Salmon oil, ml'],['fibreG','Pro-Fibre, g']].map(([key,label])=>{
+    const id=`meal-amount-${iso}-${key}`;
+    return `<div data-form data-date="${iso}" data-key="mealamount" data-setting="${key}"><div class="field"><label for="${id}">${label}</label><input id="${id}" type="number" inputmode="decimal" min="0" step="0.1" value="${esc(m[key]??'')}" aria-describedby="${id}-help ${id}-error"></div><p class="field-help" id="${id}-help">Leave blank if the quantity is unknown. Save changes this quantity only.</p><p class="field-error hide" id="${id}-error" data-field-error role="alert"></p></div>`;
+  }).join('');
+  return `<details class="meal-correction" id="meal-correction-${iso}"><summary>Correct supplement amounts</summary><p class="sub">These are corrections to the meal on ${fmtDate(iso)}. Inclusion switches, DARF, schedules and the original calorie estimate stay unchanged.</p><div class="stack">${fields}</div></details>`;
 }
 function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null){
   const m=plannedMeal(iso), r=RECIPES.find(x=>x.id===m.recipe), fed=isFedMeal(m);
@@ -1125,10 +1482,10 @@ function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null
     ${details||(!live&&isEditablePlan(iso,m)?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'')}${mealFlags(iso,m)}
     ${r||(!live&&m.recipe)?`${feedingControls}
       ${!disabled?inputField(iso,'darfFed','Grams actually fed',0,400):''}
-      <p class="lab">How the bowl went</p><div class="seg">${['cleared','left','refused'].map(k=>`<button ${choice(m.bowl===k)} ${disabled?'disabled':''} data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
-      ${disabled?'<p class="sub">Selectable once Fed is pressed.</p>':''}`:''}`;
+      <p class="lab">How the bowl went</p><div class="seg">${['cleared','left','refused'].map(k=>`<button id="bowl-${iso}-${k}" ${choice(m.bowl===k)} ${disabled?'disabled':''} data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
+      ${disabled?'<p class="sub">Selectable once Fed is pressed.</p>':''}`:''}${mealAmountEditor(iso,m)}`;
   const summary=attributedMeal?`${esc(RECIPES.find(x=>x.id===attributedMeal.recipe)?.short||attributedMeal.recipe)} · ${esc(attributedMeal.darfFed??'?')} g · ${esc(attributedMeal.bowl||'bowl not recorded')}`:'Not recorded as fed';
-  return previous?fold(`${title} <span class="sub">${summary}</span>`,body,'meal-'+iso,!attributedMeal||!m.bowl):panel(title,body);
+  return previous?fold(`${title} <span class="sub">${summary}</span>`,body,'meal-'+iso,!attributedMeal||!m.bowl):panel(title,body,'meal-section-'+iso);
 }
 function cardMorning(iso){
   const miss=missingFor(iso);
@@ -1187,8 +1544,8 @@ function stoolsCard(iso){
     <div class="bristol">${BRISTOL.slice(1).map(b=>`<button ${choice(f.bristol===b.n,b.band)} aria-label="Bristol ${b.n}, ${b.word}" data-act="stooltype" data-b="${b.n}"><b>${b.n}</b><i>${b.word}</i></button>`).join('')}</div>
     <div class="chips">${['mucus','blood'].map(k=>`<button ${choice(f[k],'chip')} data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
     <div class="btnrow"><button class="btn" data-act="savestool">Save stool entry</button><button class="btn ghost" data-act="cancelstool">Cancel</button></div>
-  </div>`:`<button class="link" data-act="openstool" data-date="${iso}">+ Add stool</button>`;
-  return panel('Stools',(rows||'<p class="muted">None logged.</p>')+form);
+  </div>`:`<button id="add-stool-${iso}" class="link" data-act="openstool" data-date="${iso}">+ Add stool</button>`;
+  return panel('Stools',(rows||'<p class="muted">None logged.</p>')+form,'stools-'+iso);
 }
 
 function mealPlanDetails(iso){
@@ -1299,9 +1656,10 @@ function viewStatus(){
 
   let fibHtml = row('Current dose',fib.dose+' g')+chips;
   if (fib.dose < s.fibreRestG) fibHtml += `<p class="sub">${fib.streak} of ${s.fibreStreakDays} clean days since ${fmtShort(fib.since)}. A day with no stool pauses rather than resets.</p>`;
-  if (fib.advice) fibHtml += `<div class="note warn" style="margin-top:9px"><b>${fib.advice.kind==='up'?'Step up':'Step back'}</b>${esc(fib.advice.text)}</div>
+  if (fibreAdviceVisible(fib)) fibHtml += `<div class="note warn" style="margin-top:9px"><b>${fib.advice.kind==='up'?'Step up':'Step back'}</b>${esc(fib.advice.text)}</div>
     <div class="btnrow"><button class="btn sm" data-act="applyfibre" data-g="${fib.advice.toG}">Apply</button>
     <button class="btn ghost sm" data-act="dismissfibre">Not now</button></div>`;
+  else if(fib.advice)fibHtml+=`<p class="sub">Advice postponed until tomorrow. The current dose is unchanged.</p>`;
   if (fib.review) fibHtml += `<div class="note bad" style="margin-top:9px"><b>Review with the vet</b>${esc(fib.note)}</div>`;
   else if (fib.note && !fib.advice) fibHtml += `<p class="sub">${esc(fib.note)}</p>`;
 
@@ -1375,97 +1733,85 @@ function viewHistory(){
     displayIsos.push(...Object.keys(S.days).filter(validDate),...meals.filter(isFedMeal).map(m=>shiftDate(m.date,1)));
   }
 
-  const chips=[14,28,56,9999].map(r=>`<button ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r}</button>`).join('');
+  const chips=[14,28,56,9999].map(r=>`<button id="range-${r}" ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r+' days'}</button>`).join('');
   const W=weightsList().filter(w=>toDay(w.date)>=from&&w.date<=today);
   const B=isos.map(i=>({date:i,v:(S.days[i]||{}).bcs})).filter(x=>Number.isFinite(x.v));
 
   const rows=[...new Set(displayIsos)].sort().reverse().map(i=>{
     const canOpen=i<=today||Object.hasOwn(S.days,i), d=S.days[i]||{}, st=(d.stools||[]);
-    const worst=st.length?Math.max(...st.map(x=>x.bristol)):null;
+    const scores=st.map(x=>x.bristol).filter(Number.isFinite),lo=scores.length?Math.min(...scores):null,hi=scores.length?Math.max(...scores):null;
     const m=attributionFor(i,meals).primary, r=m?RECIPES.find(x=>x.id===m.recipe):null;
-    const band=worst?bandOfBristol(worst):'';
-    return `<tr${canOpen?` class="tap" data-act="openday" data-date="${i}"`:''}>
-      <td>${canOpen?`<button class="link" data-act="openday" data-date="${i}">${fmtShort(i)}</button>`:fmtShort(i)}</td>
-      <td class="${band}">${worst?worst+(st.length>1?' ('+st.length+')':''):'--'}</td>
-      <td>${d.weightMissed===true?'Missed':recordedWeight(d)!==null?d.weight.toFixed(2):'--'}</td>
-      <td>${Number.isFinite(d.bcs)?d.bcs:'--'}</td>
-      <td class="meal-column"${m?` data-act="openday" data-date="${m.date}"`:''}>${m?`<button class="link" data-act="openday" data-date="${m.date}" aria-label="Edit meal fed on ${fmtDate(m.date)}">${esc(r?.short||m.recipe)}</button><div class="sub meal-detail">${mealSummary(m)}</div>`:'--'}</td>
-      <td${m?` data-act="openday" data-date="${m.date}"`:''}>${m?.darfFed??m?.darfPlanned??'--'}</td>
-      <td${m?` data-act="openday" data-date="${m.date}"`:''}>${esc(m?.bowl||'--')}</td>
-      <td>${(d.events||[]).length?'&#9679;':''}</td></tr>`;
+    const blood=st.some(x=>x.blood),mucus=st.some(x=>x.mucus),band=blood||scores.some(n=>n===1||n===7)?'r':mucus||scores.some(n=>n<3||n>4)?'a':scores.length?'g':'';
+    const observed=lo===null?'—':lo===hi?String(lo):`${lo}–${hi}`;
+    const events=(d.events||[]).map(id=>EVENTS.find(e=>e.id===id)?.label||id).join(', ');
+    return `<tr data-date="${i}">
+      <td class="date-column">${canOpen?`<button class="link" data-act="openday" data-date="${i}" aria-label="Open log for ${fmtDate(i)}">${fmtShort(i)}</button>`:fmtShort(i)}</td>
+      <td class="meal-column" ${m?`data-meal-date="${m.date}"`:''}>${m?`<button class="meal-title link" data-act="openday" data-date="${m.date}" data-target="#meal-section-${m.date}" aria-label="Edit ${esc(r?.short||m.recipe)} meal fed on ${fmtDate(m.date)}">${esc(r?.short||m.recipe)}</button><p class="meal-meta">Fed ${fmtShort(m.date)} · ${esc(m.fedAt)}</p><p class="meal-detail">${m.darfFed!=null?`${esc(m.darfFed)} g DARF`:m.darfPlanned!=null?`${esc(m.darfPlanned)} g DARF planned`:'Amount not recorded'}</p><details class="meal-disclosure" id="meal-detail-${i}"><summary>Meal details</summary>${mealSummary(m)}</details>`:'<span class="meal-meta">Not recorded as fed</span>'}</td>
+      <td class="${band}" data-stool-summary><span class="table-reading">${observed}${st.length>1?' ('+st.length+')':''}</span>${blood||mucus?`<span class="table-flags">${[blood?'Blood':'',mucus?'Mucus':''].filter(Boolean).join(' · ')}</span>`:''}</td>
+      <td><span class="table-reading">${d.weightMissed===true?'Missed':recordedWeight(d)!==null?d.weight.toFixed(2):'—'}</span></td>
+      <td><span class="table-reading">${Number.isFinite(d.bcs)?d.bcs:'—'}</span></td>
+      <td><span class="table-reading">${m?.darfFed??m?.darfPlanned??'—'}</span></td>
+      <td><span class="table-reading">${esc(m?.bowl==='left'?'Left some':m?.bowl?m.bowl[0].toUpperCase()+m.bowl.slice(1):'—')}</span></td>
+      <td><span class="table-flags">${esc(events||'None recorded')}</span></td></tr>`;
   }).join('');
 
   return bannerHtml()+`
   <h2 class="screen">Data</h2>
-  <div class="chips" style="margin-bottom:12px">${chips}</div>
+  <div class="chips data-range" role="group" aria-label="Days to show">${chips}</div>
   <div class="card"><div class="sec"><p class="lab">Weight, kg</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg')}</div>
     <div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget)}</div>
     <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
   <div class="card"><div class="sec"><p class="lab">By recipe</p>${foodTable(isos,false)}</div>
     <div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div></div>
-  <div class="card tw"><table class="log-table"><thead><tr><th>Date</th><th>Worst</th><th>kg</th><th>BCS</th><th class="meal-heading">Last night's meal</th><th>DARF</th><th>Bowl</th><th></th></tr></thead>
-    <tbody>${rows}</tbody></table></div>`;
+  <div class="card"><div class="table-intro"><h3 class="lab" id="daily-records-title">Daily records</h3><p class="sub">Each date groups that day’s observations with the previous evening’s meal. Bristol shows the recorded range; brackets show the number of stools.</p><p class="table-guide" id="daily-records-help">Scroll sideways for stools, weight and bowl results. The date stays in view.</p></div><div class="tw" tabindex="0" role="region" aria-labelledby="daily-records-title" aria-describedby="daily-records-help"><table class="log-table"><thead><tr><th scope="col" class="date-column">Date</th><th scope="col" class="meal-heading">Last night’s meal</th><th scope="col">Bristol</th><th scope="col">Weight, kg</th><th scope="col">Condition</th><th scope="col">DARF, g</th><th scope="col">Bowl</th><th scope="col">Events</th></tr></thead>
+    <tbody>${rows}</tbody></table></div></div>`;
 }
 
-function chartLabels(x0,x1){
-  return [x0,x1].map((v,i)=>`<text x="${i?590:42}" y="163" text-anchor="${i?'end':'start'}" fill="var(--ink-3)" font-size="11">${fmtShort(toIso(v))}</text>`).join('');
+function chartFrame(yLabels, drawing, marks, dates, description){
+  return `<div class="chart-frame" role="img" aria-label="${esc(description)}"><div class="chart-axis" aria-hidden="true">${yLabels.map(({label,position})=>`<span style="top:${position}%">${esc(label)}</span>`).join('')}</div><div class="chart-plot" aria-hidden="true"><svg class="chart" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">${drawing}</svg>${marks}</div><div class="chart-dates" aria-hidden="true"><span>${fmtShort(dates[0])}</span><span>${fmtShort(dates[1])}</span></div></div>`;
 }
-function chartTicks(values,py,format){
-  return values.map(v=>`<line x1="42" y1="${py(v)}" x2="590" y2="${py(v)}" stroke="var(--rule)"/><text x="36" y="${py(v)+4}" text-anchor="end" fill="var(--ink-3)" font-size="11">${format(v)}</text>`).join('');
+function chartValues(kind,headers,rows){
+  const label=`View ${kind} values`,id=`chart-values-${kind.replace(/\s/g,'-')}`;
+  return `<details class="chart-values" id="${id}"><summary>${label}</summary><div class="tw" tabindex="0" role="region" aria-label="${esc(kind)} values"><table><caption class="hide">${esc(kind)} by date</caption><thead><tr>${headers.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(value=>`<td>${esc(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
 }
-function lineChart(pts, kind, forceRange, targetLine){
-  if (pts.length<2) return '<p class="muted">Not enough data to plot yet.</p>';
-  const W=600,H=170,L=42,R=10,T=12,Bm=26;
-  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
-  let lo=forceRange?forceRange[0]:Math.min(...ys), hi=forceRange?forceRange[1]:Math.max(...ys);
-  if (!forceRange){ const pad=Math.max((hi-lo)*0.18,kind==='kg'?0.15:0.4); lo-=pad; hi+=pad; }
-  const x0=Math.min(...xs), x1=Math.max(...xs);
-  const px=v=>L+((v-x0)/Math.max(x1-x0,1))*(W-L-R);
-  const py=v=>T+(1-(v-lo)/Math.max(hi-lo,0.0001))*(H-T-Bm);
-  const ticks=chartTicks([lo,(lo+hi)/2,hi],py,v=>v.toFixed(kind==='kg'?2:1));
-  const line=pts.map((p,i)=>`${i?'L':'M'}${px(p.x).toFixed(1)},${py(p.y).toFixed(1)}`).join('');
-  const dots=pts.map(p=>`<circle cx="${px(p.x).toFixed(1)}" cy="${py(p.y).toFixed(1)}" r="2.6" fill="var(--surface)" stroke="var(--accent)" stroke-width="1.6"/>`).join('');
-  const tgt=targetLine!=null?`<line x1="${L}" y1="${py(targetLine).toFixed(1)}" x2="${W-R}" y2="${py(targetLine).toFixed(1)}" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4 3"/>`:'';
-  const marks=S.changes.filter(c=>toDay(c.date)>=x0&&toDay(c.date)<=x1).map(c=>
-    `<line x1="${px(toDay(c.date)).toFixed(1)}" y1="${T}" x2="${px(toDay(c.date)).toFixed(1)}" y2="${H-Bm}" stroke="var(--watch)" stroke-width="1" stroke-dasharray="3 3"/>`).join('');
-  const lbl=chartLabels(x0,x1);
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${kind==='kg'?'Weight':'Body condition'} over time">
-    ${ticks}${tgt}${marks}<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>${dots}${lbl}</svg>
-    ${targetLine!=null?'<p class="legend">Dashed line marks the ideal centre. The excellent range is 4.5–5.5.</p>':'<p class="legend">Vertical dashes mark a recorded ration change.</p>'}`;
+function lineChart(pts,kind,forceRange,targetLine){
+  if(!pts.length)return '<p class="muted">No readings in this range.</p>';
+  const name=kind==='kg'?'weight':'condition',unit=kind==='kg'?' kg':'',format=v=>v.toFixed(kind==='kg'?2:1);
+  const values=chartValues(name,['Date',kind==='kg'?'Weight, kg':'Condition'],pts.map(p=>[fmtDate(toIso(p.x)),format(p.y)]));
+  if(pts.length===1)return `<p class="chart-summary">${fmtDate(toIso(pts[0].x))}: ${format(pts[0].y)}${unit}. Add another reading to see a trend.</p>${values}`;
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),x0=Math.min(...xs),x1=Math.max(...xs),minimum=Math.min(...ys),maximum=Math.max(...ys);
+  let lo=forceRange?Math.min(forceRange[0],minimum):minimum,hi=forceRange?Math.max(forceRange[1],maximum):maximum;
+  if(!forceRange){const pad=Math.max((hi-lo)*.18,kind==='kg'?.15:.4);lo-=pad;hi+=pad;}
+  const px=x=>((x-x0)/Math.max(x1-x0,1))*100,py=y=>(1-(y-lo)/Math.max(hi-lo,.0001))*100;
+  const ticks=[hi,(lo+hi)/2,lo],yLabels=ticks.map(y=>({label:format(y),position:py(y)}));
+  const grid=ticks.map(y=>`<line x1="0" x2="100" y1="${py(y)}" y2="${py(y)}" stroke="var(--rule)" stroke-width="1"/>`).join('');
+  const target=targetLine==null?'':`<line x1="0" x2="100" y1="${py(targetLine)}" y2="${py(targetLine)}" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4 3"/>`;
+  const changes=S.changes.filter(c=>toDay(c.date)>=x0&&toDay(c.date)<=x1).map(c=>`<line x1="${px(toDay(c.date))}" x2="${px(toDay(c.date))}" y1="0" y2="100" stroke="var(--watch)" stroke-width="1.5" stroke-dasharray="3 3"/>`).join('');
+  const path=pts.map((p,i)=>`${i?'L':'M'}${px(p.x).toFixed(3)},${py(p.y).toFixed(3)}`).join('');
+  const points=pts.map(p=>`<span class="chart-point" style="left:${px(p.x)}%;top:${py(p.y)}%"></span>`).join('');
+  const summary=`${pts.length} readings. ${format(pts[0].y)}${unit} on ${fmtShort(toIso(pts[0].x))}, ${format(pts.at(-1).y)}${unit} on ${fmtShort(toIso(pts.at(-1).x))}. Recorded range ${format(minimum)}–${format(maximum)}${unit}.`;
+  return `<p class="chart-summary">${esc(summary)}</p>`+chartFrame(yLabels,grid+target+changes+`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`,points,[toIso(x0),toIso(x1)],`${kind==='kg'?'Weight':'Body condition'} over time. ${summary}`)+
+    `<p class="legend">${targetLine!=null?'Horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':''}Vertical dashes mark a recorded ration change.</p>`+values;
 }
-
 function stoolChart(isos){
   const all=[];
-  isos.forEach(i=>((S.days[i]||{}).stools||[]).forEach(s=>all.push({d:toDay(i),m:minsOf(s.time),b:s.bristol,mu:s.mucus,bl:s.blood})));
-  if (!all.length) return '<p class="muted">No stools logged in this range.</p>';
-  const W=600,H=170,L=42,R=10,T=12,Bm=26;
-  const x0=toDay(isos[0]), x1=toDay(isos[isos.length-1]);
-  const px=v=>L+((v-x0)/Math.max(x1-x0,1))*(W-L-R);
-  const py=m=>T+(m/1440)*(H-T-Bm);
-  const band=`<rect x="${L}" y="${T}" width="${W-L-R}" height="${H-T-Bm}" fill="var(--surface-2)" opacity="0.5"/>`;
-  const hours=chartTicks([0,6,12,18,24],h=>py(h*60),h=>String(h).padStart(2,'0'));
-  const col={g:'var(--good)',a:'var(--watch)',r:'var(--alert)'};
-  const dots=all.map(s=>{
-    const group=bandOfBristol(s.b), c=col[group], x=px(s.d), y=py(s.m);
-    // Shape and ring pattern repeat the clinical colour meaning. Positions and
-    // data remain unchanged, including separate cues when both flags are present.
-    const marker=group==='r'?`<rect x="${(x-3.4).toFixed(1)}" y="${(y-3.4).toFixed(1)}" width="6.8" height="6.8" fill="${c}"/>`:
-      group==='a'?`<path d="M${x.toFixed(1)},${(y-3.4).toFixed(1)} L${(x+3.4).toFixed(1)},${y.toFixed(1)} L${x.toFixed(1)},${(y+3.4).toFixed(1)} L${(x-3.4).toFixed(1)},${y.toFixed(1)} Z" fill="${c}"/>`:
-      `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="${c}"/>`;
-    const ring=(s.mu?`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${s.bl?8:6}" fill="none" stroke="var(--watch)" stroke-width="1.4" stroke-dasharray="2 2"/>`:'')+
-      (s.bl?`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="6" fill="none" stroke="var(--alert)" stroke-width="1.4"/>`:'');
-    return `<g><title>${esc(fmtDate(toIso(s.d)))} · Bristol ${esc(s.b)}${s.mu?' · mucus':''}${s.bl?' · blood':''}</title>${marker}${ring}</g>`;
-  }).join('');
-  const lbl=chartLabels(x0,x1);
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Every stool by date and time of day; shapes and colours identify Bristol groups, rings identify mucus and blood">
-    ${band}${hours}${dots}${lbl}</svg>
-    <p class="legend">Bristol: ● 3–4 (green), ◆ 2/5/6 (amber), ■ 1/7 (red). Dashed ring: mucus; solid ring: blood. Time up the side.</p>`;
+  isos.forEach(iso=>(S.days[iso]?.stools||[]).forEach(s=>all.push({iso,time:s.time||'Not recorded',minute:validTime(s.time)?minsOf(s.time):null,b:s.bristol,mucus:s.mucus,blood:s.blood})));
+  if(!all.length)return '<p class="muted">No stools logged in this range.</p>';
+  const dated=all.filter(s=>s.minute!==null),x0=toDay(isos[0]),x1=toDay(isos.at(-1));
+  const px=iso=>x0===x1?50:(toDay(iso)-x0)/(x1-x0)*100,py=minute=>minute/1440*100;
+  const yLabels=[0,6,12,18,24].map(h=>({label:String(h).padStart(2,'0')+':00',position:h/24*100}));
+  const grid=yLabels.map(t=>`<line x1="0" x2="100" y1="${t.position}" y2="${t.position}" stroke="var(--rule)" stroke-width="1"/>`).join('');
+  const marks=dated.map(s=>`<span class="chart-mark${s.blood?' blood':''}${s.mucus?' mucus':''}" style="left:${px(s.iso)}%;top:${py(s.minute)}%"><span class="chart-point stool-point ${bandOfBristol(s.b)}"></span></span>`).join('');
+  const summary=`${all.length} stools across ${new Set(all.map(s=>s.iso)).size} days. ${all.filter(s=>s.b<3).length} hard (types 1–2), ${all.filter(s=>s.b===3||s.b===4).length} types 3–4, ${all.filter(s=>s.b>=5).length} loose (types 5–7). ${all.filter(s=>s.mucus).length} with mucus; ${all.filter(s=>s.blood).length} with blood.`;
+  return `<p class="chart-summary">${esc(summary)}${dated.length<all.length?' Entries without a time appear in the values list.':''}</p>`+
+    (dated.length?chartFrame(yLabels,grid,marks,[isos[0],isos.at(-1)],`Stools by date and time. ${summary}`):'')+
+    `<p class="legend">● Types 3–4; ◆ types 2, 5 and 6; ■ types 1 and 7. Dashed ring: mucus. Solid ring: blood.</p>`+
+    chartValues('stool',['Date','Time','Bristol','Flags'],all.map(s=>[fmtDate(s.iso),s.time,s.b,[s.mucus?'Mucus':'',s.blood?'Blood':''].filter(Boolean).join(', ')||'None']));
 }
-
 function foodStats(isos){
   return cached('food-'+isos[0]+'-'+isos.at(-1),()=>{
     const stats=Object.create(null);
-    const get=k=>stats[k]??={n:0,sum:0,cnt:0,loose:0,mucus:0};
+    const get=k=>stats[k]??={n:0,sum:0,cnt:0,loose:0,hard:0,mucus:0,blood:0};
     const keys=m=>[m.recipe,...['egg','broth','fibreGiven','oilGiven'].filter(k=>m[k]===true),...(m.egg===false&&m.broth===false?['none']:[])];
     const meals=mealsList();
     for(const iso of isos){
@@ -1477,7 +1823,7 @@ function foodStats(isos){
       for(const k of mealKeys) get(k).n++;
       for(const stool of S.days[iso]?.stools||[]) for(const k of mealKeys){
         const x=get(k);x.sum+=stool.bristol;x.cnt++;
-        if(stool.bristol>=5)x.loose++;if(stool.mucus)x.mucus++;
+        if(stool.bristol>=5)x.loose++;if(stool.bristol<3)x.hard++;if(stool.mucus)x.mucus++;if(stool.blood)x.blood++;
       }
     }
     return {get};
@@ -1487,13 +1833,19 @@ function foodTable(isos,extras){
   const {get}=foodStats(isos), labels=extras?[...Object.entries(MEAL_FLAGS),['none','Neither egg nor broth']]:RECIPES.map(r=>[r.id,r.short]);
   const rows=labels.map(([k,label])=>{
     const x=get(k), mean=x.cnt?x.sum/x.cnt:null;
-    const read=!x.n?'not yet fed':x.loose>=2?'repeated loose stool':mean>4.5?'trending loose':'fine';
-    return `<tr><td>${label}</td><td>${x.n}</td><td>${mean?.toFixed(1)??'--'}</td><td>${x.loose}</td>${extras?'':`<td>${x.mucus}</td><td>${read}</td>`}</tr>`;
+    const findings=[x.hard?'Hard stools':'',x.loose>1?'Repeated loose stools':x.loose?'Loose stool':'',x.mucus?'Mucus':'',x.blood?'Blood':''].filter(Boolean);
+    const read=!x.n?'Not yet fed':!x.cnt?'No stool observations':findings.length?findings.join(' · '):'Types 3–4 only';
+    return `<tr><td>${label}</td><td>${x.n}</td><td>${mean?.toFixed(1)??'—'}</td><td>${x.loose}</td>${extras?'':`<td>${x.mucus}</td><td style="white-space:normal;min-width:12rem">${read}</td>`}</tr>`;
   }).join('');
-  return `<div class="tw"><table><thead><tr><th>${extras?'Extra':'Recipe'}</th><th>Nights</th><th>Mean stool</th><th>5+</th>${extras?'':'<th>Mucus</th><th>Read</th>'}</tr></thead><tbody>${rows}</tbody></table></div>${extras?'<p class="legend">Unknown historical flags are excluded. Neither requires a confirmed No for both egg and broth.</p>':''}`;
+  return `<div class="tw" tabindex="0" role="region" aria-label="Stool observations by ${extras?'extra':'recipe'}"><table><thead><tr><th scope="col">${extras?'Extra':'Recipe'}</th><th scope="col">Nights</th><th scope="col">Mean stool</th><th scope="col">Types 5–7</th>${extras?'':'<th scope="col">Mucus</th><th scope="col">Observations</th>'}</tr></thead><tbody>${rows}</tbody></table></div><p class="legend">${extras?'Unknown historical flags are excluded. Neither requires a confirmed No for both egg and broth.':'Counts describe recorded observations; they do not establish that a recipe caused them.'}</p>`;
 }
 
 /* MORE */
+function appReadinessPanel(){
+  const app=window.AppShell?.state||{},ready=app.offlineReady===true;
+  const text=!app.available?'Offline opening is not supported in this browser.':ready?'App files are ready for offline opening.':app.offlineReady===false?'App files are not yet ready for offline opening.':'Offline opening has not been confirmed yet.';
+  return panel('App updates and offline access',`<p class="chart-summary" role="status">${text}</p><p class="sub">Keep signed in to use records already available on this device. Record syncing is shown separately at the top of the screen.</p>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}<div class="btnrow">${app.updateReady?`<button class="btn sm" data-shell-act="update" ${app.busy?'disabled':''}>Update app</button>`:''}<button class="btn ghost sm" data-shell-act="check" ${!app.available||app.busy?'disabled':''}>${app.busy?'Checking app files…':'Check app files'}</button></div>`);
+}
 function viewMore(){
   const s=S.settings;
   const oil=(s.oilSchedule||[]).map(e=>row(fmtShort(e.from),e.ml+' ml')).join('');
@@ -1504,12 +1856,12 @@ function viewMore(){
   const chg=S.changes.length
     ? S.changes.slice().reverse().map(c=>row(`${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}${c.refused?' (refused)':''}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g <button class="link" data-act="delchange" data-id="${esc(c.id)}">remove</button>`)).join('')
     : '<p class="muted">None.</p>';
-  const num=(k,label,step=1)=>inputField(localToday(),'setnum',k,['deadbandPct','bcsHoldAtOrBelow'].includes(k)?0:Number(step),k==='minWeighIns'?7:k==='bcsHoldAtOrBelow'?9:10000,Number(step)).replace('>'+k+'</label>','>'+label+'</label>');
+  const num=k=>inputField(localToday(),'setnum',k);
 
   return bannerHtml()+'<h2 class="screen">Settings</h2>'+panel('Account',`
     ${row(esc(S.user?.email||''),'<button class="link" data-act="signout">Sign out</button>')}
-    <p class="sub">Version ${APP_VERSION} · ${S.status}</p>
-    <h3 class="lab">Appearance</h3><div class="seg">${['system','light','dark'].map(t=>`<button ${choice((s.theme||'system')===t)} data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`)+
+    <p class="sub">Version ${APP_VERSION}</p>
+    <h3 class="lab">Appearance</h3><div class="seg">${['system','light','dark'].map(t=>`<button id="theme-${t}" ${choice((s.theme||'system')===t)} data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`)+appReadinessPanel()+
     panel('Ration and supplements',`<div class="stack">
       ${num('targetKcal','daily target, kcal')}
       ${num('bdGrams','Bella &amp; Duke, g')}
@@ -1546,7 +1898,7 @@ function viewMore(){
       ${S.testOut?`<pre class="pre">${esc(S.testOut)}</pre>`:''}
     <h3 class="lab">When to call the vet</h3><p class="muted">Call for repeated monthly upset; blood, marked lethargy or inappetence; soft stool despite ${s.fibreRestG} g Pro-Fibre; further vacant episodes (video these); or weight loss with normal appetite.<br><br><b style="color:var(--alert)">Emergency: unproductive retching with a distended or tense abdomen after a meal needs a same-hour vet call.</b></p>
     <h3 class="lab">Erase log data</h3>
-      <button class="btn danger sm" data-act="erase">Erase all log data</button>
+      <button class="btn danger sm" data-act="erase" ${S.erasing?'disabled':''}>${S.erasing?'Erasing log data…':'Erase all log data'}</button>
       <p class="sub">Deletes days and changes; keeps settings. Export first.</p>`);
 }
 
@@ -1686,6 +2038,7 @@ function validateBackup(data){
 }
 let importing=false;
 async function importJson(file){
+  if(eraseBlocksChanges())return;
   if(importing) return; importing=true;
   try{
     if(file.size>10*1024*1024) throw Error('Backup exceeds 10 MB; split it into smaller backups.');
@@ -1804,10 +2157,33 @@ function selfTest(){
 }
 
 /* EVENTS */
-let stoolDraft=null, stoolOriginal=null;
+let stoolDraft=null, stoolOriginal=null, stoolReturnFocus=null;
 const entryDate=el=>el.dataset.date||(S.tab==='day'?S.cursor:localToday());
+function fieldError(input,message){
+  const form=input.closest('[data-form]');
+  input.setCustomValidity(message);input.setAttribute('aria-invalid','true');
+  let error=$('[data-field-error]',form);
+  if(!error){
+    error=document.createElement('p');error.className='field-error';error.dataset.fieldError='';error.id=input.id+'-error';error.setAttribute('role','alert');form.append(error);
+  }
+  error.textContent=message;error.classList.remove('hide');
+  const descriptions=(input.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean);
+  input.setAttribute('aria-describedby',[...new Set([...descriptions,error.id])].join(' '));
+  input.reportValidity();input.focus();
+}
+function clearFieldError(input){
+  input.setCustomValidity('');input.removeAttribute('aria-invalid');
+  const form=input.closest('[data-form]'), error=form&&$('[data-field-error]',form);
+  if(error){error.textContent='';error.classList.add('hide');}
+}
 function finishInput(form,keep){
   const input=$('input,textarea',form);
+  clearFieldError(input);
+  if(S.localSaveError==='form:'+input.id){
+    S.localSaveError=null;
+    if(S.banner?.source==='local-save')S.banner=null;
+    setStatus(navigator.onLine?'Saved on this device':'Offline · saved on this device');
+  }
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
   form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
   if(form.dataset.key==='weight'){
@@ -1820,36 +2196,68 @@ function finishInput(form,keep){
 async function confirmInput(form){
   if (!form.hasAttribute('data-dirty')) return;
   const el=$('input,textarea',form), k=form.dataset.key, iso=form.dataset.date, v=el.value;
-  if (!el.reportValidity()) return;
-  const n=v===''?null:Number(v);
+  clearFieldError(el);
+  const setting=form.dataset.setting, spec=k==='setnum'?settingsSpec[setting]:null;
+  const n=v===''?null:spec&&setting==='handoverHour'?(validTime(v)&&v.endsWith(':00')?Number(v.slice(0,2)):NaN):Number(v);
+  if(spec&&(n===null||!Number.isFinite(n)||n<spec.min||n>spec.max||Math.abs((n-spec.min)/spec.step-Math.round((n-spec.min)/spec.step))>1e-7)){
+    fieldError(el,setting==='handoverHour'?'Choose a whole hour from 00:00 to 23:00.':`${spec.label}: enter ${spec.min} to ${spec.max}${spec.step!==1?`, in steps of ${spec.step}`:''}.`);return;
+  }
+  if(!el.checkValidity()){fieldError(el,el.validationMessage||'Check this value and try again.');return;}
+  if(k==='mealamount'&&(!['oilMl','fibreG'].includes(setting)||n!==null&&(!Number.isFinite(n)||n<0))){fieldError(el,'Enter zero or a positive amount, or leave this blank for not recorded.');return;}
   if (k!=='notes' && v!=='' && !Number.isFinite(n)) return;
   if (k==='weight'&&n!==null){
     const m=windowMean(weightsList(),toDay(iso)-1,7);
     if (m.mean&&Math.abs(n-m.mean)/m.mean>.05&&!confirm(`${n} kg differs by over 5% from the recent mean. Keep it?`)) return;
   }
   const patch=k==='notes'?{notes:v}:k==='weight'?{weight:n,weightMissed:false,weightBeforeMissed:null}:k==='darfFed'?{meal:{darfFed:n}}:{[k]:n};
-  const saved=k==='setnum'?saveSettings({[form.dataset.setting]:n}):k==='darfFed'?saveMeal(iso,patch.meal):saveDay(iso,patch);
-  if (await saved) finishInput(form,true);
+  // A deliberate historical amount correction changes just that saved field.
+  // It must never call calculatedMeal or rewrite the stored calorie snapshot.
+  const saved=k==='setnum'?saveSettings({[setting]:n}):k==='mealamount'?saveDay(iso,{meal:{[setting]:n}}):k==='darfFed'?saveMeal(iso,patch.meal):saveDay(iso,patch);
+  if(await saved)finishInput(form,true);
+  else if(S.banner?.source==='local-save')S.localSaveError='form:'+el.id;
 }
 
 document.addEventListener('click', async (ev)=>{
   const el=ev.target.closest('[data-act]'); if (!el) return;
+  if(el.disabled)return;
   const a=el.dataset.act, iso=entryDate(el);
-  if (['go','openday','swapcard','jump','dayshift','range','signout'].includes(a)&&!leaveDraft()) return;
+  if(['erase','signout'].includes(a)&&importing){
+    S.banner={kind:'plain',source:'import',title:'Import in progress',text:a==='erase'?'Wait for the import to finish before erasing the log. Nothing has been erased.':'Wait for the import to finish before signing out. Your import stays in progress.'};renderFeedback();return;
+  }
+  if(S.erasing&&['saveinput','bcs','event','missed','savestool','delstool','extra','fed','savefeedingtime','unfeed','bowl','applyadv','refuseadv','applyfibre','setfibre','addregime','delregime','delchange','undo','theme','signout'].includes(a)){
+    eraseBlocksChanges();return;
+  }
+  if (['go','openday','swapcard','jump','dayshift','range','signout','erase'].includes(a)&&!leaveDraft()) return;
   const d=S.days[iso]||{};
 
   if (a==='signin'){ return doSignIn(); }
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
-  if (a==='go'){ S.tab=el.dataset.tab; render(); return; }
-  if (a==='openday'){ S.cursor=el.dataset.date; S.tab='day'; render(); return; }
-  if (a==='dismiss-banner'){ S.banner=null; render(); return; }
+  if (a==='go'){ navigateTo(el.dataset.tab); return; }
+  if (a==='openday'){ navigateTo('day',{date:iso,target:el.dataset.target||'#history-date'}); return; }
+  if (a==='dismiss-banner'){
+    if(S.banner?.source==='local-save')S.localSaveError=null;
+    S.banner=null;setStatus(navigator.onLine?'Saved on this device':'Offline · saved on this device');render();return;
+  }
+  if(a==='undo'){await undoRemoval();return;}
+  if(a==='dismiss-undo'){
+    try{localStorage.removeItem(deviceKey('undo'));S.undo=null;render();}
+    catch(e){S.banner={kind:'warn',title:'Recovery kept',text:'The Undo copy could not be dismissed on this device. It remains available.'};render();}
+    return;
+  }
   if (a==='swapcard'){ const wasEve=isEvening(); S.forceCard=wasEve?'morning':'evening';
     if ((S.forceCard==='evening')===(londonNow().hour>=(S.settings.handoverHour??16))) S.forceCard=null;
-    render(); return; }
+    render();focusAfterRender('h2.screen');return; }
   if (a==='jump'){ const k=el.dataset.k;
-    if (k==='bowl'){ S.forceCard='evening'; S.cursor=toIso(toDay(localToday())-1); S.tab='day'; }
-    else { S.forceCard='morning'; }
-    render(); return; }
+    if(k==='bowl'){
+      const previous=shiftDate(localToday(),-1);
+      navigateTo('day',{date:previous,target:'#meal-section-'+previous});
+    }else{
+      S.forceCard='morning';
+      const target=k==='weight'?'#in-weight-':k==='stool'?'#stools-':'#condition-';
+      navigateTo('today',{target:target+localToday()});
+    }
+    return;
+  }
   if (a==='dayshift'){ const n=Number(el.dataset.n);
     let next=shiftDate(S.cursor,n);
     if(next>localToday()){
@@ -1857,13 +2265,14 @@ document.addEventListener('click', async (ev)=>{
       next=n<0?dates.filter(date=>date<S.cursor).at(-1):dates.find(date=>date>S.cursor);
     }
     if (next&&next>=earliestHistoryDate()&&(next<=localToday()||Object.hasOwn(S.days,next))) S.cursor=next;
-    render(); return; }
+    render();focusAfterRender('#history-date');return; }
   if (a==='range'){ S.range=Number(el.dataset.r); render(); return; }
-  if (a==='theme'){ saveSettings({theme:el.dataset.t}); applyTheme(); return; }
+  if (a==='theme'){ if(await saveSettings({theme:el.dataset.t})){applyTheme();refreshSelectionStates();} return; }
 
-  if (a==='bcs'){ const v=Number(el.dataset.v); saveDay(iso,{bcs: d.bcs===v?null:v}); return; }
+  if (a==='bcs'){ const v=Number(el.dataset.v); if(await saveDay(iso,{bcs: d.bcs===v?null:v}))refreshSelectionStates(); return; }
   if (a==='event'){ const id=el.dataset.id; const cur=d.events||[];
-    saveDay(iso,{events: cur.includes(id)?cur.filter(x=>x!==id):[...cur,id]}); return; }
+    if(await saveDay(iso,{events:cur.includes(id)?cur.filter(x=>x!==id):[...cur,id]}))refreshSelectionStates();return;
+  }
 
   if (a==='saveinput'){
     if (el.disabled) return; el.disabled=true;
@@ -1872,7 +2281,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='cancelinput'){ finishInput(el.closest('[data-form]')); return; }
   if (a==='cancelfeedingtime'){
     const form=el.closest('[data-feeding]'), input=$('input',form);
-    input.value=input.defaultValue; form.removeAttribute('data-dirty'); render(); return;
+    input.value=input.defaultValue; form.removeAttribute('data-dirty'); render();focusAfterRender('#'+input.id);return;
   }
   if (a==='retrysync'){ flushWrites(); return; }
   if (a==='missed'){
@@ -1891,11 +2300,14 @@ document.addEventListener('click', async (ev)=>{
   if (a==='openstool'||a==='editstool'){
     if (!leaveDraft()) return;
     const old=(d.stools||[]).find(x=>x.id===el.dataset.id);
+    stoolReturnFocus=el.id?'#'+CSS.escape(el.id):old?`[data-act="editstool"][data-id="${CSS.escape(old.id)}"][data-date="${iso}"]`:`[data-act="openstool"][data-date="${iso}"]`;
     stoolOriginal=old?{...old}:null;
     stoolDraft=old?{...old}:{id:'s'+crypto.randomUUID(),time:nowHHMM(),mucus:false,blood:false};
     S.adding=iso; render(true); $('#st-t')?.focus(); return;
   }
-  if (a==='cancelstool'){ S.adding=null; stoolDraft=null; stoolOriginal=null; render(true); return; }
+  if(a==='cancelstool'){
+    const target=stoolReturnFocus;S.adding=null;stoolDraft=null;stoolOriginal=null;render(true);focusAfterRender(target);return;
+  }
   if (a==='stooltype'){
     if (!stoolDraft) return;
     stoolDraft.bristol=Number(el.dataset.b);
@@ -1924,10 +2336,17 @@ document.addEventListener('click', async (ev)=>{
       S.adding=null;stoolDraft=null;stoolOriginal=null;
       if(date!==originalDate){S.cursor=date;S.tab='day';}
       render(true);
+      focusAfterRender(`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${date}"]`);
     }else el.disabled=false;
     return;
   }
-  if (a==='delstool'){ saveDay(iso,{stools:(d.stools||[]).filter(x=>x.id!==el.dataset.id)}); return; }
+  if(a==='delstool'){
+    const record=(d.stools||[]).find(x=>x.id===el.dataset.id);if(!record)return;
+    el.disabled=true;
+    await removeWithUndo({kind:'stool',date:iso,record,index:d.stools.indexOf(record),label:`Stool removed · ${fmtShort(iso)} at ${record.time||'time not recorded'}`},
+      {col:'days',id:iso,patch:{date:iso,updatedAt:new Date().toISOString()},stools:{put:[],drop:[record.id]}});
+    el.disabled=false;return;
+  }
 
 
   if (a==='extra'){
@@ -1970,46 +2389,86 @@ document.addEventListener('click', async (ev)=>{
   }
   if (a==='bowl'){
     if (!d.meal?.fedAt&&S.tab==='today'&&iso===localToday()) return;
-    saveDay(iso,{meal:{bowl:d.meal?.bowl===el.dataset.k?null:el.dataset.k}}); return;
+    if(await saveDay(iso,{meal:{bowl:d.meal?.bowl===el.dataset.k?null:el.dataset.k}}))refreshSelectionStates();return;
   }
 
 
   if (a==='applyadv'){
     const adv=weeklyAdvice(); if (!adv.applied) return;
-    await saveChange({date:localToday(), deltaG:adv.adjustmentG, source:'rule', reason:adv.reason});
-    S.banner={kind:'good',title:'Applied',text:`DARF moves ${adv.adjustmentG>0?'up':'down'} ${Math.abs(adv.adjustmentG)} g from tonight. The rule will not fire again until next Monday.`};
+    if(!await saveChange({date:localToday(), deltaG:adv.adjustmentG, source:'rule', reason:adv.reason}))return;
+    S.banner={kind:'good',title:'Applied and saved on this device',text:`DARF moves ${adv.adjustmentG>0?'up':'down'} ${Math.abs(adv.adjustmentG)} g from tonight. The rule will not fire again until next Monday.`};
     render(); return; }
   if (a==='refuseadv'){
-    await saveChange({date:localToday(), deltaG:0, source:'refused', refused:true, reason:'Refused: '+weeklyAdvice().reason});
-    S.banner={kind:'plain',title:'Refused',text:'Nothing changed. The rule will look again next Monday.'};
+    if(!weeklyAdvice().applied)return;
+    if(!await saveChange({date:localToday(), deltaG:0, source:'refused', refused:true, reason:'Refused: '+weeklyAdvice().reason}))return;
+    S.banner={kind:'plain',title:'Decision saved on this device',text:'The ration is unchanged. The rule will look again next Monday.'};
     render(); return; }
   if (a==='applyfibre'){
-    const g=Number(el.dataset.g);
-    saveSettings({fibreSchedule:[...(S.settings.fibreSchedule||[]), {from:localToday(), g}]});
-    S.banner={kind:'good',title:`Pro-Fibre now ${g} g`,text:'The streak restarts from tomorrow.'};
+    const g=Number(el.dataset.g),fib=insights().fib;
+    if(!fib.advice||fib.advice.toG!==g)return;
+    if(!await saveSettings({fibreSchedule:[...(S.settings.fibreSchedule||[]),{from:localToday(),g}]}))return;
+    S.banner={kind:'good',title:`Pro-Fibre now ${g} g`,text:'Saved on this device. The streak restarts from tomorrow.'};
     render(); return; }
-  if (a==='dismissfibre'){ S.banner={kind:'plain',title:'Left as it is',text:'It will come back tomorrow.'}; render(); return; }
+  if(a==='dismissfibre'){
+    const fib=insights().fib;if(!fib.advice)return;
+    const snooze={until:shiftDate(localToday(),1),advice:fibreAdviceKey(fib)};
+    try{localStorage.setItem(deviceKey('fibre-snooze'),JSON.stringify(snooze));}
+    catch(e){S.banner={kind:'warn',title:'Could not postpone this advice',text:'Your dose is unchanged. Device storage is unavailable; try Not now again.'};render();return;}
+    S.fibreSnooze=snooze;S.fibreSnoozedUntil=snooze.until;
+    S.banner={kind:'plain',title:'Advice postponed until tomorrow',text:'Your dose is unchanged. This advice is hidden on this device until the next day, unless the advice changes.'};render();return;
+  }
   if (a==='setfibre'){
     const g=Number(el.dataset.g);
     if (g>S.settings.fibreRestG && !confirm(`${g} g is above the ${S.settings.fibreRestG} g ceiling the audit set. Stool that does not settle at ${S.settings.fibreRestG} g is a clinical question rather than a dose question. Set it anyway?`)) return;
     saveSettings({fibreSchedule:[...(S.settings.fibreSchedule||[]), {from:localToday(), g}]}); return; }
-  if (a==='addregime'){ saveSettings({regimeChanges:[...(S.settings.regimeChanges||[]), localToday()]}); return; }
-  if (a==='delregime'){ saveSettings({regimeChanges:(S.settings.regimeChanges||[]).filter(x=>x!==el.dataset.d)}); return; }
-  if (a==='delchange'){ removeChange(el.dataset.id); return; }
+  if(a==='addregime'){await write({regime:{date:localToday(),count:1}});return;}
+  if(a==='delregime'){
+    const date=el.dataset.d,count=(S.settings.regimeChanges||[]).filter(x=>x===date).length;if(!count)return;
+    if(!confirm(`Remove the regime change on ${fmtDate(date)}? This can allow ration advice to resume for weeks containing this date. Undo will be available.`))return;
+    const indices=(S.settings.regimeChanges||[]).flatMap((d,i)=>d===date?[i]:[]);
+    el.disabled=true;await removeWithUndo({kind:'regime',date,count,indices,label:`Regime change removed · ${fmtShort(date)}`},{regime:{date,drop:true}});el.disabled=false;return;
+  }
+  if(a==='delchange'){
+    const record=S.changes.find(c=>c.id===el.dataset.id);if(!record)return;
+    const effect=record.refused?'This lets the weekly rule consider advice again.':`This removes its ${record.deltaG>=0?'+':''}${record.deltaG} g adjustment from plans from that date onwards. Saved historical meals keep their recorded amounts.`;
+    if(!confirm(`Remove the ration entry on ${fmtDate(record.date)}? ${effect} Undo will be available.`))return;
+    el.disabled=true;await removeWithUndo({kind:'change',record,label:`Ration adjustment removed · ${fmtShort(record.date)}`},{col:'changes',id:record.id,erase:true});el.disabled=false;return;
+  }
 
   if (a==='exportmonth'){ exportMonthCsv(); return; }
   if (a==='exportmd'){ exportMonthMd(); return; }
   if (a==='exportall'){ exportAll(); return; }
   if (a==='selftest'){ selfTest(); return; }
   if (a==='erase'){
+    if(S.erasing)return;
     if (!confirm('Delete every day and every recorded change? Settings are kept. Export first.')) return;
     if (prompt('Type ERASE to confirm')!=='ERASE') return;
-    for (const k of Object.keys(S.days)) await deleteDoc(doc(db,'days',k));
-    for (const c of S.changes) await deleteDoc(doc(db,'changes',c.id));
-    S.banner={kind:'plain',title:'Erased',text:'Settings were kept.'}; render(); return; }
+    S.erasing=true;S.localSaveError=null;el.disabled=true;el.textContent='Erasing log data…';
+    eraseBlocksChanges();setStatus('Erasing log data…');
+    try{
+      await flushWrites();
+      // Both queue types must finish first: a later replay must not recreate a
+      // record the user has just explicitly erased.
+      if(queuedWrites().length){
+        S.banner={kind:'warn',source:'sync',retry:true,title:'Sync before erasing',text:'Some confirmed entries are still waiting to sync. Nothing has been erased. Connect and retry sync before erasing the log.'};
+        return;
+      }
+      for(const k of Object.keys(S.days))await deleteDoc(doc(db,'days',k));
+      for(const c of S.changes)await deleteDoc(doc(db,'changes',c.id));
+      S.undo=null;try{localStorage.removeItem(deviceKey('undo'));}catch{}
+      S.banner={kind:'plain',title:'Erased',text:'Settings were kept.'};
+    }catch(e){S.banner={kind:'bad',title:'Erase stopped',text:'Some records may already have been erased. Check the remaining log before trying again. '+String(e.message||e)};}
+    finally{
+      S.erasing=false;el.disabled=false;
+      setStatus(S.banner?.kind==='bad'?'Erase stopped':S.banner?.source==='sync'?'Saved locally; retry sync':'Synced',S.banner?.kind==='bad'?'bad':S.banner?.source==='sync'?'warn':'');
+      render();
+    }
+    return;
+  }
 });
 
 document.addEventListener('input',ev=>{
+  if(ev.target.matches('input,textarea'))clearFieldError(ev.target);
   const feeding=ev.target.closest('[data-feeding]');
   if(feeding){feeding.setAttribute('data-dirty','');return;}
   const form=ev.target.closest('[data-form]');
@@ -2024,29 +2483,29 @@ document.addEventListener('input',ev=>{
 });
 
 
-document.addEventListener('change', (ev)=>{
+document.addEventListener('change', async (ev)=>{
   const el=ev.target.closest('[data-act]');
-  if (el && el.dataset.act==='import' && el.files && el.files[0]) importJson(el.files[0]);
+  if(el&&el.dataset.act==='import'&&el.files&&el.files[0]){
+    if(eraseBlocksChanges())return;
+    importJson(el.files[0]);
+  }
   if(el?.dataset.act==='historydate'){
     const next=el.value;
     if(!next||!el.reportValidity()||next<earliestHistoryDate()||(next>localToday()&&!Object.hasOwn(S.days,next))){el.value=S.cursor;return;}
     if(!leaveDraft()){el.value=S.cursor;return;}
-    S.cursor=next;render();return;
+    navigateTo('day',{date:next,target:'#history-date'});return;
   }
   if(el?.dataset.act==='recipe'){
     const iso=el.dataset.date,meal=S.days[iso]?.meal||{},r=el.value;
     if(meal.recipe===r||!RECIPES.some(x=>x.id===r))return;
-    saveMeal(iso,{recipe:r});
+    if(!await saveMeal(iso,{recipe:r}))el.value=meal.recipe||'';
   }
 });
 
 $('#tabbar').addEventListener('click', (ev)=>{
   const b=ev.target.closest('button[data-tab]'); if (!b) return;
   if (!leaveDraft()) return;
-  const changed=S.tab!==b.dataset.tab;
-  S.tab=b.dataset.tab; S.forceCard=null; if (S.tab==='day'&&!S.cursor) S.cursor=localToday();
-  render();
-  if(changed) window.scrollTo({top:0,behavior:'instant'});
+  S.forceCard=null;navigateTo(b.dataset.tab);
 });
 
 /* AUTH AND BOOT */
@@ -2088,7 +2547,10 @@ onAuthStateChanged(auth, (u)=>{
 });
 
 window.addEventListener('online', ()=>flushWrites());
-window.addEventListener('offline', ()=>setStatus('Offline, queued','warn'));
+window.addEventListener('offline', ()=>{
+  let pending=false;try{pending=queuedWrites().length>0;}catch{}
+  setStatus(pending?'Offline · entries saved on this device':'Offline · saved records available',pending?'warn':'');
+});
 
 // Refresh the local feeding day after midnight, including a suspended/reopened tab.
 // Date-keyed choices are never copied or reset, and render keeps open drafts intact.
@@ -2104,9 +2566,12 @@ setInterval(refreshLocalDay,1000);
 window.addEventListener('focus',refreshLocalDay);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshLocalDay();});
 
-if ('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+window.appCanUpdate=()=>!S.undoBusy&&!S.erasing&&!importing&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
+window.addEventListener('app-shell-status',()=>{renderFeedback();if(S.tab==='more')render()});
+for(const [selector,property]of [['.topbar','--headerh'],['#feedback','--feedbackh']]){
+  new ResizeObserver(entries=>document.documentElement.style.setProperty(property,entries[0].target.getBoundingClientRect().height+'px')).observe($(selector));
 }
+window.AppShell.ready();
 </script>
 </body>
 </html>
