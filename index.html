@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.1.8">
+<html lang="en-GB" data-version="3.2.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -163,6 +163,8 @@ details.card>summary{padding:var(--s4);margin:0;outline-offset:-4px}
 .field-error{color:var(--alert)}
 input:disabled{color:var(--ink-3);opacity:1;border-style:dashed}
 .tin{width:100%;max-width:100%;border:1px solid var(--rule-2);border-radius:8px;padding:var(--s3);background:var(--surface);font-size:1rem}
+/* iOS native date/time chrome overrides border-box sizing; keep the native pickers. */
+.tin[type="date"],.tin[type="time"]{min-width:0;-webkit-appearance:none;appearance:none}
 textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .inline-lab{display:block;font-size:.9375rem;color:var(--ink-2);margin:0 0 var(--s2)}
 
@@ -508,7 +510,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.8';
+const APP_VERSION = '3.2.0';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -1320,7 +1322,7 @@ function focusAfterRender(selector){
   target.scrollIntoView({block:'start',behavior:'instant'});
 }
 function navigateTo(tab,{date,target}={}){
-  if(tab==='day'&&!date&&S.tab!=='day')date=shiftDate(localToday(),-1);
+  if(tab==='day'&&!date&&!S.cursor)date=shiftDate(localToday(),-1);
   S.tab=tab;if(date)S.cursor=date;
   render();
   focusAfterRender(target||(tab==='day'?'#history-heading':'#main h2.screen'));
@@ -1350,7 +1352,11 @@ function render(force=false){
   syncBcsGuidance();
   if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();return;}
   renderPending=false;
-  if (!S.cursor) S.cursor=S.tab==='day'?shiftDate(localToday(),-1):localToday();
+  // The cursor belongs to History; other tabs leave its selection untouched.
+  if(S.tab==='day'){
+    if(!S.cursor)S.cursor=shiftDate(localToday(),-1);
+    if(!$('#history-picker').open)$('#history-date').value=S.cursor;
+  }
   $$('#tabbar button').forEach(b=>{
     const active=b.dataset.tab===S.tab;
     b.classList.toggle('on',active);
@@ -2572,7 +2578,10 @@ $('#history-picker-form').addEventListener('submit',ev=>{
   $('#history-picker').close();
   if(next!==S.cursor)navigateTo('day',{date:next,target:'#history-date-label'});
 });
-$('#history-picker').addEventListener('close',()=>{if(S.tab==='day')refocus('choose-history-date');});
+$('#history-picker').addEventListener('close',()=>{
+  $('#history-date').value=S.cursor;
+  if(S.tab==='day')refocus('choose-history-date');
+});
 
 /* AUTH AND BOOT */
 // The tab bar can wrap with large text. Reserve its actual height, including the
@@ -2608,7 +2617,7 @@ onAuthStateChanged(auth, (u)=>{
   S.user=u;
   $('#gate').classList.toggle('hide', !!u);
   $('#app').classList.toggle('hide', !u);
-  if (u && S.subscribed!==u.uid){ S.subscribed=u.uid; S.cursor=localToday(); subscribe(); }
+  if (u && S.subscribed!==u.uid){ S.subscribed=u.uid; subscribe(); }
   if (u) render();
 });
 
