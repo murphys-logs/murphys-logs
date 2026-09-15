@@ -191,6 +191,12 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .scale button{
   padding:11px 0;font-size:.9375rem;font-weight:600;color:var(--tone);
 }
+@media(max-width:600px) and (orientation:portrait){
+  .bcs-scale{grid-template-columns:repeat(8,minmax(0,1fr));max-width:calc(14rem + 3 * var(--s2));margin-inline:auto}
+  .bcs-scale button{grid-column:span 2;white-space:nowrap}
+  .bcs-scale button:nth-child(5){grid-column:2 / span 2}
+}
+#bcs-announcement{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .bristol button.on b,.bristol button.on i,.scale button.on{color:var(--on-accent)}
 :is(.bristol,.scale) .on{background:var(--tone);border-color:var(--tone)}
 
@@ -320,6 +326,7 @@ button:not(:disabled):active{filter:brightness(.78);box-shadow:inset 0 0 0 2px v
     <span class="state" id="state" role="status">Connecting</span>
   </div>
   <main id="main"></main>
+  <div id="bcs-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <nav class="tabbar" id="tabbar" aria-label="Primary navigation">
     <button data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></svg>Now</button>
     <button data-tab="day"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
@@ -376,8 +383,16 @@ const BRISTOL = [null,
   { n:5, word:'Soft',    band:'a' }, { n:6, word:'Mushy',  band:'a' },
   { n:7, word:'Liquid',  band:'r' }];
 const BCS_STEPS = [
-  { v:3, band:'r' }, { v:4, band:'a' }, { v:4.5, band:'g' }, { v:5, band:'g' },
-  { v:5.5, band:'g' }, { v:6, band:'a' }, { v:7, band:'r' }];
+  // Integer scores follow WSAVA's canine BCS chart; half-points interpolate adjacent scores.
+  // https://wsava.org/wp-content/uploads/2020/01/Body-Condition-Score-Dog.pdf
+  { v:3, band:'r', description:'Ribs are easy to feel with no noticeable fat and may be visible, with an obvious waist from above and a pronounced belly tuck from the side.' },
+  { v:4, band:'a', description:'Ribs are easy to feel under a very thin fat layer, with a clear waist from above and a visible belly tuck from the side.' },
+  { v:4.5, band:'g', description:'An intermediate assessment between 4 and 5: ribs are easily felt under light fat cover, with a clear waist from above and belly tuck from the side.' },
+  { v:5, band:'g', description:'Ribs can be felt without excess fat, with a waist behind the ribs from above and a belly tuck from the side.' },
+  { v:5.5, band:'g', description:'An intermediate assessment between 5 and 6: ribs can be felt under slightly fuller fat cover, with a softer waist from above and belly tuck from the side.' },
+  { v:6, band:'a', description:'Ribs can be felt under slight excess fat, with a less prominent waist from above and a belly tuck from the side.' },
+  { v:7, band:'r', description:'Ribs are hard to feel beneath heavy fat, with little or no waist from above and a belly tuck that may remain from the side.' }];
+const BCS_GENERAL = 'An informed, subjective assessment of ribs, waist and tuck. Excellent: 4.5–5.5; ideal centre: 5.0.';
 const EVENTS = [
   { id:'vomited', label:'Vomited' }, { id:'blood', label:'Blood' },
   { id:'lethargic', label:'Lethargic' }, { id:'offFood', label:'Off food' },
@@ -916,6 +931,7 @@ let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
   if (!S.ready){rendered='';$('#main').innerHTML=bannerHtml()+'<p role="status">Loading saved records…</p>';return;}
+  syncBcsGuidance();
   if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;return;}
   renderPending=false;
   if (!S.cursor) S.cursor=localToday();
@@ -934,6 +950,7 @@ function render(force=false){
   $('#main').innerHTML=html;
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
   if(focus)refocus(focus);
+  syncBcsGuidance();
 }
 function leaveDraft(){
   if (!$('#main [data-dirty],#main [data-stool]')) return true;
@@ -977,7 +994,7 @@ function inputField(iso,k,label,min=0,max=600,step=1){
 function dailyFields(iso){
   const d=S.days[iso]||{};
   return '<div class="daily">'+stoolsCard(iso)+weightCard(iso)+
-    panel('Condition',bcsScale(iso,d.bcs)+'<p class="sub">An informed, subjective assessment of ribs, waist and tuck. Excellent: 4.5–5.5; ideal centre: 5.0.</p>')+
+    panel('Condition',bcsScale(iso,d.bcs)+`<p class="sub" data-bcs-guidance data-date="${iso}">${bcsDescription(d.bcs)}</p>`)+
     panel('Walk','<div class="stack">'+inputField(iso,'walkMin','Minutes walked')+inputField(iso,'walkKm','Kilometres',0,80,.1)+inputField(iso,'activeMin','Active minutes',0,1440)+'</div>')+
     panel('Treats',inputField(iso,'treats','Dried necks and feet',0,10))+
     panel('Events',`<div class="chips">${EVENTS.map(e=>`<button ${choice((d.events||[]).includes(e.id),'chip ev')} data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>`)+
@@ -1038,8 +1055,26 @@ function weightHint(iso){
 }
 
 function bcsScale(iso,val){
-  return `<div class="scale">${BCS_STEPS.map(s=>
-    `<button ${choice(val===s.v,s.band)} data-act="bcs" data-v="${s.v}" data-date="${iso}">${s.v}</button>`).join('')}</div>`;
+  return `<div class="scale bcs-scale">${BCS_STEPS.map(s=>
+    `<button id="bcs-${iso}-${s.v}" ${choice(val===s.v,s.band)} data-act="bcs" data-v="${s.v}" data-date="${iso}">${s.v}</button>`).join('')}</div>`;
+}
+function bcsDescription(val){
+  return BCS_STEPS.find(s=>s.v===val)?.description || BCS_GENERAL;
+}
+function syncBcsGuidance(){
+  const help=$('[data-bcs-guidance]'), announcement=$('#bcs-announcement'), iso=help?.dataset.date;
+  if(!help || !(S.tab==='day'&&S.cursor===iso || S.tab==='today'&&!isEvening()&&iso===localToday())){
+    if(announcement.textContent) announcement.textContent='';
+    return;
+  }
+  const val=S.days[iso]?.bcs, text=bcsDescription(val);
+  if(help.textContent!==text) help.textContent=text;
+  for(const button of $$('[data-act="bcs"]',help.parentElement)){
+    const on=Number(button.dataset.v)===val;
+    button.classList.toggle('on',on); button.setAttribute('aria-pressed',String(on));
+  }
+  // This live region survives full renders; also update while unrelated drafts defer them.
+  if(announcement.textContent!==text) announcement.textContent=text;
 }
 
 function stoolsCard(iso){
