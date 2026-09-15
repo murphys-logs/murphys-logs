@@ -1,5 +1,5 @@
 // Publish the shell and worker together, with matching release identifiers.
-const VERSION = '3.1.6';
+const VERSION = '3.1.7';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = new URL('index.html', SCOPE).href;
 // Older installs removed every "murphy-*" cache. This prefix also identifies its scope.
@@ -37,7 +37,7 @@ async function prepareCache() {
   if (!await validShell(shell)) throw Error('The app update is not ready yet. Try again when connected.');
   const cache = await caches.open(CACHE_NAME);
   const modules = await Promise.all([...MODULES].map(async url => {
-    // SDK URLs are immutable, and identical in 3.1.5 and 3.1.6.
+    // SDK URLs are immutable and unchanged across these application releases.
     const saved = await caches.match(url);
     const response = isModule(saved) ? saved : await freshFile(url);
     if (!isModule(response)) throw Error('An application dependency is unavailable.');

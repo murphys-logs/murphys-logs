@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.1.6">
+<html lang="en-GB" data-version="3.1.7">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -319,6 +319,8 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 .muted{color:var(--ink-3);font-size:.9375rem}
 .err{color:var(--alert);font-size:.875rem;margin-top:10px}
 .stack{display:grid;gap:var(--s3)}
+.previous-meal{margin-top:var(--s4)}
+.previous-meal>.card{margin:0}
 .pre{font-family:var(--mono);font-size:.75rem;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border-radius:6px;padding:10px;color:var(--ink-2);max-height:320px;overflow:auto}
 @media(max-width:360px){:root{--sl:max(12px,env(safe-area-inset-left));--sr:max(12px,env(safe-area-inset-right))}.sec{padding:16px}.switch-row{gap:8px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
@@ -337,7 +339,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   main.wide{max-width:68rem}
   .daily{--steps:7;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4);margin-bottom:var(--s4)}
   .daily>.card{margin:0}
-  .daily>.card:last-child{grid-column:1/-1}
+  .daily>.card:last-child,.daily>[id^="meal-section-"]{grid-column:1/-1}
   .tabbar{max-width:42rem;margin:auto;border:1px solid var(--rule);border-radius:12px 12px 0 0}
   .topbar{padding-inline:max(var(--sl),calc((100vw - 65.5rem)/2)) max(var(--sr),calc((100vw - 65.5rem)/2))}
   .chart-plot{height:14rem}
@@ -376,7 +378,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   <main id="main"></main>
   <div id="bcs-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <nav class="tabbar" id="tabbar" aria-label="Primary navigation">
-    <button data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></svg>Now</button>
+    <button data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></svg>Today</button>
     <button data-tab="day"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
     <button data-tab="status"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Status<span class="dotmark hide" aria-hidden="true"></span></button>
     <button data-tab="history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v18h17M8 17v-5m5 5V7m5 10V3"/></svg>Data</button>
@@ -498,7 +500,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.1.6';
+const APP_VERSION = '3.1.7';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -835,7 +837,7 @@ function vetItems(days, todayIso, weights, s){
 const S = {
   user:null, days:{}, changes:[], settings:{...DEFAULTS},
   ready:false, tab:'today', cursor:null, adding:null,
-  status:'Connecting', banner:null, testOut:null, forceCard:null, subscribed:false,
+  status:'Connecting', banner:null, testOut:null, subscribed:false,
   undo:null, undoBusy:false, erasing:false, fibreSnooze:null, fibreSnoozedUntil:null, localSaveError:null
 };
 
@@ -1289,10 +1291,6 @@ function weeklyAdvice(){
     regimeChanges:S.settings.regimeChanges||[], settings:S.settings
   }));
 }
-function isEvening(){
-  if (S.forceCard) return S.forceCard==='evening';
-  return londonNow().hour >= (S.settings.handoverHour ?? 16);
-}
 function missingFor(iso){
   const d=S.days[iso]||{}, miss=[];
   if (!(d.stools||[]).length) miss.push({k:'stool', t:'no stool logged'});
@@ -1380,15 +1378,16 @@ function viewToday(){
   if (adv.applied) head += `<div class="note warn"><b>This week's ration advice is waiting</b>${esc(adv.reason)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
   else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
 
-  const toggle = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px">
-    <button class="link" data-act="swapcard">${isEvening()?'Show the morning log':"Show tonight's bowl"}</button></div>`;
-  return bannerHtml()+head+toggle+(isEvening()?cardEvening(today):cardMorning(today));
+  const miss=missingFor(today);
+  return bannerHtml()+head+`<span class="moment">Today</span><h2 class="screen">${fmtDate(today)}</h2>`+
+    dailyFields(today,{activityDate:shiftDate(today,-1),live:true})+
+    `<div class="note ${miss.length?'plain':'good'}">${miss.length?'<b>Still to log</b>'+miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', '):'<b>Core observations recorded</b>Stools, weight and condition are recorded. You can keep editing throughout the day.'}</div>`;
 }
 
 function row(k,v){ return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 function choice(on,cls=''){return `class="${cls}${on?' on':''}" aria-pressed="${!!on}"`;}
-function panel(title,body,id=''){ return `<section class="card sec" ${id?`id="${id}" tabindex="-1"`:''}><h3 class="lab">${title}</h3>${body}</section>`; }
-function fold(title,body,id,open=false){return `<details class="card" id="${id}" ${open?'open':''}><summary class="sec">${title}</summary><div class="sec">${body}</div></details>`;}
+function panel(title,body,id='',attributes=''){ return `<section class="card sec" ${id?`id="${id}" tabindex="-1"`:''} ${attributes}><h3 class="lab">${title}</h3>${body}</section>`; }
+function fold(title,body,id,open=false,attributes=''){return `<details class="card" id="${id}" ${open?'open':''} ${attributes}><summary class="sec">${title}</summary><div class="sec">${body}</div></details>`;}
 const settingsSpec={
   targetKcal:{label:'Daily target, kcal',min:1,max:10000,step:1,help:'The daily energy target used to calculate the planned bowl.'},
   bdGrams:{label:'Bella & Duke, g',min:1,max:10000,step:1,help:'The Bella & Duke portion in each planned meal.'},
@@ -1401,15 +1400,15 @@ const settingsSpec={
   maxCumulativeG:{label:'Maximum total adjustment, g',min:1,max:10000,step:1,help:'Limits the combined adjustment above or below the base ration.'},
   minWeighIns:{label:'Weigh-ins needed per week',min:1,max:7,step:1,help:'Each comparison week needs this many recorded weights.'},
   kcalPerKgTissue:{label:'Tissue energy, kcal per kg',min:1,max:10000,step:1,help:'The energy conversion used by the existing weekly weight rule.'},
-  bcsHoldAtOrBelow:{label:'Hold reductions at or below condition score',min:0,max:9,step:.5,help:'A mean condition score at or below this value holds a reduction. Zero disables this hold.'},
-  handoverHour:{label:'Show tonight’s bowl from',min:0,max:23,step:1,type:'time',help:'The Now tab changes from morning to evening at this London time, in whole hours.'}
+  bcsHoldAtOrBelow:{label:'Hold reductions at or below condition score',min:0,max:9,step:.5,help:'A mean condition score at or below this value holds a reduction. Zero disables this hold.'}
 };
-function inputField(iso,k,label,min=0,max=600,step=1){
+function inputField(iso,k,label,min=0,max=600,step=1,helpText=''){
   const d=S.days[iso]||{}, value=k==='setnum'?S.settings[label]:k==='darfFed'?d.meal?.darfFed:k==='weight'?recordedWeight(d):d[k];
   const id='in-'+k+'-'+(k==='setnum'?label:iso);
   const spec=k==='setnum'?settingsSpec[label]:null,shownLabel=spec?.label||label;
-  const help=spec?`<p class="field-help" id="${id}-help">${esc(spec.help)}</p>`:'';
-  const attrs=spec?`required aria-describedby="${id}-help ${id}-error"`:'';
+  const guidance=spec?.help||helpText;
+  const help=guidance?`<p class="field-help" id="${id}-help">${esc(guidance)}</p>`:'';
+  const attrs=(spec?'required ':'')+(guidance?`aria-describedby="${id}-help ${id}-error"`:'');
   const type=spec?.type||'number',shownValue=type==='time'?(Number.isInteger(value)&&value>=0&&value<=23?String(value).padStart(2,'0')+':00':''):value;
   return `<div data-form data-date="${iso}" data-key="${k}" data-setting="${esc(label)}">
     ${k==='notes'?`<label class="inline-lab" for="${id}">Notes for ${fmtDate(iso)}</label><textarea id="${id}" class="tin" data-act="notes">${esc(value||'')}</textarea>`:
@@ -1417,11 +1416,18 @@ function inputField(iso,k,label,min=0,max=600,step=1){
     <p class="field-error hide" id="${id}-error" data-field-error role="alert"></p>
   </div>`;
 }
-function dailyFields(iso){
+function dailyFields(iso,{activityDate=iso,live=false}={}){
   const d=S.days[iso]||{};
-  return '<div class="daily">'+stoolsCard(iso)+weightCard(iso)+
+  // Only the completed active-minutes total uses a different date on Today.
+  // Each form carries its rendered date through saving and midnight drafts.
+  const activityHelp=`Activity date: ${fmtDate(activityDate)} ${activityDate.slice(0,4)}. `+
+    (live?'Tractive completes its daily total at midnight. This value is saved against yesterday, not today. ':'This value is saved against the selected History date. ')+
+    'Zero means no active minutes; leave blank if unknown.';
+  return '<div class="daily">'+stoolsCard(iso,live)+
+    panel('Activity','<div class="stack">'+inputField(iso,'walkMin','Minutes walked')+inputField(iso,'walkKm','Kilometres',0,80,.1)+inputField(activityDate,'activeMin',live?'Yesterday’s active minutes':'Active minutes',0,1440,1,activityHelp)+'</div>','activity-'+iso)+
+    weightCard(iso)+
     panel('Condition',bcsScale(iso,d.bcs)+`<p class="sub" data-bcs-guidance data-date="${iso}">${bcsDescription(d.bcs)}</p>`,'condition-'+iso)+
-    panel('Walk','<div class="stack">'+inputField(iso,'walkMin','Minutes walked')+inputField(iso,'walkKm','Kilometres',0,80,.1)+inputField(iso,'activeMin','Active minutes',0,1440)+'</div>')+
+    mealEditor(iso,live,live?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'')+
     panel('Treats',inputField(iso,'treats','Dried necks and feet',0,10))+
     panel('Events',`<div class="chips">${EVENTS.map(e=>`<button id="event-${iso}-${e.id}" ${choice((d.events||[]).includes(e.id),'chip ev')} data-act="event" data-id="${e.id}" data-date="${iso}">${e.label}</button>`).join('')}</div>`)+
     panel('Notes',inputField(iso,'notes','Notes'))+'</div>';
@@ -1466,11 +1472,15 @@ function mealAmountEditor(iso,m){
   }).join('');
   return `<details class="meal-correction" id="meal-correction-${iso}"><summary>Correct supplement amounts</summary><p class="sub">These are corrections to the meal on ${fmtDate(iso)}. Inclusion switches, DARF, schedules and the original calorie estimate stay unchanged.</p><div class="stack">${fields}</div></details>`;
 }
+function liveFeedingControls(iso,m){
+  const fed=isFedMeal(m);
+  return `${fed?row('Fed at '+esc(m.fedAt),esc(m.darfFed??m.darfPlanned??'?')+' g'):''}<button id="meal-fed-action-${iso}" class="btn ${fed?'ghost sm':''}" data-act="${fed?'unfeed':'fed'}" data-date="${iso}">${fed?'Undo Fed':'Fed'}</button>`;
+}
 function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null){
   const m=plannedMeal(iso), r=RECIPES.find(x=>x.id===m.recipe), fed=isFedMeal(m);
   const disabled=live&&!fed;
-  const title=previous?"Last night's meal":live?"Tonight's meal":'Evening meal';
-  const feedingControls=live?`${fed?row('Fed at '+esc(m.fedAt),esc(m.darfFed??m.darfPlanned??'?')+' g'):''}<button class="btn ${fed?'ghost sm':''}" data-act="${fed?'unfeed':'fed'}" data-date="${iso}">${fed?'Undo Fed':'Fed'}</button>`:
+  const title=previous?"Last night's meal":'Evening Meal';
+  const feedingControls=live?`<div data-live-feeding="${iso}">${liveFeedingControls(iso,m)}</div>`:
     `<div data-feeding data-date="${iso}"><label class="inline-lab" for="fed-time-${iso}">Actual feeding time · ${fmtDate(iso)}</label>
       <input class="tin" id="fed-time-${iso}" type="time" required value="${fed?esc(m.fedAt):''}">
       <div class="btnrow"><button class="btn sm" data-act="${fed?'savefeedingtime':'fed'}" data-fed-time="explicit" data-date="${iso}">${fed?'Save feeding time':'Fed'}</button><button class="btn ghost sm" data-act="cancelfeedingtime" data-date="${iso}">Cancel</button>${fed?`<button class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button>`:''}</div>
@@ -1483,15 +1493,10 @@ function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null
     ${r||(!live&&m.recipe)?`${feedingControls}
       ${!disabled?inputField(iso,'darfFed','Grams actually fed',0,400):''}
       <p class="lab">How the bowl went</p><div class="seg">${['cleared','left','refused'].map(k=>`<button id="bowl-${iso}-${k}" ${choice(m.bowl===k)} ${disabled?'disabled':''} data-act="bowl" data-k="${k}" data-date="${iso}">${k==='left'?'Left some':k[0].toUpperCase()+k.slice(1)}</button>`).join('')}</div>
-      ${disabled?'<p class="sub">Selectable once Fed is pressed.</p>':''}`:''}${mealAmountEditor(iso,m)}`;
+      ${live?`<p class="sub${disabled?'':' hide'}" data-bowl-help="${iso}">Selectable once Fed is pressed.</p>`:''}`:''}${mealAmountEditor(iso,m)}`;
   const summary=attributedMeal?`${esc(RECIPES.find(x=>x.id===attributedMeal.recipe)?.short||attributedMeal.recipe)} · ${esc(attributedMeal.darfFed??'?')} g · ${esc(attributedMeal.bowl||'bowl not recorded')}`:'Not recorded as fed';
-  return previous?fold(`${title} <span class="sub">${summary}</span>`,body,'meal-'+iso,!attributedMeal||!m.bowl):panel(title,body,'meal-section-'+iso);
-}
-function cardMorning(iso){
-  const miss=missingFor(iso);
-  return `<span class="moment">Morning</span><h2 class="screen">${fmtDate(iso)}</h2>`+
-    mealEditor(shiftDate(iso,-1),false,'',true,attributionFor(iso,mealsList()).primary)+dailyFields(iso)+
-    `<div class="note ${miss.length?'plain':'good'}">${miss.length?'<b>Still to log</b>'+miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', '):'<b>Morning complete</b>Evening meal controls are ready when needed.'}</div>`;
+  const attributes=`data-meal-editor="${iso}" data-meal-live="${live}" data-meal-previous="${previous}"`;
+  return previous?fold(`${title} <span class="sub">${summary}</span>`,body,'meal-'+iso,false,attributes):panel(title,body,'meal-section-'+iso,attributes);
 }
 
 function weightHint(iso){
@@ -1513,7 +1518,7 @@ function bcsDescription(val){
 }
 function syncBcsGuidance(){
   const help=$('[data-bcs-guidance]'), announcement=$('#bcs-announcement'), iso=help?.dataset.date;
-  if(!help || !(S.tab==='day'&&S.cursor===iso || S.tab==='today'&&!isEvening()&&iso===localToday())){
+  if(!help || !(S.tab==='day'&&S.cursor===iso || S.tab==='today')){
     if(announcement.textContent) announcement.textContent='';
     return;
   }
@@ -1527,7 +1532,7 @@ function syncBcsGuidance(){
   if(announcement.textContent!==text) announcement.textContent=text;
 }
 
-function stoolsCard(iso){
+function stoolsCard(iso,previousMeal=false){
   const st=(S.days[iso]?.stools||[]).slice().sort((a,b)=>minsOf(a.time)-minsOf(b.time)), meals=mealsList();
   const rows=st.map(s=>{
     const b=BRISTOL[s.bristol]||{word:'?',band:'a'}, at=attributionFor(iso,meals);
@@ -1545,7 +1550,18 @@ function stoolsCard(iso){
     <div class="chips">${['mucus','blood'].map(k=>`<button ${choice(f[k],'chip')} data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
     <div class="btnrow"><button class="btn" data-act="savestool">Save stool entry</button><button class="btn ghost" data-act="cancelstool">Cancel</button></div>
   </div>`:`<button id="add-stool-${iso}" class="link" data-act="openstool" data-date="${iso}">+ Add stool</button>`;
-  return panel('Stools',(rows||'<p class="muted">None logged.</p>')+form,'stools-'+iso);
+  const previous=previousMeal?`<div class="previous-meal">${mealEditor(shiftDate(iso,-1),false,'',true,attributionFor(iso,meals).primary)}</div>`:'';
+  return panel('Stools',`<div data-stool-log="${iso}">${rows||'<p class="muted">None logged.</p>'}${form}</div>`+previous,'stools-'+iso);
+}
+function refreshStoolLog(iso){
+  // Completing a stool entry must not replace another section's unfinished form,
+  // including the previous-meal editor nested beside this log.
+  const log=document.querySelector(`[data-stool-log="${iso}"]`);
+  if(log){
+    const template=document.createElement('template');template.innerHTML=stoolsCard(iso);
+    log.replaceWith(template.content.querySelector('[data-stool-log]'));
+  }
+  render();
 }
 
 function mealPlanDetails(iso){
@@ -1573,13 +1589,19 @@ function mealPlanDetails(iso){
     amounts+
     (recent?`<p class="sub" style="color:var(--watch)">Fibre or oil changed on ${fmtDate(recent)}. An extra now will muddy the read-out.</p>`:'');
 }
-function cardEvening(iso){
-  return `<span class="moment">Evening</span><h2 class="screen">Tonight's meal</h2>`+
-    mealEditor(iso,true,`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`)+eveningFoot(iso);
-}
 function refreshMealPlans(){
-  // Keep the calculated bowl current even while an unrelated field has a draft.
+  // An all-day page can contain an activity draft alongside changing meal controls.
+  // Refresh complete editors only when they contain no unfinished input of their own.
   const focus=document.activeElement?.id;
+  const expanded=$$('#main details[id]').map(el=>[el.id,el.open]);
+  for(const editor of $$('[data-meal-editor]')){
+    if(editor.querySelector('[data-dirty]'))continue;
+    const iso=editor.dataset.mealEditor,live=editor.dataset.mealLive==='true',previous=editor.dataset.mealPrevious==='true';
+    editor.outerHTML=mealEditor(iso,live,live?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'',previous,
+      previous?attributionFor(shiftDate(iso,1),mealsList()).primary:null);
+  }
+  for(const [id,open]of expanded){const el=document.getElementById(id);if(el)el.open=open;}
+  // Inside an editor with a draft, these fragments contain no editable inputs.
   for(const el of $$('[data-meal-plan]')){
     const iso=el.dataset.mealPlan, html=mealPlanDetails(iso);
     if(el.innerHTML!==html) el.innerHTML=html;
@@ -1589,15 +1611,15 @@ function refreshMealPlans(){
       if(control) control.outerHTML=switchRow(id,label,m[k],mealFlagDetail(m,k,isEditablePlan(iso,m)),`data-act="extra" data-k="${k}" data-date="${iso}"`);
     }
   }
+  for(const el of $$('[data-live-feeding]')){
+    const iso=el.dataset.liveFeeding,m=plannedMeal(iso),disabled=!isFedMeal(m);
+    el.innerHTML=liveFeedingControls(iso,m);
+    for(const button of $$('[data-act="bowl"]',el.closest('[data-meal-editor]')))button.disabled=disabled;
+    document.querySelector(`[data-bowl-help="${iso}"]`)?.classList.toggle('hide',!disabled);
+  }
   if(focus&&document.activeElement?.id!==focus) refocus(focus);
 }
 
-function eveningFoot(iso){
-  const miss=missingFor(iso).filter(x=>x.k!=='bowl');
-  const d=S.days[iso]||{};
-  if (!miss.length) return `<div class="note good"><b>This morning</b>${(d.stools||[]).length} stool${(d.stools||[]).length===1?'':'s'} &middot; ${d.weightMissed===true?'Weight missed':(recordedWeight(d)??'--')+' kg'} &middot; BCS ${d.bcs??'--'}. Nothing outstanding.</div>`;
-  return `<div class="note plain"><b>Still to log today</b>${miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', ')}</div>`;
-}
 
 /* DAY SHEET */
 function earliestHistoryDate(){
@@ -1611,7 +1633,7 @@ function viewDay(){
   return bannerHtml()+`<h2 class="screen">History</h2><div class="datebar">
     <button data-act="dayshift" data-n="-1" ${iso<=earliestHistoryDate()?'disabled':''} aria-label="Previous day">‹</button>
     <div class="history-date"><label class="inline-lab" for="history-date">History date</label><input class="tin" id="history-date" type="date" data-act="historydate" min="${earliestHistoryDate()}" max="${latestHistoryDate()}" value="${iso}"><span class="d">${fmtDate(iso)}</span></div><button data-act="dayshift" data-n="1" ${iso>=latestHistoryDate()?'disabled':''} aria-label="Next day">›</button></div>
-    <div class="note ${miss.length?'plain':'good'}"><b>${miss.length?'Incomplete':'Complete'}</b>${esc(miss.map(x=>x.t).join(', '))}</div>`+mealEditor(iso)+dailyFields(iso);
+    <div class="note ${miss.length?'plain':'good'}"><b>${miss.length?'Incomplete':'Complete'}</b>${esc(miss.map(x=>x.t).join(', '))}</div>`+dailyFields(iso);
 }
 
 /* STATUS */
@@ -1881,7 +1903,6 @@ function viewMore(){
       ${num('minWeighIns','weigh-ins needed per week')}
       ${num('kcalPerKgTissue','kcal per kg of tissue')}
       ${num('bcsHoldAtOrBelow','hold reductions at or below BCS','0.5')}
-      ${num('handoverHour','evening card from, hour')}
     </div><h3 class="lab">Regime changes</h3>${reg}
       <button class="link" data-act="addregime">+ Mark today as a regime change</button>
       <p class="sub">Record a changed target, portion, sustained treats or illness. A change in either comparison week suppresses advice.</p>
@@ -2198,9 +2219,9 @@ async function confirmInput(form){
   const el=$('input,textarea',form), k=form.dataset.key, iso=form.dataset.date, v=el.value;
   clearFieldError(el);
   const setting=form.dataset.setting, spec=k==='setnum'?settingsSpec[setting]:null;
-  const n=v===''?null:spec&&setting==='handoverHour'?(validTime(v)&&v.endsWith(':00')?Number(v.slice(0,2)):NaN):Number(v);
+  const n=v===''?null:Number(v);
   if(spec&&(n===null||!Number.isFinite(n)||n<spec.min||n>spec.max||Math.abs((n-spec.min)/spec.step-Math.round((n-spec.min)/spec.step))>1e-7)){
-    fieldError(el,setting==='handoverHour'?'Choose a whole hour from 00:00 to 23:00.':`${spec.label}: enter ${spec.min} to ${spec.max}${spec.step!==1?`, in steps of ${spec.step}`:''}.`);return;
+    fieldError(el,`${spec.label}: enter ${spec.min} to ${spec.max}${spec.step!==1?`, in steps of ${spec.step}`:''}.`);return;
   }
   if(!el.checkValidity()){fieldError(el,el.validationMessage||'Check this value and try again.');return;}
   if(k==='mealamount'&&(!['oilMl','fibreG'].includes(setting)||n!==null&&(!Number.isFinite(n)||n<0))){fieldError(el,'Enter zero or a positive amount, or leave this blank for not recorded.');return;}
@@ -2227,7 +2248,7 @@ document.addEventListener('click', async (ev)=>{
   if(S.erasing&&['saveinput','bcs','event','missed','savestool','delstool','extra','fed','savefeedingtime','unfeed','bowl','applyadv','refuseadv','applyfibre','setfibre','addregime','delregime','delchange','undo','theme','signout'].includes(a)){
     eraseBlocksChanges();return;
   }
-  if (['go','openday','swapcard','jump','dayshift','range','signout','erase'].includes(a)&&!leaveDraft()) return;
+  if (['go','openday','jump','dayshift','range','signout','erase'].includes(a)&&!leaveDraft()) return;
   const d=S.days[iso]||{};
 
   if (a==='signin'){ return doSignIn(); }
@@ -2244,15 +2265,11 @@ document.addEventListener('click', async (ev)=>{
     catch(e){S.banner={kind:'warn',title:'Recovery kept',text:'The Undo copy could not be dismissed on this device. It remains available.'};render();}
     return;
   }
-  if (a==='swapcard'){ const wasEve=isEvening(); S.forceCard=wasEve?'morning':'evening';
-    if ((S.forceCard==='evening')===(londonNow().hour>=(S.settings.handoverHour??16))) S.forceCard=null;
-    render();focusAfterRender('h2.screen');return; }
   if (a==='jump'){ const k=el.dataset.k;
     if(k==='bowl'){
       const previous=shiftDate(localToday(),-1);
       navigateTo('day',{date:previous,target:'#meal-section-'+previous});
     }else{
-      S.forceCard='morning';
       const target=k==='weight'?'#in-weight-':k==='stool'?'#stools-':'#condition-';
       navigateTo('today',{target:target+localToday()});
     }
@@ -2306,7 +2323,9 @@ document.addEventListener('click', async (ev)=>{
     S.adding=iso; render(true); $('#st-t')?.focus(); return;
   }
   if(a==='cancelstool'){
-    const target=stoolReturnFocus;S.adding=null;stoolDraft=null;stoolOriginal=null;render(true);focusAfterRender(target);return;
+    const target=stoolReturnFocus,date=S.adding;S.adding=null;stoolDraft=null;stoolOriginal=null;
+    if($('#main [data-dirty]'))refreshStoolLog(date);else render(true);
+    focusAfterRender(target);return;
   }
   if (a==='stooltype'){
     if (!stoolDraft) return;
@@ -2334,9 +2353,13 @@ document.addEventListener('click', async (ev)=>{
     const saved=moving?moveStool(originalDate,date,next,stoolOriginal):saveDay(date,{stools:st});
     if (await saved){
       S.adding=null;stoolDraft=null;stoolOriginal=null;
-      if(date!==originalDate){S.cursor=date;S.tab='day';}
-      render(true);
-      focusAfterRender(`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${date}"]`);
+      const otherDrafts=!!$('#main [data-dirty]');
+      if(date!==originalDate&&!otherDrafts){S.cursor=date;S.tab='day';}
+      if(otherDrafts){
+        if(date!==originalDate)S.banner={kind:'plain',title:`Stool saved for ${fmtDate(date)}`,text:'Your other unfinished entries stay open. The stool is listed on that date in History.'};
+        refreshStoolLog(originalDate);
+      }else render(true);
+      focusAfterRender(date!==originalDate&&otherDrafts?'#add-stool-'+originalDate:`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${date}"]`);
     }else el.disabled=false;
     return;
   }
@@ -2505,7 +2528,7 @@ document.addEventListener('change', async (ev)=>{
 $('#tabbar').addEventListener('click', (ev)=>{
   const b=ev.target.closest('button[data-tab]'); if (!b) return;
   if (!leaveDraft()) return;
-  S.forceCard=null;navigateTo(b.dataset.tab);
+  navigateTo(b.dataset.tab);
 });
 
 /* AUTH AND BOOT */
@@ -2559,7 +2582,6 @@ function refreshLocalDay(){
   const today=localToday();
   if(today===renderedLocalDay) return;
   renderedLocalDay=today;
-  S.forceCard=null;
   render();
 }
 setInterval(refreshLocalDay,1000);
