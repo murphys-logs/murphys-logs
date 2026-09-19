@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.4.0">
+<html lang="en-GB" data-version="3.4.1">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#101010">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Murphy">
-<title>Murphy's Log</title>
+<meta name="apple-mobile-web-app-title" content="Murphy’s Logs">
+<title>Murphy’s Logs</title>
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%23161616'/%3E%3Cg fill='%23ddd'%3E%3Cellipse cx='64' cy='62' rx='14' ry='19'/%3E%3Cellipse cx='97' cy='54' rx='14' ry='20'/%3E%3Cellipse cx='128' cy='68' rx='13' ry='18'/%3E%3Cpath d='M96 88c19 0 34 14 34 29 0 13-11 20-24 20-8 0-12-3-20-3s-12 3-20 3c-13 0-24-7-24-20 0-15 15-29 34-29z'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root{
@@ -131,6 +131,8 @@ h2.screen{font-size:2rem;font-weight:700;letter-spacing:-.035em;margin:0 0 var(-
 .card>.sec+.sec{border-top:1px solid var(--rule)}
 .lab{font-size:1rem;font-weight:650;letter-spacing:-.01em;color:var(--ink);margin:0 0 var(--s4);line-height:1.35}
 .sec>.lab:not(:first-child){margin-top:var(--s4)}
+.activity-period+.activity-period{border-top:1px solid var(--rule);margin-top:var(--s4);padding-top:var(--s4)}
+.activity-period>.lab{font-size:.9375rem;margin-bottom:var(--s2)}
 summary{min-height:44px;cursor:pointer;font-weight:600;list-style-position:inside;overflow-wrap:anywhere}
 details[open]>summary{margin-bottom:var(--s3)}
 details.card>summary{padding:var(--s4);margin:0;outline-offset:-4px}
@@ -258,6 +260,8 @@ svg.chart :is(path,line){vector-effect:non-scaling-stroke}
 .chart-dates{grid-column:2;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 16px;font-size:.875rem;color:var(--ink-2);font-variant-numeric:tabular-nums;margin-top:6px}
 .chart-summary{font-size:.9375rem;line-height:1.6;color:var(--ink-2);margin:0 0 12px}
 .legend{font-size:.875rem;line-height:1.6;color:var(--ink-3);margin:12px 0 0}
+.chart-key{display:inline-block;width:1.5rem;border-top:2px solid var(--accent);vertical-align:middle;margin-right:5px}
+.chart-key.weekly{border-top:2px dashed var(--ink-3)}
 .chart-values{margin-top:12px;border-top:1px solid var(--rule);padding-top:8px}
 .chart-values summary{display:flex;align-items:center;gap:8px;font-size:.9375rem;color:var(--accent-ink)}
 .chart-values summary::before{content:"+";font-weight:600}
@@ -342,13 +346,24 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   .topbar{padding-inline:max(var(--sl),calc((100vw - 65.5rem)/2)) max(var(--sr),calc((100vw - 65.5rem)/2))}
   .chart-plot{height:14rem}
 }
+/* iPhone shell: keep the desktop shell unchanged, including touch-screen PCs. */
+@supports(-webkit-touch-callout:none){
+  @media(hover:none) and (pointer:coarse) and (max-width:600px), (hover:none) and (pointer:coarse) and (orientation:landscape) and (max-width:1023px) and (max-height:600px){
+    .tabbar{grid-template-columns:repeat(5,minmax(0,1fr));padding-inline:0;max-width:none;margin:0;border-inline:0;border-bottom:0;border-radius:0}
+    .tabbar button{border-radius:0}
+  }
+  @media(hover:none) and (pointer:coarse) and (max-width:600px) and (orientation:portrait){
+    /* Move the text down one spacing step while preserving header/content height. */
+    .topbar{padding-top:calc(env(safe-area-inset-top) + var(--s4));padding-bottom:var(--s1)}
+  }
+}
 </style>
 </head>
 <body>
 
 <div id="gate">
   <div class="gate-card">
-    <h1>Murphy's Log</h1>
+    <h1>Murphy’s Logs</h1>
     <p class="sub">Stools, weight, condition and the evening bowl.</p>
     <div class="stack">
       <div>
@@ -363,13 +378,13 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
       <button class="btn ghost hide" id="boot-retry" type="button">Try loading again</button>
     </div>
     <p class="err hide" id="gate-err" role="alert"></p>
-    <p class="muted" style="margin-top:22px">Sign in with your existing Murphy’s Log account to continue.</p>
+    <p class="muted" style="margin-top:22px">Sign in with your existing Murphy’s Logs account to continue.</p>
   </div>
 </div>
 
 <div id="app" class="hide">
   <div class="topbar">
-    <span class="who">Murphy’s Log</span>
+    <span class="who">Murphy’s Logs</span>
     <span class="state" id="state" role="status">Connecting</span>
   </div>
   <div id="feedback" class="feedback-region" aria-live="polite" aria-atomic="true"></div>
@@ -405,7 +420,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   function startupFailure(){
     if(started)return;
     startupFailed=true;const error=document.getElementById('gate-err');
-    error.textContent='Murphy’s Log could not finish loading. Check your connection, then try again. Retrying does not reset your log.';
+    error.textContent='Murphy’s Logs could not finish loading. Check your connection, then try again. Retrying does not reset your log.';
     error.classList.remove('hide');document.getElementById('boot-retry').classList.remove('hide');
     document.getElementById('signin').textContent='App unavailable';
   }
@@ -509,7 +524,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.4.0';
+const APP_VERSION = '3.4.1';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -1332,6 +1347,48 @@ function bandOfBristol(n){ return (BRISTOL[n]||{}).band||'a'; }
 
 /* RENDER */
 const refocus=id=>document.getElementById(id)?.focus({preventScroll:true});
+function replaceRenderedHtml(target,html,outer=false){
+  const active=document.activeElement;
+  const recipe=active?.matches('select[data-act="recipe"]')&&target.contains(active)?active:null;
+  const replace=()=>{if(outer)target.outerHTML=html;else target.innerHTML=html;};
+  if(!recipe){replace();return;}
+  const template=document.createElement('template');template.innerHTML=html;
+  const replacement=template.content.querySelector('select[id="'+recipe.id+'"]');
+  if(!replacement){replace();return;}
+  const nextRoot=outer?template.content.firstElementChild:template.content;
+  const ancestors=(node,root)=>{
+    const path=[];
+    for(let parent=node.parentElement;parent&&parent!==root;parent=parent.parentElement){
+      const attrs=Array.from(parent.attributes,a=>[a.name,a.value]).filter(([name])=>name!=='open').sort(([a],[b])=>a.localeCompare(b));
+      path.push([parent.tagName,attrs]);
+    }
+    return path;
+  };
+  // Navigation can show the same date in a different editor structure.
+  if(JSON.stringify(ancestors(recipe,target))!==JSON.stringify(ancestors(replacement,nextRoot))){replace();return;}
+  // Keep the native select AND its ancestor chain connected during saves/sync.
+  // Replacing it then calling focus() can reopen iOS's just-dismissed picker.
+  // Only the surrounding content changes; keyboard focus stays on the same node.
+  const update=(current,next)=>{
+    const kept=Array.from(current.children).find(el=>el.contains(recipe));
+    const incoming=Array.from(next.children).find(el=>el.contains(replacement));
+    if(kept!==recipe)update(kept,incoming);
+    const before=[],after=[];let passed=false;
+    for(const node of Array.from(next.childNodes)){
+      if(node===incoming){passed=true;continue;}
+      (passed?after:before).push(node);
+    }
+    while(kept.previousSibling)kept.previousSibling.remove();
+    while(kept.nextSibling)kept.nextSibling.remove();
+    kept.before(...before);kept.after(...after);
+  };
+  update(target,nextRoot);
+  const value=replacement.value;
+  const optionShape=select=>Array.from(select.options,option=>[option.value,option.text,option.disabled]);
+  // A remote/legacy recipe can add an unknown option; ordinary saves keep options too.
+  if(JSON.stringify(optionShape(recipe))!==JSON.stringify(optionShape(replacement)))recipe.replaceChildren(...replacement.childNodes);
+  if(recipe.value!==value)recipe.value=value;
+}
 function focusAfterRender(selector){
   const target=$(selector); if(!target)return;
   for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
@@ -1388,9 +1445,9 @@ function render(force=false){
   if(!force&&html===rendered)return;
   rendered=html;
   const expanded=$$('#main details[id]').map(e=>[e.id,e.open]), focus=document.activeElement?.id;
-  $('#main').innerHTML=html;
+  replaceRenderedHtml($('#main'),html);
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
-  if(focus)refocus(focus);
+  if(focus&&document.activeElement?.id!==focus)refocus(focus);
   syncBcsGuidance();
 }
 function leaveDraft(){
@@ -1452,8 +1509,11 @@ function dailyFields(iso,{activityDate=iso,live=false}={}){
   const activityHelp=`Activity date: ${fmtDate(activityDate)} ${activityDate.slice(0,4)}. `+
     (live?'Tractive completes its daily total at midnight. This value is saved against yesterday, not today. ':'This value is saved against the selected History date. ')+
     'Zero means no active minutes; leave blank if unknown.';
+  const walkFields=inputField(iso,'walkMin','Minutes walked')+inputField(iso,'walkKm','Kilometres',0,80,.1);
+  const activeField=inputField(activityDate,'activeMin',live?'Tractive Active Minutes':'Active minutes',0,1440,1,activityHelp);
+  const activity=live?`<section class="activity-period" aria-labelledby="activity-today-${iso}"><h4 class="lab" id="activity-today-${iso}">Today</h4><div class="stack">${walkFields}</div></section><section class="activity-period" aria-labelledby="activity-yesterday-${iso}"><h4 class="lab" id="activity-yesterday-${iso}">Yesterday</h4>${activeField}</section>`:`<div class="stack">${walkFields}${activeField}</div>`;
   return '<div class="daily">'+stoolsCard(iso,live)+
-    panel('Activity','<div class="stack">'+inputField(iso,'walkMin','Minutes walked')+inputField(iso,'walkKm','Kilometres',0,80,.1)+inputField(activityDate,'activeMin',live?'Yesterday’s active minutes':'Active minutes',0,1440,1,activityHelp)+'</div>','activity-'+iso)+
+    panel('Activity',activity,'activity-'+iso)+
     weightCard(iso)+
     panel('Condition',bcsScale(iso,d.bcs)+`<p class="sub" data-bcs-guidance data-date="${iso}">${bcsDescription(d.bcs)}</p>`,'condition-'+iso)+
     mealEditor(iso,live,live?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'')+
@@ -1626,8 +1686,8 @@ function refreshMealPlans(){
   for(const editor of $$('[data-meal-editor]')){
     if(editor.querySelector('[data-dirty]'))continue;
     const iso=editor.dataset.mealEditor,live=editor.dataset.mealLive==='true',previous=editor.dataset.mealPrevious==='true';
-    editor.outerHTML=mealEditor(iso,live,live?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'',previous,
-      previous?trackingMeal(shiftDate(iso,1)):null);
+    replaceRenderedHtml(editor,mealEditor(iso,live,live?`<div data-meal-plan="${iso}">${mealPlanDetails(iso)}</div>`:'',previous,
+      previous?trackingMeal(shiftDate(iso,1)):null),true);
   }
   for(const [id,open]of expanded){const el=document.getElementById(id);if(el)el.open=open;}
   // Inside an editor with a draft, these fragments contain no editable inputs.
@@ -1792,7 +1852,7 @@ function weekContext(today){
 /* HISTORY */
 function viewHistory(){
   const today=localToday(), s=S.settings;
-  const range=S.range||28;
+  const range=S.range||14;
   const from=range===9999?toDay(earliestHistoryDate()):Math.max(toDay(s.startDate), toDay(today)-range+1);
   const isos=[]; for (let d=from;d<=toDay(today);d++) isos.push(toIso(d));
   const displayIsos=isos.slice(), tomorrow=shiftDate(today,1);
@@ -1807,8 +1867,12 @@ function viewHistory(){
   }
 
   const chips=[14,28,56,9999].map(r=>`<button id="range-${r}" ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r+' days'}</button>`).join('');
-  const W=weightsList().filter(w=>toDay(w.date)>=from&&w.date<=today);
-  const B=isos.map(i=>({date:i,v:(S.days[i]||{}).bcs})).filter(x=>Number.isFinite(x.v));
+  // Keep observations before the displayed interval available for the first
+  // partial calendar week's mean. No future measurements enter either graph.
+  const W=weightsList().filter(w=>validDate(w.date)&&w.date<=today);
+  const B=Object.entries(S.days).filter(([date,d])=>validDate(date)&&date<=today&&Number.isFinite(d.bcs)&&d.bcs>=1&&d.bcs<=9)
+    .map(([date,d])=>({date,v:d.bcs})).sort((a,b)=>a.date.localeCompare(b.date));
+  const chartRange=[from,toDay(today)];
 
   const rows=[...new Set(displayIsos)].sort().reverse().map(i=>{
     const canOpen=i<=today||Object.hasOwn(S.days,i), d=S.days[i]||{}, st=(d.stools||[]);
@@ -1831,8 +1895,8 @@ function viewHistory(){
   return `
   <h2 class="screen">Data</h2>
   <div class="chips data-range" role="group" aria-label="Days to show">${chips}</div>
-  <div class="card"><div class="sec"><p class="lab">Weight, kg</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg')}</div>
-    <div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget)}</div>
+  <div class="card"><div class="sec"><p class="lab">Weight, kg</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div>
+    <div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div>
     <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
   <div class="card"><div class="sec"><p class="lab">By recipe</p>${foodTable(isos,false)}</div>
     <div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div></div>
@@ -1847,24 +1911,45 @@ function chartValues(kind,headers,rows){
   const label=`View ${kind} values`,id=`chart-values-${kind.replace(/\s/g,'-')}`;
   return `<details class="chart-values" id="${id}"><summary>${label}</summary><div class="tw" tabindex="0" role="region" aria-label="${esc(kind)} values"><table><caption class="hide">${esc(kind)} by date</caption><thead><tr>${headers.map(h=>`<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(value=>`<td>${esc(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></details>`;
 }
-function lineChart(pts,kind,forceRange,targetLine){
+function calendarWeekMeans(pts,from,to){
+  const weeks=new Map();
+  for(const p of pts){
+    if(!Number.isInteger(p.x)||!Number.isFinite(p.y))continue;
+    // x encodes a stored local YYYY-MM-DD calendar label, not a timestamp.
+    // mondayOf uses that label's weekday; timezone/DST cannot shift its day.
+    const start=mondayOf(toIso(p.x));
+    if(start>to||start+6<from)continue;
+    const week=weeks.get(start)||{start,end:start+6,sum:0,n:0};
+    week.sum+=p.y;week.n++;weeks.set(start,week);
+  }
+  return [...weeks.values()].sort((a,b)=>a.start-b.start).map(w=>({...w,mean:w.sum/w.n}));
+}
+function lineChart(allPts,kind,forceRange,targetLine,dateRange){
+  const valid=allPts.filter(p=>Number.isInteger(p.x)&&Number.isFinite(p.y)).sort((a,b)=>a.x-b.x);
+  const from=dateRange?.[0]??valid[0]?.x,to=dateRange?.[1]??valid.at(-1)?.x;
+  const pts=valid.filter(p=>p.x>=from&&p.x<=to);
   if(!pts.length)return '<p class="muted">No readings in this range.</p>';
   const name=kind==='kg'?'weight':'condition',unit=kind==='kg'?' kg':'',format=v=>v.toFixed(kind==='kg'?2:1);
   const values=chartValues(name,['Date',kind==='kg'?'Weight, kg':'Condition'],pts.map(p=>[fmtDate(toIso(p.x)),format(p.y)]));
-  if(pts.length===1)return `<p class="chart-summary">${fmtDate(toIso(pts[0].x))}: ${format(pts[0].y)}${unit}. Add another reading to see a trend.</p>${values}`;
-  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),x0=Math.min(...xs),x1=Math.max(...xs),minimum=Math.min(...ys),maximum=Math.max(...ys);
-  let lo=forceRange?Math.min(forceRange[0],minimum):minimum,hi=forceRange?Math.max(forceRange[1],maximum):maximum;
+  const weeks=calendarWeekMeans(valid,from,to),ys=pts.map(p=>p.y),minimum=Math.min(...ys),maximum=Math.max(...ys);
+  const plotted=[...ys,...weeks.map(w=>w.mean)],plotMin=Math.min(...plotted),plotMax=Math.max(...plotted);
+  // Half-day bounds give every date its own width, even a single recorded day.
+  const x0=from-.5,x1=to+.5;
+  let lo=forceRange?Math.min(forceRange[0],plotMin):plotMin,hi=forceRange?Math.max(forceRange[1],plotMax):plotMax;
   if(!forceRange){const pad=Math.max((hi-lo)*.18,kind==='kg'?.15:.4);lo-=pad;hi+=pad;}
   const px=x=>((x-x0)/Math.max(x1-x0,1))*100,py=y=>(1-(y-lo)/Math.max(hi-lo,.0001))*100;
   const ticks=[hi,(lo+hi)/2,lo],yLabels=ticks.map(y=>({label:format(y),position:py(y)}));
   const grid=ticks.map(y=>`<line x1="0" x2="100" y1="${py(y)}" y2="${py(y)}" stroke="var(--rule)" stroke-width="1"/>`).join('');
   const target=targetLine==null?'':`<line x1="0" x2="100" y1="${py(targetLine)}" y2="${py(targetLine)}" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4 3"/>`;
   const changes=S.changes.filter(c=>toDay(c.date)>=x0&&toDay(c.date)<=x1).map(c=>`<line x1="${px(toDay(c.date))}" x2="${px(toDay(c.date))}" y1="0" y2="100" stroke="var(--watch)" stroke-width="1.5" stroke-dasharray="3 3"/>`).join('');
+  const weekly=weeks.map(w=>`<line class="weekly-mean" x1="${px(Math.max(x0,w.start-.5))}" x2="${px(Math.min(x1,w.end+.5))}" y1="${py(w.mean)}" y2="${py(w.mean)}" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="7 4"/>`).join('');
   const path=pts.map((p,i)=>`${i?'L':'M'}${px(p.x).toFixed(3)},${py(p.y).toFixed(3)}`).join('');
   const points=pts.map(p=>`<span class="chart-point" style="left:${px(p.x)}%;top:${py(p.y)}%"></span>`).join('');
-  const summary=`${pts.length} readings. ${format(pts[0].y)}${unit} on ${fmtShort(toIso(pts[0].x))}, ${format(pts.at(-1).y)}${unit} on ${fmtShort(toIso(pts.at(-1).x))}. Recorded range ${format(minimum)}–${format(maximum)}${unit}.`;
-  return `<p class="chart-summary">${esc(summary)}</p>`+chartFrame(yLabels,grid+target+changes+`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`,points,[toIso(x0),toIso(x1)],`${kind==='kg'?'Weight':'Body condition'} over time. ${summary}`)+
-    `<p class="legend">${targetLine!=null?'Horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':''}Vertical dashes mark a recorded ration change.</p>`+values;
+  const summary=pts.length===1?`${fmtDate(toIso(pts[0].x))}: ${format(pts[0].y)}${unit}. Add another reading to see a trend.`:`${pts.length} readings. ${format(pts[0].y)}${unit} on ${fmtShort(toIso(pts[0].x))}, ${format(pts.at(-1).y)}${unit} on ${fmtShort(toIso(pts.at(-1).x))}. Recorded range ${format(minimum)}–${format(maximum)}${unit}.`;
+  const weeklySummary=weeks.map(w=>`${fmtShort(toIso(w.start))}–${fmtShort(toIso(w.end))}: ${format(w.mean)}${unit} from ${w.n} reading${w.n===1?'':'s'}`).join('; ');
+  return `<p class="chart-summary">${esc(summary)}</p>`+chartFrame(yLabels,grid+target+changes+`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`+weekly,points,[toIso(from),toIso(to)],`${kind==='kg'?'Weight':'Body condition'} over time. ${summary} Monday–Sunday weekly means: ${weeklySummary}.`)+
+    `<p class="legend"><span class="chart-key" aria-hidden="true"></span>Recorded · <span class="chart-key weekly" aria-hidden="true"></span>Weekly average (Mon–Sun). Uses recorded values for each calendar week, including days outside this view. ${targetLine!=null?'Short horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':''}Vertical dashes mark a recorded ration change.</p>`+values+
+    chartValues(name+' weekly average',['Week, Mon–Sun',kind==='kg'?'Mean, kg':'Mean BCS','Readings'],weeks.map(w=>[`${fmtShort(toIso(w.start))}–${fmtDate(toIso(w.end))}`,format(w.mean),w.n]));
 }
 function stoolChart(isos){
   const all=[];
@@ -2012,7 +2097,7 @@ function exportMonthCsv(){
 function exportMonthMd(){
   const ym=localToday().slice(0,7), isos=monthIsos(ym), s=S.settings;
   const L=[];
-  L.push(`# Murphy's Log: ${MON[Number(ym.slice(5,7))-1]} ${ym.slice(0,4)}`,'');
+  L.push(`# Murphy's Logs: ${MON[Number(ym.slice(5,7))-1]} ${ym.slice(0,4)}`,'');
   L.push(`**Exported:** ${fmtDate(localToday())}  `);
   L.push(`**Days recorded:** ${isos.length}  `);
   L.push(`**Ration target:** ${s.targetKcal} kcal on ${s.bdGrams} g of Bella & Duke plus DARF at ${s.kcalPerGDarf} kcal/g`,'');

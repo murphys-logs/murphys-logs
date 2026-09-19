@@ -1,5 +1,5 @@
 // Publish the shell and worker together, with matching release identifiers.
-const VERSION = '3.4.0';
+const VERSION = '3.4.1';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = new URL('index.html', SCOPE).href;
 // Older installs removed every "murphy-*" cache. This prefix also identifies its scope.
@@ -89,9 +89,9 @@ self.addEventListener('message', event => {
 });
 
 function recoveryPage() {
-  return new Response(`<!doctype html><html lang="en-GB"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Murphy’s Log · Reconnect</title>
+  return new Response(`<!doctype html><html lang="en-GB"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Murphy’s Logs · Reconnect</title>
 <style>:root{color-scheme:light dark}body{font:1rem/1.6 system-ui,sans-serif;max-width:30rem;margin:12vh auto;padding:24px}h1{font-size:1.75rem;line-height:1.25}a{display:inline-block;min-height:44px;padding:8px 0;color:inherit;font-weight:600}a:focus-visible{outline:3px solid currentColor;outline-offset:4px}</style>
-<h1>Reconnect to open Murphy’s Log</h1><p>The app’s start-up files are unavailable. Retrying does not change your saved records.</p><p>Reconnect, then try again. If this screen remains, close all Murphy’s Log tabs and reopen the app to finish any waiting update.</p><a href="${SHELL.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}">Try again</a></html>`,
+<h1>Reconnect to open Murphy’s Logs</h1><p>The app’s start-up files are unavailable. Retrying does not change your saved records.</p><p>Reconnect, then try again. If this screen remains, close all Murphy’s Logs tabs and reopen the app to finish any waiting update.</p><a href="${SHELL.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}">Try again</a></html>`,
     {status:503, headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
 }
 async function shellResponse() {
