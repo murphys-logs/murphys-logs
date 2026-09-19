@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.4.1">
+<html lang="en-GB" data-version="3.4.2">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -353,8 +353,11 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
     .tabbar button{border-radius:0}
   }
   @media(hover:none) and (pointer:coarse) and (max-width:600px) and (orientation:portrait){
-    /* Move the text down one spacing step while preserving header/content height. */
-    .topbar{padding-top:calc(env(safe-area-inset-top) + var(--s4));padding-bottom:var(--s1)}
+    /* Include the home-indicator area in each tab's surface, including selection.
+       Transfer the inset from the grid to its cells exactly once; keep the same
+       total bar height and icon/label position. Landscape keeps its existing shell. */
+    .tabbar{padding-bottom:0}
+    .tabbar button{padding-bottom:calc(10px + env(safe-area-inset-bottom));min-height:calc(60px + env(safe-area-inset-bottom))}
   }
 }
 </style>
@@ -524,7 +527,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.4.1';
+const APP_VERSION = '3.4.2';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
