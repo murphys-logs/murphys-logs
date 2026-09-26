@@ -1,5 +1,5 @@
 // Publish the shell and worker together, with matching release identifiers.
-const VERSION = '3.4.2';
+const VERSION = '3.5.0';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = new URL('index.html', SCOPE).href;
 // Older installs removed every "murphy-*" cache. This prefix also identifies its scope.

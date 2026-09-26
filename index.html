@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.4.2">
+<html lang="en-GB" data-version="3.5.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -141,6 +141,22 @@ details.card>summary{padding:var(--s4);margin:0;outline-offset:-4px}
 .row .k{color:var(--ink-2);font-size:.9375rem;min-width:0;overflow-wrap:anywhere}
 .row .v{font-size:1rem;font-weight:600;overflow-wrap:anywhere}
 .sub{font-size:.875rem;color:var(--ink-3);margin:8px 0 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.weight-condition{border-color:var(--rule-2)}
+.weight-condition>.lab{margin-bottom:8px}
+.assessment-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:20px;margin-top:20px}
+.assessment-grid>div{min-width:0}
+.assessment-grid h4{margin:0 0 4px;font-size:1rem}
+.assessment-value{font-size:2rem;font-weight:700;letter-spacing:-.03em;line-height:1.2;margin:8px 0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.assessment-value small{font-size:1rem;font-weight:500;letter-spacing:0}
+.weight-state{display:inline-block;font-size:.875rem;font-weight:650;padding:3px 8px;border:1px solid var(--rule-2);border-radius:5px}
+.weight-state[data-weight-status="above"],.weight-state[data-weight-status="below"]{border:2px solid var(--watch);color:var(--watch)}
+.weight-mean{border-top:1px solid var(--rule);margin-top:12px;padding-top:10px;font-size:.875rem;color:var(--ink-2);line-height:1.6}
+.weight-mean .weight-state{margin-top:4px}
+.weight-hint{margin-top:12px}
+.weight-hint>.sub:first-child{margin-top:0}
+.chart-point.weight-outside{width:.625rem;height:.625rem;border:2px solid var(--watch);border-radius:0;background:var(--surface)}
+.weight-target-band{fill:var(--accent);fill-opacity:.08;stroke:var(--rule-2);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
+.table-flags[data-weight-status="above"],.table-flags[data-weight-status="below"]{color:var(--watch);font-weight:650}
 
 /* buttons */
 .btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:1rem;padding:var(--s3) var(--s4);border-radius:10px;min-height:48px}
@@ -209,7 +225,7 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
   .bcs-scale button{grid-column:span 2;white-space:nowrap}
   .bcs-scale button:nth-child(5){grid-column:2 / span 2}
 }
-#bcs-announcement,#history-announcement{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+#bcs-announcement,#weight-announcement,#history-announcement{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .bristol button.on b,.bristol button.on i,.scale button.on{color:var(--on-accent)}
 :is(.bristol,.scale) .on{background:var(--tone);border-color:var(--tone)}
 
@@ -393,6 +409,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   <div id="feedback" class="feedback-region" aria-live="polite" aria-atomic="true"></div>
   <main id="main"></main>
   <div id="bcs-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="weight-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="history-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <dialog class="history-picker" id="history-picker" aria-labelledby="history-picker-title">
     <form id="history-picker-form">
@@ -527,7 +544,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.4.2';
+const APP_VERSION = '3.5.0';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -577,6 +594,8 @@ const BCS_STEPS = [
   { v:6, band:'a', description:'Ribs can be felt under slight excess fat, with a less prominent waist from above and a belly tuck from the side.' },
   { v:7, band:'r', description:'Ribs are hard to feel beneath heavy fat, with little or no waist from above and a belly tuck that may remain from the side.' }];
 const BCS_GENERAL = 'An informed, subjective assessment of ribs, waist and tuck. Excellent: 4.5–5.5; ideal centre: 5.0.';
+// Murphy's fixed monitoring target. This is independent of the weekly ration rule.
+const WEIGHT_TARGET = Object.freeze({kg:18.7,tolerancePct:1,lowerKg:18.513,upperKg:18.887});
 const EVENTS = [
   { id:'vomited', label:'Vomited' }, { id:'blood', label:'Blood' },
   { id:'lethargic', label:'Lethargic' }, { id:'offFood', label:'Off food' },
@@ -1307,6 +1326,82 @@ function weightsList(){
   return cached('weights',()=>Object.entries(S.days).filter(([,d])=>recordedWeight(d)!==null)
     .map(([date,d])=>({date,kg:d.weight})).sort((a,b)=>a.date.localeCompare(b.date)));
 }
+function weightAssessment(kg){
+  if(!validWeight(kg))return {status:'missing',label:'No weight recorded',deltaKg:null,deltaPct:null};
+  // Only absorb floating-point arithmetic noise, never round a measurement to classify it.
+  const epsilon=Number.EPSILON*WEIGHT_TARGET.kg*8;
+  const status=kg<WEIGHT_TARGET.lowerKg-epsilon?'below':kg>WEIGHT_TARGET.upperKg+epsilon?'above':'within';
+  return {status,label:status==='below'?'Below range':status==='above'?'Above range':'Within range',
+    deltaKg:kg-WEIGHT_TARGET.kg,deltaPct:(kg-WEIGHT_TARGET.kg)/WEIGHT_TARGET.kg*100};
+}
+function weightNumber(kg){
+  // Extra precision is needed only where a rounded display would imply a different status.
+  for(let digits=2;digits<=6;digits++){
+    const text=kg.toFixed(digits);
+    if(weightAssessment(Number(text)).status===weightAssessment(kg).status)return text;
+  }
+  return String(kg);
+}
+function weightStatus(kg){
+  const a=weightAssessment(kg);
+  return `<span class="weight-state" data-weight-status="${a.status}">${a.label}</span>`;
+}
+function weightDeviation(kg){
+  const a=weightAssessment(kg),signed=n=>{const rounded=Number(n.toFixed(2));return `${rounded<0?'−':rounded>0?'+':''}${Math.abs(rounded).toFixed(2)}`;};
+  return `${signed(a.deltaKg)} kg (${signed(a.deltaPct)}%) from target`;
+}
+function weightOverview(iso){
+  return cached('weightOverview:'+iso,()=>{
+    const weights=weightsList().filter(w=>validDate(w.date)&&w.date<=iso);
+    const conditions=Object.entries(S.days).filter(([date,d])=>validDate(date)&&date<=iso&&Number.isFinite(d.bcs)&&d.bcs>=1&&d.bcs<=9).sort(([a],[b])=>a.localeCompare(b));
+    return {latest:weights.at(-1)||null,mean:windowMean(weights,toDay(iso),7),
+      condition:conditions.length?{date:conditions.at(-1)[0],value:conditions.at(-1)[1].bcs}:null,
+      conditionMean:bcsMean(S.days,iso,7)};
+  });
+}
+function readingDate(date,asOf){
+  const age=toDay(asOf)-toDay(date);
+  return `${fmtDate(date)} ${date.slice(0,4)}${age>0?` · ${age} day${age===1?'':'s'} ago`:''}`;
+}
+function weightMeanContent(mean){
+  return mean.mean===null?'<p class="sub">7-day mean unavailable · no readings.</p>':
+    `<div class="weight-mean" data-weight-mean><b>7-day mean ${weightNumber(mean.mean)} kg</b> · ${mean.n} reading${mean.n===1?'':'s'}<br>${weightStatus(mean.mean)}</div>`;
+}
+function weightConditionContent(iso){
+  const d=S.days[iso]||{}, {latest,mean,condition,conditionMean}=weightOverview(iso);
+  const missing=recordedWeight(d)===null?(d.weightMissed===true?'Weight missed today.':'No weight recorded today.'):'';
+  const conditionLabel=condition?(condition.value<4.5?'Below excellent range':condition.value>5.5?'Above excellent range':'Within excellent range'):'';
+  return `<h3 class="lab">Weight &amp; condition</h3><p class="sub">Weight target <b>18.70 kg ±1%</b><br>Acceptable range 18.513–18.887 kg, inclusive.</p>
+    <div class="assessment-grid"><div data-weight-latest><h4>Weight</h4>
+      ${missing?`<p class="sub">${missing}</p>`:''}
+      ${latest?`<p class="sub">${latest.date===iso?'Recorded':'Last recorded'} ${readingDate(latest.date,iso)}</p><p class="assessment-value">${weightNumber(latest.kg)} <small>kg</small></p>${weightStatus(latest.kg)}<p class="sub">${weightDeviation(latest.kg)}</p>`:'<p class="muted">No previous weight available.</p>'}
+      ${weightMeanContent(mean)}
+    </div><div data-condition-latest><h4>Body condition (BCS)</h4>
+      ${condition?`<p class="sub">${condition.date===iso?'Recorded':'Last recorded'} ${readingDate(condition.date,iso)}</p><p class="assessment-value">${condition.value.toFixed(1)} <small>/ 9</small></p><span class="weight-state">${conditionLabel}</span>`:'<p class="muted">No condition score recorded.</p>'}
+      <p class="sub">Excellent 4.5–5.5 · ideal centre 5.0.<br>Body condition is subjective.</p>
+      ${conditionMean.mean!==null?`<p class="sub">7-day mean ${conditionMean.mean.toFixed(1)} · ${conditionMean.n} reading${conditionMean.n===1?'':'s'}.</p>`:''}
+    </div></div>`;
+}
+function weightConditionSummary(iso){
+  return `<section class="card sec weight-condition" data-weight-summary data-date="${iso}">${weightConditionContent(iso)}</section>`;
+}
+function refreshWeightConditionViews(){
+  for(const el of $$('[data-weight-summary]')){
+    // A midnight draft keeps its rendered date until the whole page can advance.
+    const html=weightConditionContent(el.dataset.date);
+    if(el.innerHTML!==html)el.innerHTML=html;
+  }
+  for(const el of $$('[data-weight-hint]')){
+    const html=weightHintContent(el.dataset.date);if(el.innerHTML!==html)el.innerHTML=html;
+  }
+  const announcement=$('#weight-announcement');
+  const iso=S.tab==='day'?(S.cursor||shiftDate(localToday(),-1)):$('#main [data-weight-summary]')?.dataset.date||localToday();
+  const latest=['today','status'].includes(S.tab)?weightOverview(iso).latest:null;
+  const kg=S.tab==='day'?recordedWeight(S.days[iso]):latest?.kg;
+  const text=['today','day','status'].includes(S.tab)?
+    `${recordedWeight(S.days[iso])===null?(S.days[iso]?.weightMissed===true?'Weight missed. ':'No weight recorded for this date. '):''}${validWeight(kg)?`${S.tab==='day'?'Weight':'Latest weight'}, ${readingDate(latest?.date||iso,iso)}: ${weightNumber(kg)} kg. ${weightAssessment(kg).label}. ${weightDeviation(kg)}.`:'No measurement available.'}`:'';
+  if(announcement.textContent!==text)announcement.textContent=text;
+}
 function mealsList(){
   return cached('meals',()=>Object.entries(S.days).filter(([,d])=>d.meal?.recipe)
     .map(([date,d])=>({...plannedMeal(date,d.meal),date})).sort((a,b)=>a.date.localeCompare(b.date)));
@@ -1428,6 +1523,11 @@ function render(force=false){
   if (!S.user) return;
   renderFeedback();
   if (!S.ready){rendered='';$('#main').innerHTML='<p role="status">Loading saved records…</p>';return;}
+  // Saved assessments refresh even while unrelated drafts defer the editable page.
+  refreshWeightConditionViews();
+  const overview=weightOverview(localToday()),outside=kg=>['above','below'].includes(weightAssessment(kg).status);
+  const needs=outside(overview.latest?.kg)||outside(overview.mean.mean)||insights().vet.length||weeklyAdvice().applied||fibreAdviceVisible(insights().fib);
+  $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
   syncBcsGuidance();
   if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();return;}
   renderPending=false;
@@ -1441,8 +1541,6 @@ function render(force=false){
     b.classList.toggle('on',active);
     if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
   });
-  const needs=insights().vet.length||weeklyAdvice().applied||fibreAdviceVisible(insights().fib);
-  $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
   $('#main').className=['today','day','history'].includes(S.tab)?'wide':'';
   const html=S.tab==='today'?viewToday():S.tab==='day'?viewDay():S.tab==='status'?viewStatus():S.tab==='history'?viewHistory():viewMore();
   if(!force&&html===rendered)return;
@@ -1452,6 +1550,7 @@ function render(force=false){
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
   if(focus&&document.activeElement?.id!==focus)refocus(focus);
   syncBcsGuidance();
+  refreshWeightConditionViews();
 }
 function leaveDraft(){
   if (!$('#main [data-dirty],#main [data-stool]')) return true;
@@ -1469,7 +1568,7 @@ function viewToday(){
   else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
 
   const miss=missingFor(today);
-  return head+`<span class="moment">Today</span><h2 class="screen">${fmtDate(today)}</h2>`+
+  return `<span class="moment">Today</span><h2 class="screen">${fmtDate(today)}</h2>`+weightConditionSummary(today)+head+
     dailyFields(today,{activityDate:shiftDate(today,-1),live:true})+
     `<div class="note ${miss.length?'plain':'good'}">${miss.length?'<b>Still to log</b>'+miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', '):'<b>Core observations recorded</b>Stools, weight and condition are recorded. You can keep editing throughout the day.'}</div>`;
 }
@@ -1484,7 +1583,7 @@ const settingsSpec={
   kcalPerGDarf:{label:'DARF, kcal per g',min:.01,max:10000,step:.01,help:'Energy per gram, as stated for the food you use.'},
   kcalPerMlOil:{label:'Oil, kcal per ml',min:.01,max:10000,step:.01,help:'Energy per millilitre of salmon oil.'},
   darfMinG:{label:'DARF portion floor, g',min:1,max:10000,step:1,help:'The smallest planned DARF portion when calories remain.'},
-  deadbandPct:{label:'Weight-change threshold, %',min:0,max:100,step:.1,help:'Changes smaller than this percentage do not trigger a weekly adjustment.'},
+  deadbandPct:{label:'Weekly weight-change threshold, %',min:0,max:100,step:.1,help:'Changes between weekly averages smaller than this percentage do not trigger a ration adjustment. The fixed 18.70 kg ±1% target range is assessed separately.'},
   damping:{label:'Adjustment fraction',min:.005,max:1,step:.005,help:'The fraction of the calculated correction to use. 0.125 means one eighth.'},
   maxStepG:{label:'Maximum weekly step, g',min:1,max:10000,step:1,help:'Limits the size of a single weekly adjustment.'},
   maxCumulativeG:{label:'Maximum total adjustment, g',min:1,max:10000,step:1,help:'Limits the combined adjustment above or below the base ration.'},
@@ -1592,13 +1691,19 @@ function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null
 }
 
 function weightHint(iso){
+  return `<div class="weight-hint" data-weight-hint data-date="${iso}">${weightHintContent(iso)}</div>`;
+}
+function weightHintContent(iso){
   const d=S.days[iso]||{};
   const m=windowMean(weightsList(),toDay(iso),7);
-  if (!m.mean) return '';
+  const kg=recordedWeight(d);
   let extra='';
-  if (recordedWeight(d)!==null && Math.abs(d.weight-m.mean)/m.mean>0.05)
+  if (kg!==null && m.mean && Math.abs(kg-m.mean)/m.mean>0.05)
     extra=` <span style="color:var(--watch)">That is ${((d.weight-m.mean)/m.mean*100).toFixed(0)}% from the recent average.</span>`;
-  return `<p class="sub">7-day mean ${m.mean.toFixed(2)} kg from ${m.n} reading${m.n===1?'':'s'}.${extra}</p>`;
+  return `<p class="sub">Target 18.70 kg ±1% · range 18.513–18.887 kg.</p>`+
+    (kg!==null?`<p>${weightStatus(kg)}</p><p class="sub">Saved weight ${weightNumber(kg)} kg · ${weightDeviation(kg)}.</p>`:
+      `<p class="sub">${d.weightMissed===true?'Weight missed · excluded from averages.':'No weight recorded for this date.'}</p>`)+
+    weightMeanContent(m)+(extra?`<p class="sub">${extra}</p>`:'');
 }
 
 function bcsScale(iso,val){
@@ -1750,18 +1855,16 @@ function viewDay(){
 }
 
 /* STATUS */
-function meanRows(today,weight){
-  return [7,14,28].map(n=>{
+function meanRows(today,weight,periods=[7,14,28]){
+  return periods.map(n=>{
     const m=weight?windowMean(weightsList(),toDay(today),n):bcsMean(S.days,today,n);
-    return m.mean===null?'':row(n+'-day mean',m.mean.toFixed(weight?2:1)+(weight?' kg':'')+' · '+m.n+' readings');
+    return m.mean===null?'':row(n+'-day mean',(weight?weightNumber(m.mean):m.mean.toFixed(1))+(weight?' kg':'')+' · '+m.n+' readings');
   }).join('');
 }
 function viewStatus(){
   const today=localToday(), s=S.settings;
   const {vet,fib}=insights(), adv=weeklyAdvice();
   const off=offsetNow();
-  const W=weightsList();
-  const latest=W.length?W[W.length-1]:null;
 
   const vetHtml = vet.length
     ? vet.map(v=>`<div class="note ${v.sev==='r'?'bad':'warn'}"><b>${esc(v.title)}</b>${v.dates.length?esc(v.dates.map(fmtShort).join(', ')):''}${v.text?'<br>'+esc(v.text):''}</div>`).join('')
@@ -1773,14 +1876,14 @@ function viewStatus(){
       <div class="btnrow"><button class="btn sm" data-act="applyadv">Apply</button>
       <button class="btn ghost sm" data-act="refuseadv">Refuse</button></div>`;
   } else if (adv.held){
-    advHtml = `<div class="note hold"><b>Held</b>${esc(adv.reason)}</div>`;
+    advHtml = `<div class="note hold"><b>Ration reduction held</b>${esc(adv.reason)}</div>`;
   } else {
-    advHtml = `<div class="note plain"><b>No change</b>${esc(adv.reason||'Not enough data yet.')}</div>`;
+    advHtml = `<div class="note plain"><b>No ration change</b>${esc(adv.reason||'Not enough data yet.')}</div>`;
   }
   const windows = (adv.currentMean!=null&&adv.previousMean!=null) ? `
     ${row(`${fmtShort(adv.currentWindow[0])} to ${fmtShort(adv.currentWindow[1])}`,`${adv.currentMean.toFixed(2)} kg`)}
     ${row(`${fmtShort(adv.previousWindow[0])} to ${fmtShort(adv.previousWindow[1])}`,`${adv.previousMean.toFixed(2)} kg`)}
-    <p class="sub">${adv.percentChange==null?'Trend unavailable':(adv.percentChange>=0?'+':'')+adv.percentChange.toFixed(2)+'%'} &middot; ${adv.previousN} and ${adv.currentN} weigh-ins${adv.fullCorrectionG!=null?` &middot; full correction ${Math.abs(adv.fullCorrectionG).toFixed(0)} g, damped to ${Math.abs(Math.round(adv.rawStepG))} g`:''}</p>` : '';
+    <p class="sub">Weekly weight change: ${adv.percentChange==null?'unavailable':(adv.percentChange>=0?'+':'')+adv.percentChange.toFixed(2)+'%'} &middot; ${adv.previousN} and ${adv.currentN} weigh-ins${adv.fullCorrectionG!=null?` &middot; full correction ${Math.abs(adv.fullCorrectionG).toFixed(0)} g, damped to ${Math.abs(Math.round(adv.rawStepG))} g`:''}</p>` : '';
 
   const chips = fib.chips.length ? `<div class="streak">${
     Array.from({length:s.fibreStreakDays},(_,i)=>{
@@ -1805,14 +1908,13 @@ function viewStatus(){
   const tonight=RECIPES.map(r=>{const b=bowlFor(today,r.id,s,S.changes,mealDefaults(S.days[today]?.meal));
     return row(r.short,b.darfG+' g');}).join('');
 
-  return '<h2 class="screen">Status</h2>'+panel('Vet items',vetHtml)+
+  return '<h2 class="screen">Status</h2>'+weightConditionSummary(today)+panel('Vet items',vetHtml)+
     panel("This week's ration",advHtml+windows)+panel('Pro-Fibre',fibHtml)+`<div class="card">
-    <div class="sec"><p class="lab">Weight</p>
-      ${latest?`${row(`Latest, ${fmtShort(latest.date)}`,`${latest.kg.toFixed(2)} kg`)}`:'<p class="muted">No weights yet.</p>'}
-      ${meanRows(today,true)}
+    <div class="sec"><p class="lab">Weight averages</p>
+      ${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}
     </div>
-    <div class="sec"><p class="lab">Condition</p>
-      ${meanRows(today,false)}
+    <div class="sec"><p class="lab">Condition averages</p>
+      ${meanRows(today,false,[14,28])}
       <p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body condition is subjective. Scores in this range do not alone call for a ration change. Weight-trend reductions retain the configured hold at or below ${s.bcsHoldAtOrBelow}.</p>
     </div>
     <div class="sec"><p class="lab">Corrective offset</p>${gauge}
@@ -1888,7 +1990,7 @@ function viewHistory(){
       <td class="date-column">${canOpen?`<button class="link" data-act="openday" data-date="${i}" aria-label="Open log for ${fmtDate(i)}">${fmtShort(i)}</button>`:fmtShort(i)}</td>
       <td class="meal-column" ${m?`data-meal-date="${m.date}"`:''}>${m?`<button class="meal-title link" data-act="openday" data-date="${m.date}" data-target="#meal-section-${m.date}" aria-label="Edit ${esc(r?.short||m.recipe)} meal fed on ${fmtDate(m.date)}">${esc(r?.short||m.recipe)}</button><p class="meal-meta">Fed ${fmtShort(m.date)} · ${esc(m.fedAt)}</p><p class="meal-detail">${m.darfFed!=null?`${esc(m.darfFed)} g DARF`:m.darfPlanned!=null?`${esc(m.darfPlanned)} g DARF planned`:'Amount not recorded'}</p><details class="meal-disclosure" id="meal-detail-${i}"><summary>Meal details</summary>${mealSummary(m)}</details>`:'<span class="meal-meta">Not recorded as fed</span>'}</td>
       <td class="${band}" data-stool-summary><span class="table-reading">${observed}${st.length>1?' ('+st.length+')':''}</span>${blood||mucus?`<span class="table-flags">${[blood?'Blood':'',mucus?'Mucus':''].filter(Boolean).join(' · ')}</span>`:''}</td>
-      <td><span class="table-reading">${d.weightMissed===true?'Missed':recordedWeight(d)!==null?d.weight.toFixed(2):'—'}</span></td>
+      <td data-weight-reading><span class="table-reading">${d.weightMissed===true?'Missed':recordedWeight(d)!==null?weightNumber(d.weight):'—'}</span>${recordedWeight(d)!==null?`<span class="table-flags" data-weight-status="${weightAssessment(d.weight).status}">${weightAssessment(d.weight).label}</span>`:''}</td>
       <td><span class="table-reading">${Number.isFinite(d.bcs)?d.bcs:'—'}</span></td>
       <td><span class="table-reading">${m?.darfFed??m?.darfPlanned??'—'}</span></td>
       <td><span class="table-reading">${esc(m?.bowl==='left'?'Left some':m?.bowl?m.bowl[0].toUpperCase()+m.bowl.slice(1):'—')}</span></td>
@@ -1898,7 +2000,7 @@ function viewHistory(){
   return `
   <h2 class="screen">Data</h2>
   <div class="chips data-range" role="group" aria-label="Days to show">${chips}</div>
-  <div class="card"><div class="sec"><p class="lab">Weight, kg</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div>
+  <div class="card"><div class="sec"><p class="lab">Weight, kg</p><p class="chart-summary">Target 18.70 kg ±1% · acceptable range 18.513–18.887 kg.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div>
     <div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div>
     <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
   <div class="card"><div class="sec"><p class="lab">By recipe</p>${foodTable(isos,false)}</div>
@@ -1928,14 +2030,16 @@ function calendarWeekMeans(pts,from,to){
   return [...weeks.values()].sort((a,b)=>a.start-b.start).map(w=>({...w,mean:w.sum/w.n}));
 }
 function lineChart(allPts,kind,forceRange,targetLine,dateRange){
+  const weight=kind==='kg';
+  if(weight)targetLine=WEIGHT_TARGET.kg;
   const valid=allPts.filter(p=>Number.isInteger(p.x)&&Number.isFinite(p.y)).sort((a,b)=>a.x-b.x);
   const from=dateRange?.[0]??valid[0]?.x,to=dateRange?.[1]??valid.at(-1)?.x;
   const pts=valid.filter(p=>p.x>=from&&p.x<=to);
   if(!pts.length)return '<p class="muted">No readings in this range.</p>';
-  const name=kind==='kg'?'weight':'condition',unit=kind==='kg'?' kg':'',format=v=>v.toFixed(kind==='kg'?2:1);
-  const values=chartValues(name,['Date',kind==='kg'?'Weight, kg':'Condition'],pts.map(p=>[fmtDate(toIso(p.x)),format(p.y)]));
+  const name=weight?'weight':'condition',unit=weight?' kg':'',format=v=>weight?weightNumber(v):v.toFixed(1);
+  const values=chartValues(name,['Date',weight?'Weight, kg':'Condition',...(weight?['Target range']:[])],pts.map(p=>[fmtDate(toIso(p.x)),format(p.y),...(weight?[weightAssessment(p.y).label]:[])]));
   const weeks=calendarWeekMeans(valid,from,to),ys=pts.map(p=>p.y),minimum=Math.min(...ys),maximum=Math.max(...ys);
-  const plotted=[...ys,...weeks.map(w=>w.mean)],plotMin=Math.min(...plotted),plotMax=Math.max(...plotted);
+  const plotted=[...ys,...weeks.map(w=>w.mean),...(weight?[WEIGHT_TARGET.lowerKg,WEIGHT_TARGET.upperKg]:[])],plotMin=Math.min(...plotted),plotMax=Math.max(...plotted);
   // Half-day bounds give every date its own width, even a single recorded day.
   const x0=from-.5,x1=to+.5;
   let lo=forceRange?Math.min(forceRange[0],plotMin):plotMin,hi=forceRange?Math.max(forceRange[1],plotMax):plotMax;
@@ -1944,15 +2048,17 @@ function lineChart(allPts,kind,forceRange,targetLine,dateRange){
   const ticks=[hi,(lo+hi)/2,lo],yLabels=ticks.map(y=>({label:format(y),position:py(y)}));
   const grid=ticks.map(y=>`<line x1="0" x2="100" y1="${py(y)}" y2="${py(y)}" stroke="var(--rule)" stroke-width="1"/>`).join('');
   const target=targetLine==null?'':`<line x1="0" x2="100" y1="${py(targetLine)}" y2="${py(targetLine)}" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="4 3"/>`;
+  const band=weight?`<rect class="weight-target-band" x="0" y="${py(WEIGHT_TARGET.upperKg)}" width="100" height="${py(WEIGHT_TARGET.lowerKg)-py(WEIGHT_TARGET.upperKg)}"/>`:'';
   const changes=S.changes.filter(c=>toDay(c.date)>=x0&&toDay(c.date)<=x1).map(c=>`<line x1="${px(toDay(c.date))}" x2="${px(toDay(c.date))}" y1="0" y2="100" stroke="var(--watch)" stroke-width="1.5" stroke-dasharray="3 3"/>`).join('');
   const weekly=weeks.map(w=>`<line class="weekly-mean" x1="${px(Math.max(x0,w.start-.5))}" x2="${px(Math.min(x1,w.end+.5))}" y1="${py(w.mean)}" y2="${py(w.mean)}" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="7 4"/>`).join('');
   const path=pts.map((p,i)=>`${i?'L':'M'}${px(p.x).toFixed(3)},${py(p.y).toFixed(3)}`).join('');
-  const points=pts.map(p=>`<span class="chart-point" style="left:${px(p.x)}%;top:${py(p.y)}%"></span>`).join('');
+  const points=pts.map(p=>`<span class="chart-point${weight&&weightAssessment(p.y).status!=='within'?' weight-outside':''}" title="${esc(`${fmtDate(toIso(p.x))}: ${format(p.y)}${unit}${weight?' · '+weightAssessment(p.y).label:''}`)}" style="left:${px(p.x)}%;top:${py(p.y)}%"></span>`).join('');
   const summary=pts.length===1?`${fmtDate(toIso(pts[0].x))}: ${format(pts[0].y)}${unit}. Add another reading to see a trend.`:`${pts.length} readings. ${format(pts[0].y)}${unit} on ${fmtShort(toIso(pts[0].x))}, ${format(pts.at(-1).y)}${unit} on ${fmtShort(toIso(pts.at(-1).x))}. Recorded range ${format(minimum)}–${format(maximum)}${unit}.`;
   const weeklySummary=weeks.map(w=>`${fmtShort(toIso(w.start))}–${fmtShort(toIso(w.end))}: ${format(w.mean)}${unit} from ${w.n} reading${w.n===1?'':'s'}`).join('; ');
-  return `<p class="chart-summary">${esc(summary)}</p>`+chartFrame(yLabels,grid+target+changes+`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`+weekly,points,[toIso(from),toIso(to)],`${kind==='kg'?'Weight':'Body condition'} over time. ${summary} Monday–Sunday weekly means: ${weeklySummary}.`)+
-    `<p class="legend"><span class="chart-key" aria-hidden="true"></span>Recorded · <span class="chart-key weekly" aria-hidden="true"></span>Weekly average (Mon–Sun). Uses recorded values for each calendar week, including days outside this view. ${targetLine!=null?'Short horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':''}Vertical dashes mark a recorded ration change.</p>`+values+
-    chartValues(name+' weekly average',['Week, Mon–Sun',kind==='kg'?'Mean, kg':'Mean BCS','Readings'],weeks.map(w=>[`${fmtShort(toIso(w.start))}–${fmtDate(toIso(w.end))}`,format(w.mean),w.n]));
+  const targetDescription=weight?`Shaded band: 18.513–18.887 kg. Short horizontal dashes: 18.70 kg target. Square markers: outside range (${pts.filter(p=>weightAssessment(p.y).status!=='within').length} readings). `:targetLine!=null?'Short horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':'';
+  return `<p class="chart-summary">${esc(summary)}</p>`+chartFrame(yLabels,band+grid+target+changes+`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`+weekly,points,[toIso(from),toIso(to)],`${weight?'Weight':'Body condition'} over time. ${summary} ${targetDescription}Monday–Sunday weekly means: ${weeklySummary}.`)+
+    `<p class="legend"><span class="chart-key" aria-hidden="true"></span>Recorded · <span class="chart-key weekly" aria-hidden="true"></span>Weekly average (Mon–Sun). Uses recorded values for each calendar week, including days outside this view. ${targetDescription}Vertical dashes mark a recorded ration change.</p>`+values+
+    chartValues(name+' weekly average',['Week, Mon–Sun',weight?'Mean, kg':'Mean BCS','Readings',...(weight?['Target range']:[])],weeks.map(w=>[`${fmtShort(toIso(w.start))}–${fmtDate(toIso(w.end))}`,format(w.mean),w.n,...(weight?[weightAssessment(w.mean).label]:[])]));
 }
 function stoolChart(isos){
   const all=[];
