@@ -2305,7 +2305,8 @@ function validateBackup(data){
   if(data.changes!=null){
     check(Array.isArray(data.changes),'changes'); const ids=new Set();
     for(const c of data.changes){
-      check(object(c)&&id(c.id)&&date(c.date)&&Number.isFinite(c.deltaG)&&!ids.has(c.id),'change');ids.add(c.id);
+      check(object(c)&&id(c.id)&&date(c.date)&&!ids.has(c.id),'change');
+      check(Number.isFinite(c.deltaG)&&Math.abs(c.deltaG)<=10000,'change '+c.id+'.deltaG must be a number from -10000 to 10000');ids.add(c.id);
       fields(c,'reason source',str,'change'); fields(c,'refused',bool,'change');
     }
   }
@@ -2316,10 +2317,16 @@ function validateBackup(data){
     // These legacy fields are unused, or overridden by mealSettings. Retain
     // their previous finite-or-null acceptance, including old zero calories.
     fields(data.settings,'attributionMinH handoverHour eggKcal brothKcal',Number.isFinite,'settings');
-    fields(data.settings,'startDate',date,'settings'); fields(data.settings,'theme',str,'settings');
-    for(const [key,unit] of [['oilSchedule','ml'],['fibreSchedule','g']]) if(data.settings[key]!=null)
-      check(Array.isArray(data.settings[key])&&data.settings[key].every(v=>object(v)&&date(v.from)&&num(v[unit])),key);
-    if(data.settings.regimeChanges!=null) check(Array.isArray(data.settings.regimeChanges)&&data.settings.regimeChanges.every(date),'regimeChanges');
+    // Omitted settings keep their defaults; explicit nulls must not erase them.
+    if(Object.hasOwn(data.settings,'startDate')) check(date(data.settings.startDate),'settings.startDate must be a valid YYYY-MM-DD date');
+    if(Object.hasOwn(data.settings,'suppressOnRegimeChange')) check(bool(data.settings.suppressOnRegimeChange),'settings.suppressOnRegimeChange must be true or false');
+    if(Object.hasOwn(data.settings,'theme')) check(['system','light','dark'].includes(data.settings.theme),'settings.theme must be system, light or dark');
+    for(const [key,unit] of [['oilSchedule','ml'],['fibreSchedule','g']]) if(Object.hasOwn(data.settings,key)){
+      check(Array.isArray(data.settings[key]),'settings.'+key+' must be an array');
+      for(const [i,v] of data.settings[key].entries())
+        check(object(v)&&date(v.from)&&num(v[unit])&&v[unit]<=10000,`settings.${key}[${i}] needs a valid from date and ${unit} from 0 to 10000`);
+    }
+    if(Object.hasOwn(data.settings,'regimeChanges')) check(Array.isArray(data.settings.regimeChanges)&&data.settings.regimeChanges.every(date),'settings.regimeChanges must be an array of valid dates');
   }
   return data;
 }

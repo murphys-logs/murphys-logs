@@ -109,7 +109,7 @@ function makeHarness(seed = {}) {
     render = () => {};
     renderFeedback = () => {};
     globalThis.testApi = {
-      validateBackup, importJson, selfTest, recordedWeight, queuedWrites,
+      validateBackup, importJson, selfTest, recordedWeight, queuedWrites, bowlFor,
       S, DEFAULTS, settingsSpec
     };
   `, context, { filename: htmlPath, timeout: 5000 });
@@ -418,4 +418,145 @@ test('malformed JSON and oversized backups fail without writes; a later valid im
   await h.api.importJson(importFile(healthyBackup()));
   assert.equal(h.storageWrites.length, 1, 'failure releases the importing guard');
   assert.equal(h.api.S.banner.title, 'Import saved locally');
+});
+
+async function acceptBackup(data) {
+  const h = makeHarness(), original = clone(data);
+  assert.equal(h.api.validateBackup(data), data);
+  assert.deepEqual(data, original, 'validation must not normalize the backup');
+  await h.api.importJson(importFile(data));
+  assert.equal(h.api.S.banner.title, 'Import saved locally');
+  assert.equal(h.storageWrites.length, 1, 'one aggregate durable write');
+  assert.equal(h.backendCalls.length, 0);
+  return { h, items: JSON.parse([...h.storage.values()][0]).items };
+}
+
+test('schedule boundary/fractional quantities, same-date ordering and extra fields survive import', async () => {
+  for (const [key, unit] of [['oilSchedule', 'ml'], ['fibreSchedule', 'g']]) {
+    const data = healthyBackup();
+    const entries = [10000, 0.25, 0].map((value, index) => ({ from: '2026-10-01', [unit]: value, note: 'original-' + index }));
+    data.settings = { [key]: entries };
+    const { h, items } = await acceptBackup(data);
+    assert.deepEqual(items.find(item => item.col === 'settings').patch[key], entries);
+    assert.deepEqual(clone(h.api.S.settings[key]), entries);
+  }
+});
+
+test('schedule quantities reject null, missing, wrong types, out-of-range and nonfinite values before writes', async () => {
+  for (const [key, unit] of [['oilSchedule', 'ml'], ['fibreSchedule', 'g']]) {
+    for (const value of [undefined, null, '4', true, false, {}, [], -0.01, 10000.01, 1e308]) {
+      const data = healthyBackup();
+      data.settings = { [key]: [{ from: '2026-10-01', [unit]: 4 }, { from: '2026-10-02', [unit]: value }] };
+      await assertRejectedBeforeWrite(data, `${key}.${unit}=${JSON.stringify(value)}`);
+    }
+    const h = makeHarness();
+    for (const value of [NaN, Infinity, -Infinity]) {
+      assert.throws(() => h.api.validateBackup({ days: {}, settings: { [key]: [{ from: '2026-10-01', [unit]: value }] } }), /Invalid backup/);
+    }
+    await assertRejectedBeforeWrite(`{"days":{},"settings":{"${key}":[{"from":"2026-10-01","${unit}":1e309}]}}`, key + ' JSON overflow');
+  }
+});
+
+test('present schedule/regime collections require arrays and validate every entry', async () => {
+  for (const key of ['oilSchedule', 'fibreSchedule', 'regimeChanges']) {
+    for (const value of [null, false, true, '', 4, {}]) {
+      const data = healthyBackup(); data.settings = { [key]: value };
+      await assertRejectedBeforeWrite(data, `${key}=${JSON.stringify(value)}`);
+    }
+    const unit = key === 'oilSchedule' ? 'ml' : 'g';
+    const good = key === 'regimeChanges' ? '2026-10-01' : { from: '2026-10-01', [unit]: 4 };
+    const badEntries = key === 'regimeChanges'
+      ? [null, {}, false, 7, '2026-02-30', '2026-1-01']
+      : [null, [], {}, { from: '2026-02-30', [unit]: 4 }, { from: null, [unit]: 4 }];
+    for (const entry of badEntries) {
+      const data = healthyBackup(); data.settings = { [key]: [good, entry] };
+      await assertRejectedBeforeWrite(data, key + ' invalid later entry');
+    }
+  }
+});
+
+test('signed adjustment boundaries, fractional changes and zero preserve their payload', async () => {
+  const data = healthyBackup();
+  data.changes = [-10000, -0.25, 0, 0.25, 10000].map((deltaG, index) => ({
+    id: 'change-' + index, date: '2026-10-27', deltaG, note: 'keep-' + index,
+  }));
+  const { h, items } = await acceptBackup(data);
+  assert.deepEqual(items.filter(item => item.col === 'changes').map(item => item.patch), data.changes);
+  assert.deepEqual(clone(h.api.S.changes), data.changes);
+});
+
+test('late adjustment records reject missing, wrong-type, nonfinite and excessive deltas before writes', async () => {
+  for (const deltaG of [undefined, null, '5', false, true, {}, [], -10000.01, 10000.01, -1e308, 1e308]) {
+    const data = healthyBackup();
+    data.changes.push({ id: 'bad-change', date: '2026-10-28', deltaG });
+    await assertRejectedBeforeWrite(data, 'change deltaG=' + JSON.stringify(deltaG));
+  }
+  const h = makeHarness();
+  for (const deltaG of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => h.api.validateBackup({ days: {}, changes: [{ id: 'bad-change', date: '2026-10-28', deltaG }] }), /Invalid backup/);
+  }
+  for (const overflow of ['1e309', '-1e309']) {
+    await assertRejectedBeforeWrite(`{"days":{},"changes":[{"id":"bad-change","date":"2026-10-28","deltaG":${overflow}}]}`, 'change JSON overflow');
+  }
+});
+
+test('present startDate, theme and regime-suppression settings reject wrong types and unsupported values', async () => {
+  const invalid = {
+    startDate: [null, false, 20261028, {}, '', '2026-02-30', '2026-1-01', '2026-10-28T00:00:00Z'],
+    theme: [null, false, true, 1, {}, [], '', 'sepia', 'DARK'],
+    suppressOnRegimeChange: [null, 'false', 0, 1, {}, []],
+  };
+  for (const [key, values] of Object.entries(invalid)) for (const value of values) {
+    const data = healthyBackup(); data.settings = { [key]: value };
+    await assertRejectedBeforeWrite(data, `${key}=${JSON.stringify(value)}`);
+  }
+});
+
+test('valid calendar dates, all themes, both booleans and empty arrays remain importable', async () => {
+  for (const theme of ['system', 'light', 'dark']) for (const suppressOnRegimeChange of [false, true]) {
+    const data = healthyBackup();
+    data.settings = { startDate: '2024-02-29', theme, suppressOnRegimeChange, oilSchedule: [], fibreSchedule: [], regimeChanges: [] };
+    const { h, items } = await acceptBackup(data);
+    assert.deepEqual(items.find(item => item.col === 'settings').patch, data.settings);
+    for (const [key, value] of Object.entries(data.settings)) assert.deepEqual(clone(h.api.S.settings[key]), value);
+  }
+});
+
+test('strict setting validation runs even when existing saved settings would skip every invalid key', async () => {
+  const invalid = { startDate: null, oilSchedule: null, fibreSchedule: null, regimeChanges: null, suppressOnRegimeChange: 'false', theme: 'sepia' };
+  const defaults = clone(makeHarness().api.DEFAULTS);
+  for (const [key, value] of Object.entries(invalid)) {
+    const data = healthyBackup(); data.settings = { [key]: value };
+    await assertRejectedBeforeWrite(data, 'invalid skipped ' + key, { savedSettings: { [key]: defaults[key] } });
+  }
+});
+
+test('adjustment bounds apply even when the same change ID already exists locally', async () => {
+  const data = healthyBackup();
+  data.changes[0].deltaG = 10000.01;
+  await assertRejectedBeforeWrite(data, 'invalid skipped change', {
+    changes: [{ id: 'stable-change-a', date: '2026-10-27', deltaG: -5 }],
+  });
+});
+
+test('omitted or null settings preserve defaults, and ordinary imported quantities produce a finite bowl', async () => {
+  for (const nullSettings of [false, true]) {
+    const data = healthyBackup();
+    if (nullSettings) data.settings = null; else delete data.settings;
+    const { h, items } = await acceptBackup(data);
+    assert.ok(items.every(item => item.col !== 'settings'));
+    assert.deepEqual(clone(h.api.S.settings), clone(h.api.DEFAULTS));
+    const meal = h.api.bowlFor('2026-10-28', 'lamb', h.api.S.settings, h.api.S.changes, {});
+    assert.equal(meal.darfG, 125, 'default October ration with the imported -5 g adjustment');
+    assert.equal(meal.oilMl, 4);
+    assert.equal(meal.fibreG, 2.5);
+    assert.ok(Object.values(meal).filter(value => typeof value === 'number').every(Number.isFinite));
+  }
+  const data = healthyBackup();
+  data.settings = { oilSchedule: [{ from: '2026-10-01', ml: 0 }], fibreSchedule: [{ from: '2026-10-01', g: 3.75 }] };
+  const { h } = await acceptBackup(data);
+  const meal = h.api.bowlFor('2026-10-28', 'lamb', h.api.S.settings, h.api.S.changes, {});
+  assert.equal(meal.oilMl, 0);
+  assert.equal(meal.fibreG, 3.75);
+  assert.ok(Object.values(meal).filter(value => typeof value === 'number').every(Number.isFinite));
 });
