@@ -21,13 +21,16 @@ Create one file, and don't edit anyone else's.
 
 | Agent | File | ID prefix |
 |---|---|---|
-| Antigravity | `docs/review-antigravity.md` | `AG-` |
-| Codex | `docs/review-codex.md` | `CX-` |
+| Antigravity | `docs/review-antigravity.md` | `AV-` |
+| Codex | `docs/review-codex.md` (done) | `AG-` |
+
+Codex was given Antigravity's slot by mistake. Its review is in `docs/review-codex.md`
+and keeps the `AG-01`…`AG-11` IDs that the PR already cites, so Antigravity uses `AV-`.
 
 Use this format for each finding:
 
 ```markdown
-### AG-01 · P1 · <area> · <one-line summary>
+### AV-01 · P1 · <area> · <one-line summary>
 - **Where:** `index.html:<line>` (at 95a9cd7)
 - **Now:** what happens, concretely (screen size, steps, data)
 - **Change:** the smallest change that fixes it
