@@ -35,12 +35,18 @@ function merge(base, patch) {
 }
 const empty = () => ({ days: {}, changes: {}, settings: {} });
 
-function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotFields = false, localWriteSnapshots = false, separateWatchCache = false } = {}) {
+function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotFields = false, localWriteSnapshots = false, separateWatchCache = false, now } = {}) {
+  let clockMs = now === undefined ? undefined : Date.parse(now);
+  if (now !== undefined) assert.ok(Number.isFinite(clockMs), 'Synthetic clock must be valid');
+  class ClockDate extends Date {
+    constructor(...args) { super(...(args.length ? args : [clockMs])); }
+    static now() { return clockMs; }
+  }
   const remote = { ...empty(), ...copy(server) };
   const watchCache = empty();
   const snapshotData = value => sortSnapshotFields ? sortedFields(copy(value)) : copy(value);
   const storage = new Map(restoredStorage || []);
-  const subscriptions = new Map(), nodes = new Map(), downloads = [];
+  const subscriptions = new Map(), nodes = new Map(), downloads = [], windowListeners = new Map();
   const serverWrites = [], transactions = [], failures = new Set();
   let held = true;
   const waitingLocks = [];
@@ -133,6 +139,7 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
   for (const name of importNames) assert.ok(Object.hasOwn(firebase, name), 'Unstubbed SDK import: ' + name);
   const context = vm.createContext({
     ...firebase, document, console, URL, Blob, crypto: { randomUUID },
+    ...(now === undefined ? {} : { Date: ClockDate }),
     navigator: { onLine: true, locks: {
       request(_name, callback) {
         if (!held) return Promise.resolve().then(callback);
@@ -148,7 +155,10 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
         storage.delete(key);
       },
     },
-    window: { addEventListener() {}, AppShell: { ready() {} } },
+    window: { addEventListener(name, callback) {
+      if (!windowListeners.has(name)) windowListeners.set(name, []);
+      windowListeners.get(name).push(callback);
+    }, AppShell: { ready() {} } },
     ResizeObserver: class { observe() {} }, matchMedia: () => ({ matches: false, addEventListener() {} }),
     setInterval() {}, setTimeout() {}, clearTimeout() {}, fetch: forbidden('network'),
     confirm: forbidden('confirmation'), prompt: forbidden('prompt'),
@@ -158,7 +168,7 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
     render = () => {};
     renderFeedback = () => {};
     download = captureDownload;
-    globalThis.testApi = { S, DEFAULTS, write, flushWrites, subscribe, queuedWrites, importJson, exportAll, moveStool, oilMlOn };
+    globalThis.testApi = { S, DEFAULTS, write, flushWrites, subscribe, queuedWrites, importJson, exportAll, moveStool, oilMlOn, removeWithUndo, undoRemoval };
   `, context, { filename: htmlPath, timeout: 5000 });
   const api = context.testApi;
   api.S.user = { uid: 'restore-test-only', email: 'test.invalid' };
@@ -195,7 +205,18 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
     api.exportAll();
     return JSON.parse(downloads.at(-1)[1]);
   }
-  return { api, remote, watchCache, storage, serverWrites, transactions, failures, controls, emit, start, drain, importData, exported };
+  const setNow = value => {
+    assert.notEqual(now, undefined, 'Only a harness created with a synthetic clock can advance it');
+    clockMs = Date.parse(value);
+    assert.ok(Number.isFinite(clockMs));
+  };
+  const dispatchWindowEvent = (name, event) => {
+    const listeners = windowListeners.get(name) || [];
+    assert.ok(listeners.length, 'Application listens for ' + name);
+    for (const callback of listeners) callback(event);
+  };
+  return { api, remote, watchCache, storage, serverWrites, transactions, failures, controls, emit, start, drain, importData, exported, setNow, dispatchWindowEvent,
+    now: () => new Date(clockMs ?? Date.now()).toISOString() };
 }
 
 const date = '2026-10-27';
@@ -644,7 +665,7 @@ test('failure removing a committed import from local storage survives reload and
   first.start(cached());
   await first.importData({ days: { [date]: importedDay } });
   first.controls.beforeRemoveItem = key => {
-    if (key.startsWith('murphy-outbox:')) throw Error('Synthetic storage removal failure');
+    if (key.startsWith('murphy-outbox')) throw Error('Synthetic storage removal failure');
   };
   await first.drain();
   assert.equal(first.serverWrites.length, 1, 'the server commit preceded local outbox removal');
@@ -821,4 +842,280 @@ test('CC3 comparison control: settings preserve meaningful array order, absent f
   h.emit('settings', changedType);
   assert.deepEqual(copy(h.api.S.savedSettings), changedType);
   assert.equal(h.exported().settings.syntheticFlag, 'true', 'boolean and string values must remain distinct');
+});
+
+const undoStool = { id: 'undo-stool', time: '08:00', bristol: 3, notes: 'original observation' };
+const otherStool = { id: 'other-stool', time: '09:00', bristol: 4 };
+const undoDay = { ...oldDay, notes: 'preserve the day note', meal: { recipe: 'beef', fedAt: '18:00' }, stools: [undoStool, otherStool] };
+const undoState = day => ({ ...empty(), days: { [date]: copy(day) } });
+const deletedUndoDay = () => ({ ...copy(undoDay), updatedAt: time(10), stools: [copy(otherStool)] });
+const savedUndo = () => ({ id: 'persisted-undo', state: 'removed', kind: 'stool', date, record: copy(undoStool), index: 0 });
+const undoStorage = () => [['murphy-device:restore-test-only:undo', JSON.stringify(savedUndo())]];
+async function deleteWithRealUndo(h) {
+  const day = h.api.S.days[date], record = day.stools.find(stool => stool.id === undoStool.id);
+  assert.equal(await h.api.removeWithUndo({ kind: 'stool', date, record, index: day.stools.indexOf(record), label: 'Stool removed' }, {
+    col: 'days', id: date, patch: { date, updatedAt: h.now() }, stools: { put: [], drop: [record.id] },
+  }), true);
+}
+
+test('AG-11: real delete and Undo advance freshness optimistically, in exports and after confirmation', async () => {
+  const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+  h.start(undoState(undoDay));
+  await deleteWithRealUndo(h);
+  assertDayAndExport(h, deletedUndoDay());
+  h.setNow(time(11));
+  await h.api.undoRemoval();
+  const expected = { ...copy(undoDay), updatedAt: time(11) };
+  assertDayAndExport(h, expected);
+  assert.equal(h.api.S.undo, null);
+  assert.equal(h.api.S.banner.title, 'Restored on this device');
+  await h.drain();
+  assert.deepEqual(h.remote.days[date], expected);
+  assertDayAndExport(h, expected);
+  assertDrained(h);
+});
+
+test('AG-11: an exported Undo imports over the older deleted day on another device', async () => {
+  const source = makeHarness({ server: undoState(undoDay), now: time(10) });
+  source.start(undoState(undoDay));
+  await deleteWithRealUndo(source);
+  await source.drain();
+  const deleted = copy(source.remote.days[date]);
+  source.setNow(time(11));
+  await source.api.undoRemoval();
+  await source.drain();
+  const backup = source.exported();
+  const destination = makeHarness({ server: undoState(deleted), now: time(12) });
+  destination.start(undoState(deleted));
+  const text = JSON.stringify(backup);
+  await destination.api.importJson({ size: Buffer.byteLength(text), text: async () => text });
+  await destination.drain();
+  assert.deepEqual(destination.remote.days[date].stools, [undoStool, otherStool]);
+  assert.equal(destination.remote.days[date].updatedAt, time(11));
+  assertDayAndExport(destination, source.remote.days[date]);
+  assertDrained(destination);
+});
+
+test('AG-11: offline Undo retains its stamp across restart and an already-committed duplicate retry', async () => {
+  const offline = makeHarness({ server: undoState(undoDay), now: time(10) });
+  offline.start(undoState(undoDay));
+  await deleteWithRealUndo(offline);
+  offline.setNow(time(11));
+  await offline.api.undoRemoval();
+  assert.equal(offline.api.queuedWrites().length, 2);
+  assert.equal(offline.serverWrites.length, 0);
+  const reloaded = makeHarness({ server: undoState(undoDay), storage: [...offline.storage], now: time(12) });
+  reloaded.start(undoState(undoDay));
+  assert.equal(reloaded.exported().days[date].updatedAt, time(11), 'replay must retain the original Undo time');
+  reloaded.controls.beforeRemoveItem = key => {
+    if (JSON.parse(reloaded.storage.get(key)).recover?.kind === 'stool') throw Error('Synthetic close after the recovery commit');
+  };
+  await reloaded.drain();
+  assert.equal(reloaded.api.queuedWrites().length, 1);
+  assert.equal(reloaded.remote.days[date].updatedAt, time(11));
+  const committed = copy(reloaded.remote.days[date]);
+  const retry = makeHarness({ server: reloaded.remote, storage: [...reloaded.storage], now: time(13) });
+  retry.start(reloaded.remote);
+  await retry.drain();
+  assert.equal(retry.serverWrites.length, 0, 'the repeated recovery does not edit an already restored record');
+  assertDayAndExport(retry, committed);
+  assertDrained(retry);
+});
+
+test('AG-11: a persisted legacy recovery without a timestamp acquires stable freshness from its durable operation', async () => {
+  const key = `murphy-outbox-guarded:restore-test-only:${Date.parse(time(11))}-legacy-operation`;
+  const storage = [[key, JSON.stringify({ recover: savedUndo() })]];
+  const h = makeHarness({ server: undoState(deletedUndoDay()), storage, now: time(12) });
+  h.start(undoState(deletedUndoDay()));
+  const replayed = h.exported().days[date];
+  assert.ok(Date.parse(replayed.updatedAt) > Date.parse(time(10)));
+  h.setNow(time(13));
+  h.emit('days', { [date]: deletedUndoDay() }, { changed: false });
+  assert.equal(h.exported().days[date].updatedAt, replayed.updatedAt, 'another replay cannot keep advancing the legacy Undo');
+  assert.equal(h.storage.get(key), storage[0][1], 'legacy enrichment must leave the durable command bytes unchanged');
+  await h.drain();
+  assertDayAndExport(h, replayed);
+  assert.deepEqual(h.remote.days[date].stools, [undoStool, otherStool]);
+  assertDrained(h);
+});
+
+test('AG-11: Undo advances a newer remote day by one millisecond and preserves concurrent data', async () => {
+  const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+  h.start(undoState(undoDay));
+  await deleteWithRealUndo(h);
+  await h.drain();
+  const extra = { id: 'concurrent-stool', time: '10:00', bristol: 5 };
+  const remoteBefore = { ...deletedUndoDay(), updatedAt: '2026-10-28T12:00:00.123Z', notes: 'newer remote note', stools: [otherStool, extra] };
+  h.remote.days[date] = copy(remoteBefore);
+  h.setNow(time(11));
+  await h.api.undoRemoval();
+  await h.drain();
+  const expected = { ...remoteBefore, updatedAt: '2026-10-28T12:00:00.124Z', stools: [undoStool, otherStool, extra] };
+  assert.deepEqual(h.remote.days[date], expected);
+  assertDayAndExport(h, expected);
+  assertDrained(h);
+});
+
+test('AG-11: an already present remote stool makes Undo a no-op without changing its record or timestamp', async () => {
+  const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+  h.start(undoState(undoDay));
+  await deleteWithRealUndo(h);
+  await h.drain();
+  const present = { ...undoStool, bristol: 6, notes: 'newer observation' };
+  const retained = { ...copy(undoDay), updatedAt: time(12), stools: [present, otherStool] };
+  h.remote.days[date] = copy(retained);
+  const writesBefore = h.serverWrites.length;
+  h.setNow(time(11));
+  await h.api.undoRemoval();
+  await h.drain();
+  assert.equal(h.serverWrites.length, writesBefore);
+  assert.deepEqual(h.remote.days[date], retained);
+  assertDayAndExport(h, retained);
+  assertDrained(h);
+});
+
+for (const previousTimestamp of [undefined, 'invalid-timestamp']) {
+  test(`AG-11: Undo repairs a ${previousTimestamp === undefined ? 'missing' : 'invalid'} day timestamp using its operation time`, async () => {
+    const previous = deletedUndoDay();
+    if (previousTimestamp === undefined) delete previous.updatedAt;
+    else previous.updatedAt = previousTimestamp;
+    const h = makeHarness({ server: undoState(previous), storage: undoStorage(), now: time(11) });
+    h.start(undoState(previous));
+    await h.api.undoRemoval();
+    assert.equal(h.exported().days[date].updatedAt, time(11));
+    await h.drain();
+    assertDayAndExport(h, { ...previous, updatedAt: time(11), stools: [undoStool, otherStool] });
+    assertDrained(h);
+  });
+}
+
+for (const undoTime of [time(10), time(9)]) {
+  test(`AG-11: ${undoTime === time(10) ? 'same-millisecond' : 'clock-rollback'} Undo remains newer than deletion`, async () => {
+    const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+    h.start(undoState(undoDay));
+    await deleteWithRealUndo(h);
+    h.setNow(undoTime);
+    await h.api.undoRemoval();
+    const expected = { ...copy(undoDay), updatedAt: '2026-10-28T10:00:00.001Z' };
+    assertDayAndExport(h, expected);
+    await h.drain();
+    assert.deepEqual(h.remote.days[date], expected);
+    assertDayAndExport(h, expected);
+    assertDrained(h);
+  });
+}
+
+test('AG-11: an unrepresentable local successor keeps Undo usable without persisting a failed operation', async () => {
+  const previous = { ...deletedUndoDay(), updatedAt: '+275760-09-13T00:00:00.000Z' };
+  const h = makeHarness({ server: undoState(previous), storage: undoStorage(), now: time(11) });
+  h.start(undoState(previous));
+  await h.api.undoRemoval();
+  assert.equal(h.api.queuedWrites().length, 0);
+  assert.equal(h.api.S.undoBusy, false);
+  assert.equal(h.api.S.undo.record.id, undoStool.id);
+  assert.equal(h.api.S.banner.title, 'Could not save locally');
+  assertDayAndExport(h, previous);
+  assert.equal(h.serverWrites.length, 0);
+});
+
+test('AG-11: an unrepresentable remote successor retains the queued recovery for retry', async () => {
+  const remote = { ...deletedUndoDay(), updatedAt: '+275760-09-13T00:00:00.000Z' };
+  const h = makeHarness({ server: undoState(remote), storage: undoStorage(), now: time(11) });
+  h.start(undoState(deletedUndoDay()));
+  await h.api.undoRemoval();
+  await h.drain();
+  assert.equal(h.api.queuedWrites().length, 1);
+  assert.equal(h.api.S.status, 'Saved locally; retry sync');
+  assert.equal(h.api.S.undoBusy, false);
+  assert.deepEqual(h.remote.days[date], remote);
+  assert.equal(h.serverWrites.length, 0);
+});
+
+test('AG-11: all new commands stay outside the outbox prefixes consumed by older open tabs', async () => {
+  const h = makeHarness({ server: undoState(deletedUndoDay()), storage: undoStorage(), now: time(11) });
+  h.start(undoState(deletedUndoDay()));
+  await h.api.undoRemoval();
+  await h.api.write({ recover: { id: 'change-recovery', kind: 'change', record: change('recovered-change', 2) } });
+  await h.api.write({ regime: { date, count: 1 } });
+  const queued = h.api.queuedWrites();
+  const [stoolKey, stoolOperation] = queued.find(([, op]) => op.recover?.kind === 'stool');
+  const oldPrefixes = ['murphy-outbox:restore-test-only:', 'murphy-outbox-guarded:restore-test-only:'];
+  assert.equal(oldPrefixes.some(prefix => stoolKey.startsWith(prefix)), false);
+  assert.ok(stoolKey.startsWith('murphy-outbox-v2:restore-test-only:'));
+  assert.ok(Number.isFinite(Date.parse(stoolOperation.recover.updatedAt)));
+  assert.equal(queued.filter(([key]) => oldPrefixes.some(prefix => key.startsWith(prefix))).length, 0);
+  assert.ok(queued.every(([key]) => key.startsWith('murphy-outbox-v2:restore-test-only:')));
+  await h.drain();
+  assertDayAndExport(h, { ...deletedUndoDay(), updatedAt: time(11), stools: [undoStool, otherStool] });
+  assertDrained(h);
+});
+
+test('AG-11: a storage event from another new tab replays and flushes the current queue prefix', async () => {
+  const h = makeHarness({ server: undoState(deletedUndoDay()), now: time(12) });
+  h.start(undoState(deletedUndoDay()));
+  await h.drain(); // Finish startup so only the storage event can initiate this flush.
+  const key = `murphy-outbox-v2:restore-test-only:${Date.parse(time(11))}-other-tab`;
+  const value = JSON.stringify({ recover: { ...savedUndo(), updatedAt: time(11) } });
+  h.storage.set(key, value);
+  h.dispatchWindowEvent('storage', { key, oldValue: null, newValue: value });
+  assert.equal(h.exported().days[date].updatedAt, time(11));
+  assert.deepEqual(copy(h.api.S.days[date].stools), [undoStool, otherStool]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.serverWrites.length, 1, 'the listener starts sync without an explicit flush call');
+  assertDayAndExport(h, h.remote.days[date]);
+  assertDrained(h);
+});
+
+test('AG-11: Undo followed by a new deletion remains ordered while older consumers ignore both commands', async () => {
+  const h = makeHarness({ server: undoState(deletedUndoDay()), storage: undoStorage(), now: time(11) });
+  h.start(undoState(deletedUndoDay()));
+  await h.api.undoRemoval();
+  h.setNow(time(12));
+  await deleteWithRealUndo(h);
+  const oldPrefixes = ['murphy-outbox:restore-test-only:', 'murphy-outbox-guarded:restore-test-only:'];
+  assert.equal(h.api.queuedWrites().length, 2);
+  assert.equal(h.api.queuedWrites().filter(([key]) => oldPrefixes.some(prefix => key.startsWith(prefix))).length, 0);
+  assert.equal(h.serverWrites.length, 0);
+  await h.drain();
+  const expected = { ...deletedUndoDay(), updatedAt: time(12) };
+  assert.deepEqual(h.remote.days[date], expected);
+  assertDayAndExport(h, expected);
+  assertDrained(h);
+});
+
+test('AG-11: legacy ordinary and guarded commands still drain before a later current-version edit', async () => {
+  const storage = [
+    [`murphy-outbox:restore-test-only:${Date.parse(time(10))}-legacy-delete`, JSON.stringify({
+      col: 'days', id: date, patch: { date, updatedAt: time(10), notes: 'legacy edit' }, stools: { put: [], drop: [undoStool.id] },
+    })],
+    [`murphy-outbox-guarded:restore-test-only:${Date.parse(time(11))}-legacy-undo`, JSON.stringify({ recover: savedUndo() })],
+  ];
+  const h = makeHarness({ server: undoState(undoDay), storage, now: time(12) });
+  h.start(undoState(undoDay));
+  await h.api.write({ col: 'days', id: date, patch: { weight: 19, updatedAt: time(12) } });
+  await h.drain();
+  const expected = { ...copy(undoDay), notes: 'legacy edit', weight: 19, updatedAt: time(12) };
+  assert.equal(h.serverWrites.length, 3);
+  assert.deepEqual(h.remote.days[date], expected);
+  assertDayAndExport(h, expected);
+  assertDrained(h);
+});
+
+test('AG-11: a retried Undo transaction derives freshness from its final remote read', async () => {
+  const h = makeHarness({ server: undoState(deletedUndoDay()), storage: undoStorage(), now: time(11) });
+  h.start(undoState(deletedUndoDay()));
+  await h.api.undoRemoval();
+  const concurrent = { ...deletedUndoDay(), notes: 'concurrent edit', updatedAt: '2026-10-28T12:00:00.345Z' };
+  h.controls.retryTransaction = ({ ordinal, attempt }) => {
+    if (ordinal !== 1 || attempt !== 1) return false;
+    h.remote.days[date] = copy(concurrent);
+    return true;
+  };
+  await h.drain();
+  const expected = { ...concurrent, updatedAt: '2026-10-28T12:00:00.346Z', stools: [undoStool, otherStool] };
+  assert.equal(h.transactions[0].attempts, 2);
+  assert.equal(h.serverWrites.length, 1, 'the aborted first callback must not commit');
+  assert.deepEqual(h.remote.days[date], expected);
+  assertDayAndExport(h, expected);
+  assertDrained(h);
 });
