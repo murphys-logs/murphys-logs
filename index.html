@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.5.1">
+<html lang="en-GB" data-version="3.5.2">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -544,7 +544,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.5.1';
+const APP_VERSION = '3.5.2';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -912,7 +912,10 @@ function setStatus(text, cls){
   renderFeedback();
 }
 
-let flushing=false, flushTask=null, writeClock=0, unsubs=[], savedDays=null;
+let flushing=false, flushTask=null, writeClock=0, unsubs=[], savedDays=null, savedChanges=[];
+const snapshotVersions=new Map();
+const snapshotVersion=(col,id)=>snapshotVersions.get(col+':'+id)||0;
+const snapshotChanged=(col,id)=>snapshotVersions.set(col+':'+id,snapshotVersion(col,id)+1);
 const queuePrefix=()=>`murphy-outbox:${S.user.uid}:`;
 // An older open app can drain ordinary writes, but cannot interpret the new
 // guarded restoration commands. Keep those commands outside its queue prefix.
@@ -953,10 +956,15 @@ function queuedWrites(){
   return entries.sort(([a],[b])=>a.slice(a.lastIndexOf(':')+1).localeCompare(b.slice(b.lastIndexOf(':')+1)));
 }
 function replayQueuedWrites(queued=queuedWrites()){
-  // Rebase on the saved snapshot, never on an already-replayed local move.
+  // Rebase all three collections, never an already-replayed local move/restore.
   // Settings/changes can arrive before the first days snapshot at startup.
   if(savedDays===null) return;
   S.days=savedDays;
+  S.changes=savedChanges;
+  if(S.rawSettings!==S.savedSettings){
+    S.rawSettings=S.savedSettings||{};
+    S.settings=mealSettings(S.rawSettings);
+  }
   queued.forEach(([,op])=>applyOperation(op));
 }
 function stoolMerge(stools, delta){
@@ -965,10 +973,19 @@ function stoolMerge(stools, delta){
     const p=put.get(s.id); put.delete(s.id); return p?{...s,...p}:s;
   }).concat([...put.values()]);
 }
-function operationData(op, current={}, remote=false){
-  const body=mergeData(remote&&!op.restore?{}:current,op.patch||{});
+function operationData(op, current, remote=false){
+  // Match the transaction's restore rules during optimistic replay too.
+  if(op.restore&&current!==undefined){
+    if(op.col==='changes'||(op.col==='days'&&(current.updatedAt||'')>=(op.patch.updatedAt||'')))return current;
+    if(op.col==='settings'){
+      const patch=Object.fromEntries(Object.entries(op.patch).filter(([k])=>!Object.hasOwn(current,k)));
+      if(!Object.keys(patch).length)return current;
+      op={...op,patch};
+    }
+  }
+  const body=mergeData(remote&&!op.restore?{}:current||{},op.patch||{});
   for(const path of op.remove||[]) pathValue(body,path,remote?deleteField():null,!remote);
-  if(op.stools) body.stools=stoolMerge(current.stools,op.stools);
+  if(op.stools) body.stools=stoolMerge(current?.stools,op.stools);
   return body;
 }
 function stoolMovePatches(move, source={}, target={}){
@@ -999,7 +1016,8 @@ function applyOperation(op){
     return;
   }
   if(op.regime){
-    S.settings={...S.settings,regimeChanges:regimeDates(S.settings.regimeChanges,op.regime)};
+    S.rawSettings={...(S.rawSettings||S.savedSettings),regimeChanges:regimeDates(S.settings.regimeChanges,op.regime)};
+    S.settings=mealSettings(S.rawSettings);
     return;
   }
   if(op.move){
@@ -1022,7 +1040,10 @@ function applyOperation(op){
     return;
   }
   if(op.col==='days') S.days={...S.days,[op.id]:operationData(op,S.days[op.id])};
-  if(op.col==='settings') S.settings=mealSettings(operationData(op,S.settings));
+  if(op.col==='settings'){
+    S.rawSettings=operationData(op,S.rawSettings||S.savedSettings);
+    S.settings=mealSettings(S.rawSettings);
+  }
   if(op.col==='changes') S.changes=S.changes.filter(c=>c.id!==op.id)
     .concat(op.erase?[]:[operationData(op,S.changes.find(c=>c.id===op.id))]).sort((a,b)=>toDay(a.date)-toDay(b.date));
 }
@@ -1054,60 +1075,106 @@ async function write(op){
   applyOperation(op); setStatus('Saved locally; syncing','warn'); render();
   void flushWrites(); return true;
 }
-async function sendOperation(op){
+const savedRecord=(col,id)=>col==='days'?savedDays?.[id]:col==='settings'?S.savedSettings:savedChanges.find(c=>c.id===id);
+async function finishOperation(records,key,uid){
+  // A later callback can itself be delayed data. When a target changed during
+  // its request, confirm its current server value instead of guessing order.
+  for(let attempt=0;;attempt++){
+    if(S.user?.uid!==uid)return;
+    const uncertain=[...records.values()].filter(r=>r.uncertain||
+      (snapshotVersion(r.col,r.id)!==r.version&&JSON.stringify(savedRecord(r.col,r.id))!==JSON.stringify(r.data)));
+    if(!uncertain.length)break;
+    if(attempt===3)throw Error('Saved data is still changing. Retry sync to confirm the restored records.');
+    for(const {col,id} of uncertain){
+      const ref=doc(db,col,id);
+      const record=await runTransaction(db,async tx=>{
+        const version=snapshotVersion(col,id),snap=await tx.get(ref);
+        return {col,id,data:snap.exists()?snap.data():undefined,version};
+      });
+      records.set(col+':'+id,record);
+    }
+  }
+  if(key)localStorage.removeItem(key);
+  reconcileOperation([...records.values()]);
+}
+function reconcileOperation(records){
+  let days,changes;
+  for(const {col,id,data,version} of records){
+    // A newer subscription result must not be replaced by an earlier read.
+    if(snapshotVersion(col,id)!==version)continue;
+    if(col==='days'){
+      if(days!==savedDays)savedDays=days={...savedDays};
+      if(data===undefined)delete savedDays[id];else savedDays[id]=data;
+    }else if(col==='changes'){
+      changes??=new Map(savedChanges.map(c=>[c.id,c]));
+      if(data===undefined)changes.delete(id);else changes.set(id,{...data,id});
+    }
+    else if(col==='settings')S.savedSettings=data||{};
+  }
+  if(changes)savedChanges=[...changes.values()].sort((a,b)=>toDay(a.date)-toDay(b.date));
+  replayQueuedWrites();applyTheme();render();
+}
+async function sendOperation(op,committed=()=>{},prior=savedRecord){
   if(op.recover){
     const r=op.recover, ref=doc(db,r.kind==='stool'?'days':'changes',r.kind==='stool'?r.date:r.record.id);
-    const kept=await runTransaction(db,async tx=>{
+    const col=r.kind==='stool'?'days':'changes',id=r.kind==='stool'?r.date:r.record.id;
+    const result=await runTransaction(db,async tx=>{
+      const version=snapshotVersion(col,id);
       const snap=await tx.get(ref), current=snap.exists()?snap.data():{};
+      let data=current;
       if(r.kind==='change'){
-        if(snap.exists())return current;
-        tx.set(ref,r.record);
+        if(!snap.exists()){data=r.record;tx.set(ref,data);}
       }else if(!(current.stools||[]).some(s=>s.id===r.record.id)){
         const stools=[...(current.stools||[])];
         stools.splice(Math.min(r.index??stools.length,stools.length),0,r.record);
         tx.set(ref,{date:r.date,stools},{merge:true});
-      }else return current;
+        data={...current,date:r.date,stools};
+      }
+      return [{col,id,data,version}];
     });
-    // A guarded no-op need not produce a Firestore snapshot. Rebase immediately
-    // on the newer saved record so an optimistic Undo cannot linger on screen.
-    if(kept){
-      if(r.kind==='stool')savedDays={...(savedDays||S.days),[r.date]:kept};
-      else S.changes=S.changes.filter(c=>c.id!==r.record.id).concat({...kept,id:r.record.id}).sort((a,b)=>toDay(a.date)-toDay(b.date));
-      replayQueuedWrites();render();
-    }
-    return;
+    committed(result);return;
   }
   if(op.regime){
     const ref=doc(db,'settings','main');
-    return runTransaction(db,async tx=>{
+    const result=await runTransaction(db,async tx=>{
+      const version=snapshotVersion('settings','main');
       const snap=await tx.get(ref), current=snap.exists()?snap.data():{};
-      tx.set(ref,{regimeChanges:regimeDates(current.regimeChanges,op.regime)},{merge:true});
+      const patch={regimeChanges:regimeDates(current.regimeChanges,op.regime)};
+      tx.set(ref,patch,{merge:true});
+      return [{col:'settings',id:'main',data:{...current,...patch},version}];
     });
+    committed(result);return;
   }
   if(op.move){
     const m=op.move, sourceRef=doc(db,'days',m.from), targetRef=doc(db,'days',m.to);
-    return runTransaction(db,async tx=>{
+    const result=await runTransaction(db,async tx=>{
+      const versions=[snapshotVersion('days',m.from),snapshotVersion('days',m.to)];
       const source=await tx.get(sourceRef), target=await tx.get(targetRef);
-      const patches=stoolMovePatches(m,source.exists()?source.data():{},target.exists()?target.data():{});
+      const current=[source.exists()?source.data():undefined,target.exists()?target.data():undefined];
+      const patches=stoolMovePatches(m,...current);
       if(patches){tx.set(sourceRef,patches[0],{merge:true});tx.set(targetRef,patches[1],{merge:true});}
+      return [m.from,m.to].map((id,i)=>({col:'days',id,data:patches?mergeData(current[i]||{},patches[i]):current[i],version:versions[i]}));
     });
+    committed(result);return;
   }
-  if(op.items){ for(const item of op.items) await sendOperation(item); return; }
+  // Retain each successful result, even if a later item fails. The durable
+  // aggregate remains intact for idempotent retry/restart; no new queue format.
+  if(op.items){ for(const item of op.items) await sendOperation(item,committed,prior); return; }
   const ref=doc(db,op.col,op.id);
-  if(op.erase) return deleteDoc(ref);
-  if(!op.stools&&!op.restore) return setDoc(ref,operationData(op,{},true),{merge:true});
-  return runTransaction(db,async tx=>{
-    const snap=await tx.get(ref), current=snap.exists()?snap.data():{};
-    if(op.restore&&snap.exists()){
-      if(op.col==='changes'||(op.col==='days'&&(current.updatedAt||'')>=(op.patch.updatedAt||''))) return;
-      if(op.col==='settings'){
-        const patch=Object.fromEntries(Object.entries(op.patch).filter(([k])=>!Object.hasOwn(current,k)));
-        if(Object.keys(patch).length) tx.set(ref,patch,{merge:true});
-        return;
-      }
-    }
-    tx.set(ref,operationData(op,current,true),{merge:true});
-  });
+  if(op.erase||(!op.stools&&!op.restore)){
+    const version=snapshotVersion(op.col,op.id),current=prior(op.col,op.id);
+    if(op.erase)await deleteDoc(ref);else await setDoc(ref,operationData(op,{},true),{merge:true});
+    committed([{col:op.col,id:op.id,data:op.erase?undefined:operationData(op,current),version}]);
+  }else{
+    const result=await runTransaction(db,async tx=>{
+      const version=snapshotVersion(op.col,op.id);
+      const snap=await tx.get(ref), current=snap.exists()?snap.data():undefined;
+      const data=operationData(op,current);
+      if(data!==current)tx.set(ref,operationData(op,current,true),{merge:true});
+      return [{col:op.col,id:op.id,data,version}];
+    });
+    committed(result);
+  }
 }
 function flushWrites(){
   if(flushTask||!S.user)return flushTask||Promise.resolve();
@@ -1121,7 +1188,22 @@ function flushWrites(){
       for(const [key,op] of batch){
         if(S.user?.uid!==uid) return;
         if(localStorage.getItem(key)===null) continue;
-        await sendOperation(op); localStorage.removeItem(key);
+        const committed=new Map();let sent=false;
+        try{
+          await sendOperation(op,records=>records.forEach(r=>{
+            const id=r.col+':'+r.id,previous=committed.get(id);
+            committed.set(id,{...r,uncertain:previous?.uncertain||
+              (snapshotVersion(r.col,r.id)!==r.version&&JSON.stringify(savedRecord(r.col,r.id))!==JSON.stringify(r.data))});
+          }),(col,id)=>{
+            const record=committed.get(col+':'+id);
+            return record&&!record.uncertain&&record.version===snapshotVersion(col,id)?record.data:savedRecord(col,id);
+          });
+          sent=true;
+        }finally{
+          // One replay/render per aggregate (including its successful prefix
+          // on failure), not one full import replay per restored document.
+          await finishOperation(committed,sent?key:null,uid);
+        }
       }
     }
     if(S.banner?.source==='sync') S.banner=null;
@@ -1251,7 +1333,8 @@ async function undoRemoval(){
 function subscribe(){
   unsubs.forEach(fn=>fn()); unsubs=[];
   const uid=S.user.uid, seen=new Set();
-  S.days={}; savedDays=null; S.changes=[]; S.settings={...DEFAULTS}; S.ready=false;
+  S.days={}; savedDays=null; S.changes=savedChanges=[]; S.savedSettings={};S.rawSettings={};
+  S.settings={...DEFAULTS}; S.ready=false;snapshotVersions.clear();
   S.undo=null;S.fibreSnooze=null;S.fibreSnoozedUntil=null;S.localSaveError=null;S.banner=null;
   const received=(name,snap)=>{
     if(S.user?.uid!==uid) return;
@@ -1268,18 +1351,29 @@ function subscribe(){
     if(S.user?.uid!==uid) return;
     // Firestore can notify only a sync-status change. Keeping the same data
     // reference in that case also keeps the derived lists and statistics cached.
-    if(!seen.has('days')||snap.docChanges().length) savedDays=Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
+    if(!seen.has('days')||snap.docChanges().length){
+      const changes=seen.has('days')?snap.docChanges().map(c=>c.doc):snap.docs;
+      changes.forEach(d=>snapshotChanged('days',d.id));
+      savedDays=Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
+    }
     received('days',snap);
   },failed));
   unsubs.push(onSnapshot(collection(db,'changes'),{includeMetadataChanges:true},snap=>{
     if(S.user?.uid!==uid) return;
-    if(!seen.has('changes')||snap.docChanges().length) S.changes=snap.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>toDay(a.date)-toDay(b.date));
+    if(!seen.has('changes')||snap.docChanges().length){
+      const changes=seen.has('changes')?snap.docChanges().map(c=>c.doc):snap.docs;
+      changes.forEach(d=>snapshotChanged('changes',d.id));
+      savedChanges=snap.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>toDay(a.date)-toDay(b.date));
+    }
     received('changes',snap);
   },failed));
   unsubs.push(onSnapshot(doc(db,'settings','main'),{includeMetadataChanges:true},snap=>{
     if(S.user?.uid!==uid) return;
-    S.savedSettings=snap.exists()?snap.data():{};
-    S.settings=mealSettings(S.savedSettings); received('settings',snap);
+    const saved=snap.exists()?snap.data():{};
+    if(JSON.stringify(saved)!==JSON.stringify(S.savedSettings)){
+      snapshotChanged('settings','main');S.savedSettings=saved;
+    }
+    received('settings',snap);
   },failed));
   void flushWrites();
 }
