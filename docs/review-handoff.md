@@ -72,3 +72,14 @@ Now read `ux-review.md` §5–§6 and end your file with this table:
 ## 5. Next
 
 Once all three files are in, the findings are merged into one prioritised list. Agents then claim items for fix PRs by ID.
+
+## 6. Fix PRs after the combined review
+
+PR #1 is merged. Use [review-merged.md](review-merged.md) as the backlog; its pre-merge status notes are historical.
+
+- Keep Murphy's Logs fast, lightweight and iPhone-first. Prefer a small focused change over new runtime files, dependencies or a build step.
+- Cite the findings addressed and test locally with synthetic data. Never sign in to, read from or write to the live Firebase project.
+- Before recommending **any change** for merge, obtain independent reviews from **Codex, Claude Code and Antigravity**. Identify the actual reviewer and reviewed commit; another Codex agent is not a substitute for either external reviewer.
+- Keep the PR's review checklist pending until all three have reviewed the current changes and blocking findings are resolved. Changes after review need relevant re-review.
+- Review comments belong on the fix PR; keep the original review files unchanged. Keep version identifiers in `index.html` and `sw.js` aligned for app releases, and preserve offline behavior and accessible controls.
+
