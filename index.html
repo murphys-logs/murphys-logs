@@ -1076,13 +1076,14 @@ async function write(op){
   void flushWrites(); return true;
 }
 const savedRecord=(col,id)=>col==='days'?savedDays?.[id]:col==='settings'?S.savedSettings:savedChanges.find(c=>c.id===id);
+const uncertainRecord=r=>!!r&&(r.uncertain||
+  (snapshotVersion(r.col,r.id)!==r.version&&JSON.stringify(savedRecord(r.col,r.id))!==JSON.stringify(r.data)));
 async function finishOperation(records,key,uid){
   // A later callback can itself be delayed data. When a target changed during
   // its request, confirm its current server value instead of guessing order.
   for(let attempt=0;;attempt++){
     if(S.user?.uid!==uid)return;
-    const uncertain=[...records.values()].filter(r=>r.uncertain||
-      (snapshotVersion(r.col,r.id)!==r.version&&JSON.stringify(savedRecord(r.col,r.id))!==JSON.stringify(r.data)));
+    const uncertain=[...records.values()].filter(uncertainRecord);
     if(!uncertain.length)break;
     if(attempt===3)throw Error('Saved data is still changing. Retry sync to confirm the restored records.');
     for(const {col,id} of uncertain){
@@ -1192,8 +1193,7 @@ function flushWrites(){
         try{
           await sendOperation(op,records=>records.forEach(r=>{
             const id=r.col+':'+r.id,previous=committed.get(id);
-            committed.set(id,{...r,uncertain:previous?.uncertain||
-              (snapshotVersion(r.col,r.id)!==r.version&&JSON.stringify(savedRecord(r.col,r.id))!==JSON.stringify(r.data))});
+            committed.set(id,{...r,uncertain:uncertainRecord(previous)||uncertainRecord(r)});
           }),(col,id)=>{
             const record=committed.get(col+':'+id);
             return record&&!record.uncertain&&record.version===snapshotVersion(col,id)?record.data:savedRecord(col,id);

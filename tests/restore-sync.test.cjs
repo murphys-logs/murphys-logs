@@ -638,3 +638,30 @@ test('failure removing a committed import from local storage survives reload and
   assertDayAndExport(reloaded, importedDay);
   assertDrained(reloaded);
 });
+
+for (const delay of [2, 3, 4]) {
+  test(`a stale watch between ordinary aggregate patches cannot discard the first edit (${delay} microtasks)`, async () => {
+    const h = makeHarness({ server: { ...empty(), days: { [date]: oldDay } } });
+    h.start(cached());
+    let writes = 0, delayedWatch;
+    h.controls.beforeSet = () => {
+      if (++writes !== 1) return;
+      let pending = Promise.resolve();
+      for (let i = 0; i < delay; i++) pending = pending.then(() => {});
+      delayedWatch = pending.then(() => h.emit('days', {
+        [date]: { ...oldDay, notes: 'stale callback' },
+      }, { changedIds: [date] }));
+    };
+    await h.api.write({ items: [
+      { col: 'days', id: date, patch: { date, weight: 18.5 } },
+      { col: 'days', id: date, patch: { notes: 'later' } },
+    ] });
+    await h.drain();
+    await delayedWatch;
+    const expected = { ...oldDay, weight: 18.5, notes: 'later' };
+    assert.equal(writes, 2);
+    assert.deepEqual(h.remote.days[date], expected);
+    assertDayAndExport(h, expected);
+    assertDrained(h);
+  });
+}
