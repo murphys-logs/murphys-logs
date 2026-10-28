@@ -22,6 +22,8 @@ const moduleSource = moduleMatch[1].replace(/^import\s*\{([^}]+)\}\s*from\s*['"]
 assert.doesNotMatch(moduleSource, /^\s*import\s/m, 'Every SDK import needs an explicit stub');
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const sortedFields = value => Array.isArray(value) ? value.map(sortedFields)
+  : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sortedFields(value[key])])) : value;
 const deleted = Object.freeze({ testDeleteField: true });
 function merge(base, patch) {
   const result = copy(base || {});
@@ -33,8 +35,10 @@ function merge(base, patch) {
 }
 const empty = () => ({ days: {}, changes: {}, settings: {} });
 
-function makeHarness({ server = empty(), storage: restoredStorage } = {}) {
+function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotFields = false, localWriteSnapshots = false, separateWatchCache = false } = {}) {
   const remote = { ...empty(), ...copy(server) };
+  const watchCache = empty();
+  const snapshotData = value => sortSnapshotFields ? sortedFields(copy(value)) : copy(value);
   const storage = new Map(restoredStorage || []);
   const subscriptions = new Map(), nodes = new Map(), downloads = [];
   const serverWrites = [], transactions = [], failures = new Set();
@@ -57,7 +61,7 @@ function makeHarness({ server = empty(), storage: restoredStorage } = {}) {
     addEventListener() {}, documentElement: element('html'), activeElement: element('body'),
   };
   const docData = ref => ref.col === 'settings' ? remote.settings : remote[ref.col][ref.id];
-  const snapshot = value => ({ exists: () => value !== undefined, data: () => copy(value), metadata: { fromCache: false } });
+  const snapshot = value => ({ exists: () => value !== undefined, data: () => snapshotData(value), metadata: { fromCache: false } });
   const applySet = (ref, patch, options) => {
     const next = options?.merge ? merge(docData(ref), patch) : copy(patch);
     if (ref.col === 'settings') remote.settings = next;
@@ -78,8 +82,21 @@ function makeHarness({ server = empty(), storage: restoredStorage } = {}) {
     async setDoc(ref, patch, options) {
       if (controls.beforeSet) await controls.beforeSet(ref, patch);
       applySet(ref, patch, options);
+      if (localWriteSnapshots) {
+        const current = ref.col === 'settings' ? watchCache.settings : watchCache[ref.col][ref.id];
+        const next = options?.merge ? merge(current, patch) : copy(patch);
+        const records = ref.col === 'settings' ? next : { ...watchCache[ref.col], [ref.id]: next };
+        emit(ref.col, records, { changedIds: [ref.id], hasPendingWrites: true });
+      }
     },
-    async deleteDoc(ref) { delete remote[ref.col][ref.id]; },
+    async deleteDoc(ref) {
+      delete remote[ref.col][ref.id];
+      if (localWriteSnapshots) {
+        const records = { ...watchCache[ref.col] };
+        delete records[ref.id];
+        emit(ref.col, records, { changedIds: [ref.id], hasPendingWrites: true });
+      }
+    },
     async runTransaction(_db, callback) {
       const ordinal = transactions.length + 1;
       const transaction = { ordinal, reads: [], attempts: 0 };
@@ -141,20 +158,22 @@ function makeHarness({ server = empty(), storage: restoredStorage } = {}) {
     render = () => {};
     renderFeedback = () => {};
     download = captureDownload;
-    globalThis.testApi = { S, DEFAULTS, write, flushWrites, subscribe, queuedWrites, importJson, exportAll, moveStool };
+    globalThis.testApi = { S, DEFAULTS, write, flushWrites, subscribe, queuedWrites, importJson, exportAll, moveStool, oilMlOn };
   `, context, { filename: htmlPath, timeout: 5000 });
   const api = context.testApi;
   api.S.user = { uid: 'restore-test-only', email: 'test.invalid' };
-  function emit(col, records = remote[col], { fromCache = false, changed = true, changedIds } = {}) {
+  function emit(col, records = separateWatchCache ? watchCache[col] : remote[col], { fromCache = false, changed = true, changedIds, hasPendingWrites = false } = {}) {
     const callback = subscriptions.get(col);
     assert.ok(callback, 'Subscription exists for ' + col);
-    if (col === 'settings') callback({ ...snapshot(copy(records)), metadata: { fromCache } });
+    const previous = watchCache[col];
+    watchCache[col] = copy(records);
+    if (col === 'settings') callback({ ...snapshot(copy(records)), metadata: { fromCache, hasPendingWrites } });
     else callback({
-      docs: Object.entries(records || {}).map(([id, value]) => ({ id, data: () => copy(value) })),
+      docs: Object.entries(records || {}).map(([id, value]) => ({ id, data: () => snapshotData(value) })),
       docChanges: () => changed ? (changedIds || Object.keys(records || {})).map(id => ({
-        type: Object.hasOwn(records || {}, id) ? 'modified' : 'removed',
-        doc: { id, data: () => copy(records?.[id]) },
-      })) : [], metadata: { fromCache, hasPendingWrites: false },
+        type: Object.hasOwn(records || {}, id) ? (Object.hasOwn(previous || {}, id) ? 'modified' : 'added') : 'removed',
+        doc: { id, data: () => snapshotData(records?.[id] ?? previous?.[id]) },
+      })) : [], metadata: { fromCache, hasPendingWrites },
     });
   }
   function start(local = empty(), order = ['days', 'changes', 'settings']) {
@@ -176,7 +195,7 @@ function makeHarness({ server = empty(), storage: restoredStorage } = {}) {
     api.exportAll();
     return JSON.parse(downloads.at(-1)[1]);
   }
-  return { api, remote, storage, serverWrites, transactions, failures, controls, emit, start, drain, importData, exported };
+  return { api, remote, watchCache, storage, serverWrites, transactions, failures, controls, emit, start, drain, importData, exported };
 }
 
 const date = '2026-10-27';
@@ -665,3 +684,141 @@ for (const delay of [2, 3, 4]) {
     assertDrained(h);
   });
 }
+
+for (const col of ['days', 'settings']) {
+  test(`CC3-01: a matching ${col} local watch with SDK field order needs no confirmation transaction`, async () => {
+    const initial = { ...empty(), days: { [date]: oldDay }, settings: { theme: 'system', targetKcal: 1240 } };
+    const h = makeHarness({ server: initial, sortSnapshotFields: true, localWriteSnapshots: true, separateWatchCache: true });
+    h.start(initial);
+    const patch = col === 'days'
+      ? { meal: { recipe: 'beef', fedAt: '18:00', bowl: 'cleared' }, updatedAt: time(13) }
+      : { theme: 'dark', bdGrams: 550, targetKcal: 1300 };
+    h.failures.add(1); // A needless confirmation would fail despite the successful ordinary write.
+    await h.api.write({ col, id: col === 'days' ? date : 'main', patch });
+    await h.drain();
+    assert.equal(h.transactions.length, 0, 'object insertion order alone must not cause a network read');
+    if (col === 'days') assertDayAndExport(h, h.remote.days[date]);
+    else assert.deepEqual(copy(h.api.S.savedSettings), h.remote.settings);
+    assertDrained(h);
+  });
+}
+
+for (const col of ['days', 'changes']) for (const outcome of ['accepted', 'skipped']) for (const action of ['created', 'deleted']) {
+  test(`CC3-02: ${outcome} ${col} restore survives an unrelated ${action} document in a lagging collection watch`, async () => {
+    const target = col === 'days' ? date : 'restored-change';
+    const other = col === 'days' ? '2026-10-24' : 'other-change';
+    const otherRecord = col === 'days' ? { date: other, weight: 18.4, updatedAt: time(8) } : change(other, 2);
+    const initial = empty(), server = empty();
+    if (col === 'days') {
+      initial.days[target] = copy(oldDay);
+      server.days[target] = copy(outcome === 'accepted' ? oldDay : newerDay);
+    } else if (outcome === 'skipped') server.changes[target] = change(target, 8);
+    if (action === 'deleted') {
+      initial[col][other] = copy(otherRecord);
+      server[col][other] = copy(otherRecord);
+    }
+    const h = makeHarness({ server, separateWatchCache: true, localWriteSnapshots: true });
+    h.start(initial);
+    await h.importData(col === 'days' ? { days: { [target]: importedDay } } : { days: {}, changes: [change(target, -5)] });
+    await h.drain();
+    const assertTarget = expected => {
+      if (col === 'days') assertDayAndExport(h, expected);
+      else {
+        assert.deepEqual(copy(h.api.S.changes.find(record => record.id === target)), expected);
+        assert.deepEqual(h.exported().changes.find(record => record.id === target), expected);
+      }
+    };
+    assertTarget(h.remote[col][target]);
+    assert.deepEqual(h.watchCache[col][target], initial[col][target], 'transaction work does not advance the SDK watch cache');
+    await h.api.write(action === 'created' ? { col, id: other, patch: otherRecord } : { col, id: other, erase: true });
+    await h.drain();
+    assertTarget(h.remote[col][target]);
+    assertDrained(h);
+    const replacement = col === 'days' ? { ...newerDay, weight: 19.3, updatedAt: time(13) } : change(target, 9);
+    h.remote[col][target] = copy(replacement);
+    h.emit(col, { ...h.watchCache[col], [target]: replacement }, { changedIds: [target] });
+    assertTarget(replacement);
+    delete h.remote[col][target];
+    const afterDeletion = { ...h.watchCache[col] };
+    delete afterDeletion[target];
+    h.emit(col, afterDeletion, { changedIds: [target] });
+    assertTarget(undefined);
+    assertDrained(h);
+  });
+}
+
+for (const col of ['days', 'changes']) {
+  test(`CC3-02: queued ${col} work waits for all initial cached snapshots before contacting the server`, async () => {
+    const target = col === 'days' ? date : 'restored-change';
+    const retained = col === 'days' ? newerDay : change(target, 8);
+    const server = empty();
+    server[col][target] = copy(retained);
+    const h = makeHarness({ server, separateWatchCache: true });
+    h.api.subscribe();
+    await h.importData(col === 'days' ? { days: { [target]: importedDay } } : { days: {}, changes: [change(target, -5)] });
+    await h.drain();
+    assert.equal(h.transactions.length, 0);
+    assert.equal(h.serverWrites.length, 0);
+    assert.equal(h.api.queuedWrites().length, 1);
+    h.emit('settings', {}, { fromCache: true });
+    h.emit('changes', {}, { fromCache: true });
+    await h.api.flushWrites();
+    assert.equal(h.transactions.length, 0, 'two initial collections are not a complete baseline');
+    assert.equal(h.api.queuedWrites().length, 1);
+    h.emit('days', col === 'days' ? { [date]: oldDay } : {}, { fromCache: true });
+    await h.drain();
+    if (col === 'days') assertDayAndExport(h, retained);
+    else {
+      assert.deepEqual(copy(h.api.S.changes), [retained]);
+      assert.deepEqual(h.exported().changes, [retained]);
+    }
+    assertDrained(h);
+  });
+}
+
+for (const outcome of ['accepted', 'skipped']) {
+  test(`CC3-02: ${outcome} settings acknowledgement survives unchanged cache metadata but allows real changes and deletion`, async () => {
+    const server = { ...empty(), settings: outcome === 'accepted' ? {} : { theme: 'dark', targetKcal: 1300 } };
+    const h = makeHarness({ server, separateWatchCache: true, sortSnapshotFields: true });
+    h.start();
+    await h.importData({ days: {}, settings: { theme: 'light', targetKcal: 1240, bdGrams: 550 } });
+    await h.drain();
+    const acknowledged = copy(h.remote.settings);
+    assert.deepEqual(copy(h.api.S.savedSettings), acknowledged);
+    assert.deepEqual(h.watchCache.settings, {}, 'the transaction has not reached the watch cache');
+    h.emit('settings', h.watchCache.settings, { changed: false });
+    assert.deepEqual(copy(h.api.S.savedSettings), acknowledged, 'unchanged watch data must not roll back a newer acknowledgement');
+    for (const [key, value] of Object.entries(acknowledged)) assert.equal(h.exported().settings[key], value);
+    h.remote.settings = { theme: 'system', targetKcal: 1400, bdGrams: 570 };
+    h.emit('settings', h.remote.settings);
+    assert.deepEqual(copy(h.api.S.savedSettings), h.remote.settings);
+    assert.equal(h.api.S.settings.targetKcal, 1400);
+    h.remote.settings = undefined;
+    h.watchCache.settings = undefined;
+    h.emit('settings');
+    assert.deepEqual(copy(h.api.S.savedSettings), {});
+    assert.equal(h.api.S.settings.theme, h.api.DEFAULTS.theme);
+    assertDrained(h);
+  });
+}
+
+test('CC3 comparison control: settings preserve meaningful array order, absent fields and value types', () => {
+  const schedule = [{ from: '2026-01-01', ml: 4 }, { from: '2026-01-01', ml: 8 }];
+  const settings = { oilSchedule: schedule, eggKcal: null, syntheticFlag: true };
+  const initial = { ...empty(), settings };
+  const h = makeHarness({ server: initial });
+  h.start(initial);
+  assert.equal(h.api.oilMlOn(date, h.api.S.settings), 8);
+  const reordered = { ...settings, oilSchedule: [...schedule].reverse().map(({ from, ml }) => ({ ml, from })) };
+  h.emit('settings', reordered);
+  assert.equal(h.api.oilMlOn(date, h.api.S.settings), 4, 'the later same-date schedule entry changes the effective oil amount');
+  assert.deepEqual(copy(h.api.S.savedSettings.oilSchedule), reordered.oilSchedule);
+  const withoutLegacy = { ...reordered };
+  delete withoutLegacy.eggKcal;
+  h.emit('settings', withoutLegacy);
+  assert.equal(Object.hasOwn(h.api.S.savedSettings, 'eggKcal'), false, 'a removed historical null field is still a data change');
+  const changedType = { ...withoutLegacy, syntheticFlag: 'true' };
+  h.emit('settings', changedType);
+  assert.deepEqual(copy(h.api.S.savedSettings), changedType);
+  assert.equal(h.exported().settings.syntheticFlag, 'true', 'boolean and string values must remain distinct');
+});

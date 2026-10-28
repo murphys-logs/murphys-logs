@@ -1076,8 +1076,16 @@ async function write(op){
   void flushWrites(); return true;
 }
 const savedRecord=(col,id)=>col==='days'?savedDays?.[id]:col==='settings'?S.savedSettings:savedChanges.find(c=>c.id===id);
+// Firestore may reorder map fields, including nested maps. Arrays stay ordered.
+function sameData(a,b){
+  if(Object.is(a,b))return true;
+  if(!a||!b||typeof a!=='object'||typeof b!=='object'||Array.isArray(a)!==Array.isArray(b))return false;
+  if(Array.isArray(a)&&a.length!==b.length)return false;
+  const keys=Object.keys(a);
+  return keys.length===Object.keys(b).length&&keys.every(k=>Object.hasOwn(b,k)&&sameData(a[k],b[k]));
+}
 const uncertainRecord=r=>!!r&&(r.uncertain||
-  (snapshotVersion(r.col,r.id)!==r.version&&JSON.stringify(savedRecord(r.col,r.id))!==JSON.stringify(r.data)));
+  (snapshotVersion(r.col,r.id)!==r.version&&!sameData(savedRecord(r.col,r.id),r.data)));
 async function finishOperation(records,key,uid){
   // A later callback can itself be delayed data. When a target changed during
   // its request, confirm its current server value instead of guessing order.
@@ -1178,7 +1186,8 @@ async function sendOperation(op,committed=()=>{},prior=savedRecord){
   }
 }
 function flushWrites(){
-  if(flushTask||!S.user)return flushTask||Promise.resolve();
+  // Establish all initial cache baselines before acknowledging queued writes.
+  if(flushTask||!S.user||!S.ready)return flushTask||Promise.resolve();
   flushing=true;
   const uid=S.user.uid;
   const flush=async()=>{
@@ -1332,12 +1341,13 @@ async function undoRemoval(){
 
 function subscribe(){
   unsubs.forEach(fn=>fn()); unsubs=[];
-  const uid=S.user.uid, seen=new Set();
+  const uid=S.user.uid, seen=new Set();let observedSettings;
   S.days={}; savedDays=null; S.changes=savedChanges=[]; S.savedSettings={};S.rawSettings={};
   S.settings={...DEFAULTS}; S.ready=false;snapshotVersions.clear();
   S.undo=null;S.fibreSnooze=null;S.fibreSnoozedUntil=null;S.localSaveError=null;S.banner=null;
   const received=(name,snap)=>{
     if(S.user?.uid!==uid) return;
+    const wasReady=S.ready;
     seen.add(name); S.ready=seen.size===3;
     let queued;
     try{queued=queuedWrites();replayQueuedWrites(queued);}catch(e){storeError(e);return;}
@@ -1345,37 +1355,46 @@ function subscribe(){
     if(!queued.length&&S.banner?.source==='sync')S.banner=null;
     setStatus(queued.length?'Saved locally; syncing':snap.metadata.fromCache?'Cached; checking sync':'Synced');
     applyTheme(); render();
+    if(!wasReady&&S.ready)void flushWrites();
   };
   const failed=e=>{setStatus('Not connected','bad');S.banner={kind:'bad',title:'Connection failed',text:String(e.message||e)};render();};
   unsubs.push(onSnapshot(collection(db,'days'),{includeMetadataChanges:true},snap=>{
     if(S.user?.uid!==uid) return;
-    // Firestore can notify only a sync-status change. Keeping the same data
-    // reference in that case also keeps the derived lists and statistics cached.
-    if(!seen.has('days')||snap.docChanges().length){
-      const changes=seen.has('days')?snap.docChanges().map(c=>c.doc):snap.docs;
-      changes.forEach(d=>snapshotChanged('days',d.id));
-      savedDays=Object.fromEntries(snap.docs.map(d=>[d.id,d.data()]));
+    // Transaction receipts can be ahead of the SDK cache. Only changed IDs
+    // may replace them; unrelated snap.docs entries can still contain old data.
+    const changes=snap.docChanges();
+    if(savedDays===null||changes.length){
+      savedDays={...savedDays};
+      for(const {type,doc:d} of changes){
+        snapshotChanged('days',d.id);
+        if(type==='removed')delete savedDays[d.id];else savedDays[d.id]=d.data();
+      }
     }
     received('days',snap);
   },failed));
   unsubs.push(onSnapshot(collection(db,'changes'),{includeMetadataChanges:true},snap=>{
     if(S.user?.uid!==uid) return;
-    if(!seen.has('changes')||snap.docChanges().length){
-      const changes=seen.has('changes')?snap.docChanges().map(c=>c.doc):snap.docs;
-      changes.forEach(d=>snapshotChanged('changes',d.id));
-      savedChanges=snap.docs.map(d=>({...d.data(),id:d.id})).sort((a,b)=>toDay(a.date)-toDay(b.date));
+    const changes=snap.docChanges();
+    if(changes.length){
+      const records=new Map(savedChanges.map(c=>[c.id,c]));
+      for(const {type,doc:d} of changes){
+        snapshotChanged('changes',d.id);
+        if(type==='removed')records.delete(d.id);else records.set(d.id,{...d.data(),id:d.id});
+      }
+      savedChanges=[...records.values()].sort((a,b)=>toDay(a.date)-toDay(b.date));
     }
     received('changes',snap);
   },failed));
   unsubs.push(onSnapshot(doc(db,'settings','main'),{includeMetadataChanges:true},snap=>{
     if(S.user?.uid!==uid) return;
     const saved=snap.exists()?snap.data():{};
-    if(JSON.stringify(saved)!==JSON.stringify(S.savedSettings)){
+    // Compare SDK observations with each other, not with a newer receipt.
+    if(!seen.has('settings')||!sameData(saved,observedSettings)){
       snapshotChanged('settings','main');S.savedSettings=saved;
     }
+    observedSettings=saved;
     received('settings',snap);
   },failed));
-  void flushWrites();
 }
 window.addEventListener('storage',e=>{
   if(S.user&&e.key?.startsWith(`murphy-device:${S.user.uid}:`)){loadDeviceState();render();}
