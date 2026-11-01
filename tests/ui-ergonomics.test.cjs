@@ -90,15 +90,38 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
 
 test('dismissing a failed local save cannot clear its error or claim success', async () => {
   const h=makeHarness({dirty:true});
-  h.api.S.localSaveError='form:in-weight-'+TODAY;
-  h.api.S.banner={source:'local-save',kind:'bad',title:'Not saved',text:'Storage unavailable'};
-  h.api.setStatus('Not saved','bad');
+  h.api.storeError(Error('Storage unavailable'),'days:'+TODAY+':weight');
+  h.api.bindSaveError('form:in-weight-'+TODAY,'days:'+TODAY+':weight');
   await h.click('dismiss-banner');
   assert.equal(h.api.S.localSaveError,'form:in-weight-'+TODAY);
   assert.equal(h.api.S.status,'Not saved');
   assert.equal(h.element('#state').className,'state bad');
   assert.equal(h.api.S.banner,null);
   assert.equal(h.storage.size,0,'dismissal creates no confirmed write');
+});
+
+test('dismissal acknowledges only instant-action failures and restores unscoped error status', async () => {
+  for(const [status,cls] of [['Synced',''],['Saved locally; retry sync','warn']]){
+    const h=makeHarness();h.api.setStatus(status,cls);
+    h.api.storeError(Error('Storage unavailable'),'days:'+TODAY+':weightMissed');
+    await h.click('dismiss-banner');
+    assert.equal(h.api.S.localSaveError,null);
+    assert.equal(h.api.S.status,status);
+    h.api.storeError(Error('Unscoped validation failure'));
+    await h.click('dismiss-banner');
+    assert.equal(h.api.S.status,status);
+    h.api.feedback();
+    if(status.includes('retry sync'))assert.match(h.element('#feedback').innerHTML,/data-act="retrysync"/);
+  }
+  const h=makeHarness();h.api.setStatus('Synced');
+  h.api.storeError(Error('Full'),'days:'+TODAY+':notes');
+  h.api.bindSaveError('form:notes','days:'+TODAY+':notes');
+  h.api.storeError(Error('Full'),'days:'+TODAY+':bcs');
+  await h.click('dismiss-banner');
+  assert.equal(h.api.S.localSaveError,'form:notes');
+  assert.equal(h.api.S.status,'Not saved');
+  h.api.clearSaveError('form:notes');
+  assert.equal(h.api.S.status,'Synced');
 });
 
 test('dismissing sync details preserves pending status and a usable Retry action', async () => {

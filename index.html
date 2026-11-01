@@ -1129,6 +1129,7 @@ function eraseBlocksChanges(){
   renderFeedback();return true;
 }
 async function write(op){
+  lastSaveFailure=null;
   if(eraseBlocksChanges())return false;
   try{
     if(!S.user) throw Error('Sign in before saving');
@@ -2997,9 +2998,12 @@ document.addEventListener('click', async (ev)=>{
   // Touch opens the native picker itself; a mouse on the text portion needs this.
   if(a==='historydate'){if(matchMedia('(pointer:fine)').matches)try{el.showPicker?.();}catch{}return;}
   if (a==='dismiss-banner'){
-    // Dismiss only the explanation, never persistence state. A failed sync
-    // keeps its existing retry action until the sender reports success.
+    // Failed instant actions leave the saved record unchanged and have no draft
+    // to resolve. Acknowledge those failures, but keep errors bound to an entry.
+    for(const scope of localSaveErrors)if(!/^(form|stool|feeding):/.test(scope))localSaveErrors.delete(scope);
+    S.localSaveError=[...localSaveErrors].at(-1)||null;
     S.banner=S.banner?.retry?{...S.banner,compact:true}:null;
+    setStatus(recordStatus.text,recordStatus.cls);
     render();return;
   }
   if(a==='undo'){await undoRemoval();return;}
