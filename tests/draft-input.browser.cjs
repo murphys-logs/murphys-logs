@@ -24,7 +24,7 @@ const html = original.replace(shellScript, `<script>
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
   .replace(/(<script type="module">[\s\S]*?)(<\/script>)/i, (_, body, end) => body + `
     window.testApp={S,persistDrafts,captureDrafts,refreshLocalDay,londonNow,
-      queuedWrites,setStatus,renderFeedback,open:tab=>navigateTo(tab),draftKey};
+      queuedWrites,setStatus,storeError,renderFeedback,open:tab=>navigateTo(tab),draftKey};
   ` + end);
 const stub = `
   const today='2026-11-01',yesterday='2026-10-31';
@@ -108,6 +108,41 @@ async function main() {
       };
     });
     const allowWrites=()=>page.evaluate(() => {Storage.prototype.setItem=window.realSetItem;});
+    for(const status of ['Synced','Saved locally; retry sync']){
+      await page.evaluate(status=>testApp.setStatus(status,status.includes('retry')?'warn':''),status);
+      await blockWrites();
+      await page.locator('#weight-missed-2026-11-01').click();
+      assert.equal(await page.locator('#state').textContent(),'Not saved');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+      assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight),18.7);
+      await page.locator('[data-act="dismiss-banner"]').click();
+      assert.equal(await page.locator('#state').textContent(),status);
+      assert.equal(await page.evaluate(() => testApp.S.localSaveError),null);
+      assert.equal(await page.locator('#weight-missed-2026-11-01').getAttribute('aria-checked'),'false');
+      if(status.includes('retry'))assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+      await allowWrites();
+      await page.evaluate(() => testApp.storeError(Error('Synthetic unscoped validation failure')));
+      await page.locator('[data-act="dismiss-banner"]').click();
+      assert.equal(await page.locator('#state').textContent(),status);
+    }
+    passed++;console.log('PASS failed instant actions and unscoped errors dismiss to the real synced or pending status');
+
+    await blockWrites();
+    await field('notes').fill('Keep the failed draft');
+    await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
+    await page.locator('[data-act="bcs"][data-v="3"]').first().click();
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await field('notes').inputValue(),'Keep the failed draft');
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].bcs),5);
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+    await allowWrites();
+    await page.evaluate(() => testApp.setStatus('Synced'));
+    passed++;console.log('PASS dismissing a failed chip action cannot clear an unrelated failed draft');
+
     await blockWrites();
     await field('weight').fill('18.75');
     await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
