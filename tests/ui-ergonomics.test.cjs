@@ -152,6 +152,14 @@ test('in-page jumps keep drafts without a discard prompt; the History jump still
   assert.equal(h.confirms.length, 1);
 });
 
+test('to-log shortcuts act on their own card date, including a recovered earlier day', async () => {
+  const h = makeHarness();
+  const card = h.api.todoCard(YESTERDAY);
+  assert.match(card, /data-act="jump" data-k="weight" data-date="2026-10-27"/);
+  await h.click('jump', { k: 'weight', date: YESTERDAY });
+  assert.equal(h.document.activeElement.selector, '#in-weight-2026-10-27', 'not the current London date');
+});
+
 for (const tab of ['today', 'day']) {
   test(`a stool saved to another date from ${tab === 'today' ? 'Today stays on Today and offers that date' : 'History follows the record'}`, async () => {
     const h = makeHarness({ days: { [TODAY]: {}, [YESTERDAY]: { stools: [stool] } } });

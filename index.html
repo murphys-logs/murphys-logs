@@ -1763,7 +1763,7 @@ function todoCard(today){
   // A confirmed (Fed) meal can take its result here in one tap. A planned-only
   // meal still opens History, where its feeding time is recorded first.
   const prompt=last&&!last.bowl?`<div class="bowl-prompt" role="group" aria-labelledby="bowl-prompt-${last.date}"><p class="inline-lab" id="bowl-prompt-${last.date}">Last night’s bowl · ${esc(RECIPES.find(r=>r.id===last.recipe)?.short||last.recipe)}, fed ${esc(last.fedAt)}</p><div class="seg">${BOWLS.map(k=>`<button id="bowl-prompt-${last.date}-${k}" ${choice(false)} data-act="bowl" data-k="${k}" data-date="${last.date}">${bowlLabel(k)}</button>`).join('')}</div></div>`:'';
-  const links=miss.filter(x=>!(prompt&&x.k==='bowl')).map(x=>`<button class="chip" data-act="jump" data-k="${x.k}">${x.t}</button>`).join('');
+  const links=miss.filter(x=>!(prompt&&x.k==='bowl')).map(x=>`<button class="chip" data-act="jump" data-k="${x.k}" data-date="${today}">${x.t}</button>`).join('');
   return `<section class="card sec todo" id="todo-${today}" tabindex="-1" aria-labelledby="todo-title-${today}"><h3 class="lab" id="todo-title-${today}">Still to log</h3>${links?`<div class="chips">${links}</div>`:''}${prompt}</section>`;
 }
 
@@ -2890,13 +2890,14 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if (a==='jump'){ const k=el.dataset.k;
+    // The card's own date: a recovered draft can show an earlier day after midnight.
     if(k==='bowl'){
-      const previous=shiftDate(localToday(),-1);
+      const previous=shiftDate(iso,-1);
       navigateTo('day',{date:previous,target:'#meal-section-'+previous});
     }else{
       // Same page: move straight to the control. Weight focuses its field, so the keypad opens.
-      const today=localToday(), stool=$('#add-stool-'+today)?'#add-stool-':'#stools-';
-      focusAfterRender((k==='weight'?'#in-weight-':k==='stool'?stool:'#condition-')+today);
+      const stool=$('#add-stool-'+iso)?'#add-stool-':'#stools-';
+      focusAfterRender((k==='weight'?'#in-weight-':k==='stool'?stool:'#condition-')+iso);
     }
     return;
   }
@@ -3056,7 +3057,7 @@ document.addEventListener('click', async (ev)=>{
     if(await saveDay(iso,{meal:{bowl:d.meal?.bowl===el.dataset.k?null:el.dataset.k}})){
       refreshSelectionStates();
       // The Today prompt closes once answered; keep focus on its card, not the page body.
-      if(el.id&&!document.getElementById(el.id))refocus('todo-'+localToday());
+      if(el.id&&!document.getElementById(el.id))refocus('todo-'+shiftDate(iso,1));
     }
     return;
   }
