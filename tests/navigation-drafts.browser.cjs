@@ -199,6 +199,66 @@ async function main() {
       await flush(); assert.equal(await drafts(), null); assert.equal(await queued(), 0);
     });
 
+    for (const finishOther of ['cancel', 'save']) {
+      await scenario(`failed edits with a reused stool ID stay independent across dates until the other edit is ${finishOther === 'save' ? 'saved' : 'cancelled'}`, async ({ page, day, tab, queued, flush, drafts }) => {
+        const first = '2026-10-29', second = '2026-10-30', stoolId = 'reused-import-id';
+        await page.evaluate(({ first, second, stoolId }) => {
+          testApp.S.days[first] = { date: first, stools: [{ id: stoolId, time: '07:10', bristol: 3, mucus: false, blood: false, importedDetail: 'first original' }] };
+          testApp.S.days[second] = { date: second, stools: [{ id: stoolId, time: '08:20', bristol: 4, mucus: false, blood: false, importedDetail: 'second original' }] };
+          window.navigationRealSetItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function(key, value) {
+            if (key.startsWith('murphy-outbox')) throw new DOMException('Synthetic outbox failure', 'QuotaExceededError');
+            return window.navigationRealSetItem.call(this, key, value);
+          };
+          testApp.render(true);
+        }, { first, second, stoolId });
+        const originals = await page.evaluate(dates => dates.map(date => testApp.S.days[date]), [first, second]);
+        const underlyingStatus = await page.locator('#state').textContent();
+        const edit = date => page.locator(`[data-act="editstool"][data-date="${date}"][data-id="${stoolId}"]`).click();
+
+        await day(first); await edit(first);
+        await page.locator('#st-t').fill('07:45');
+        await page.locator('[data-act="tog-mucus"]').click();
+        await page.locator('[data-act="savestool"]').click();
+        assert.equal(await page.locator('#state').textContent(), 'Not saved');
+        await day(second); await edit(second);
+        await page.locator('#st-t').fill('08:55');
+        await page.locator('[data-act="tog-blood"]').click();
+        await page.locator('[data-act="savestool"]').click();
+        assert.equal(await page.locator('#state').textContent(), 'Not saved');
+
+        await tab('status'); await day(first);
+        assert.equal(await page.locator('#st-t').inputValue(), '07:45');
+        assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
+        await day(second);
+        assert.equal(await page.locator('#st-t').inputValue(), '08:55');
+        assert.equal(await page.locator('[data-act="tog-blood"]').getAttribute('aria-pressed'), 'true');
+        await flush();
+        assert.deepEqual((await drafts()).stools.map(s => [s.date, s.record.id]).sort(), [[first, stoolId], [second, stoolId]]);
+        assert.equal(await queued(), 0, 'failed writes and navigation must not queue either edit');
+        assert.deepEqual(await page.evaluate(dates => dates.map(date => testApp.S.days[date]), [first, second]), originals);
+
+        await day(first);
+        await page.locator('[data-act="cancelstool"]').click();
+        assert.equal(await page.locator('#state').textContent(), 'Not saved', 'cancelling one date must retain the other date’s failure');
+        await tab('status');
+        assert.equal(await page.locator('#state').textContent(), 'Not saved');
+        await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
+        await day(second);
+        assert.equal(await page.locator('#st-t').inputValue(), '08:55');
+        assert.equal(await queued(), 0);
+        await page.locator(`[data-act="${finishOther === 'save' ? 'savestool' : 'cancelstool'}"]`).click();
+        assert.equal(await page.locator('#state').textContent(), finishOther === 'save' ? 'Saved locally; syncing' : underlyingStatus);
+        assert.equal(await queued(), finishOther === 'save' ? 1 : 0);
+        assert.deepEqual(await page.evaluate(date => testApp.S.days[date], first), originals[0]);
+        const other = await page.evaluate(date => testApp.S.days[date].stools[0], second);
+        assert.equal(other.time, finishOther === 'save' ? '08:55' : '08:20');
+        assert.equal(other.blood, finishOther === 'save');
+        assert.equal(other.importedDetail, 'second original');
+        await flush(); assert.equal(await drafts(), null);
+      });
+    }
+
     await scenario('reload while on Status keeps off-screen dates and exposes a resume route', async ({ page, field, day, tab, reload, queued }) => {
       await day('2026-10-30'); await field('notes').fill('Friday still unfinished');
       await day('2026-10-29'); await field('notes').fill('Thursday still unfinished');

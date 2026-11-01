@@ -1768,9 +1768,9 @@ function leaveDraft(){
     const input=$('input,textarea',form);if(input)clearSaveError((form.hasAttribute('data-feeding')?'feeding:':'form:')+input.id);
     form.removeAttribute('data-dirty');
   }
-  if(stoolDraft)clearSaveError('stool:'+stoolDraft.id);
+  if(stoolDraft)clearSaveError('stool:'+S.adding+':'+stoolDraft.id);
   for(const field of draftFields)clearSaveError((field.key==='feeding'?'feeding:':'form:')+field.id);
-  for(const stool of draftStools)clearSaveError('stool:'+stool.record.id);
+  for(const stool of draftStools)clearSaveError('stool:'+stool.date+':'+stool.record.id);
   draftFields=[];draftStools=[];draftExpanded=[];activeStoolKey=null;
   S.adding=null; stoolDraft=null; stoolOriginal=null; persistDrafts(); render(true); return true;
 }
@@ -3047,7 +3047,7 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if(a==='cancelstool'){
-    if(stoolDraft)clearSaveError('stool:'+stoolDraft.id);
+    if(stoolDraft)clearSaveError('stool:'+S.adding+':'+stoolDraft.id);
     const target=stoolReturnFocus,date=S.adding;S.adding=null;stoolDraft=null;stoolOriginal=null;
     persistDrafts();
     if($('#main [data-dirty]'))refreshStoolLog(date);else render(true);
@@ -3073,7 +3073,7 @@ document.addEventListener('click', async (ev)=>{
     const time=$('#st-t'), dateInput=$('#st-date');
     if (!time.reportValidity()||!dateInput.reportValidity()||!validDate(dateInput.value)||dateInput.value>localToday()) return;
     if(stoolOriginal&&!(S.days[S.adding]?.stools||[]).some(s=>s.id===stoolOriginal.id)){
-      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+stoolDraft.id);return;
+      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+S.adding+':'+stoolDraft.id);return;
     }
     el.disabled=true;
     const originalDate=S.adding, date=dateInput.value, list=S.days[date]?.stools||[], edited={...stoolDraft,time:time.value};
@@ -3084,7 +3084,7 @@ document.addEventListener('click', async (ev)=>{
     const saved=moving?moveStool(originalDate,date,next,stoolOriginal):saveDay(date,{stools:st});
     const failureScope=lastSaveFailure;
     if (await saved){
-      clearSaveError('stool:'+next.id);
+      clearSaveError('stool:'+originalDate+':'+next.id);
       S.adding=null;stoolDraft=null;stoolOriginal=null;
       persistDrafts();
       const otherDrafts=!!$('#main [data-dirty]'), moved=date!==originalDate;
@@ -3098,7 +3098,7 @@ document.addEventListener('click', async (ev)=>{
         text:(otherDrafts?'Your other unfinished entries stay open. ':'')+'The stool is listed on that date in History.'};
       if(otherDrafts)refreshStoolLog(originalDate);else render(true);
       focusAfterRender(moved&&!follow?'#add-stool-'+originalDate:`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${date}"]`);
-    }else{bindSaveError('stool:'+next.id,failureScope);el.disabled=false;}
+    }else{bindSaveError('stool:'+originalDate+':'+next.id,failureScope);el.disabled=false;}
     return;
   }
   if(a==='delstool'){
