@@ -100,7 +100,6 @@ input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + 
   border-bottom:1px solid var(--rule);
   padding:calc(env(safe-area-inset-top) + var(--s3)) var(--sr) var(--s2) var(--sl);
   display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:var(--s2) var(--s3);
-  transform:translateZ(0);will-change:transform;
 }
 .topbar .who{font-size:1rem;font-weight:650;letter-spacing:-.02em}
 .topbar .state{font-size:.75rem;color:var(--ink-3)}
@@ -108,7 +107,7 @@ input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + 
 .topbar .state.bad{color:var(--alert)}
 
 main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s4)) var(--sl);max-width:42rem;width:100%;margin:0 auto;min-width:0}
-.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;transform:translateZ(0)}
+.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow-y:auto}
 .feedback-region:empty{display:none}
 .feedback-region .note{margin:12px 0;padding:12px 16px;border:1px solid var(--rule-2);border-left-width:3px}
 .feedback-actions{display:flex;flex-wrap:wrap;gap:4px 20px;margin-top:4px}
@@ -120,7 +119,6 @@ main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s4)) var(--sl);
   display:grid;grid-template-columns:repeat(auto-fit,minmax(max(20%,8ch),1fr));font:.75rem/1.5 var(--sans);
   background:var(--surface);border-top:1px solid var(--rule-2);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  transform:translateZ(0);will-change:transform;
 }
 .tabbar button{
   position:relative;text-align:center;padding:10px 2px;font:inherit;color:var(--ink-3);white-space:normal;
@@ -382,7 +380,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   :is(.chip,.seg button,.scale button,.bristol button,.tabbar button).on{outline:2px solid Highlight;outline-offset:-4px}
   :is(.chip,.seg button,.scale button,.bristol button,.tabbar button).on:focus-visible{outline:3px dashed CanvasText;outline-offset:-6px}
   :focus-visible{outline:3px solid CanvasText}
-  button:not(:disabled):active{filter:none}
+  button:not(:disabled):active{opacity:1}
   button:disabled{color:GrayText}
 }
 @media(min-width:64rem){
@@ -1765,7 +1763,7 @@ function todoCard(today){
   // A confirmed (Fed) meal can take its result here in one tap. A planned-only
   // meal still opens History, where its feeding time is recorded first.
   const prompt=last&&!last.bowl?`<div class="bowl-prompt" role="group" aria-labelledby="bowl-prompt-${last.date}"><p class="inline-lab" id="bowl-prompt-${last.date}">Last night’s bowl · ${esc(RECIPES.find(r=>r.id===last.recipe)?.short||last.recipe)}, fed ${esc(last.fedAt)}</p><div class="seg">${BOWLS.map(k=>`<button id="bowl-prompt-${last.date}-${k}" ${choice(false)} data-act="bowl" data-k="${k}" data-date="${last.date}">${bowlLabel(k)}</button>`).join('')}</div></div>`:'';
-  const links=miss.filter(x=>!(prompt&&x.k==='bowl')).map(x=>`<button class="chip" data-act="jump" data-k="${x.k}">${x.t}</button>`).join('');
+  const links=miss.filter(x=>!(prompt&&x.k==='bowl')).map(x=>`<button class="chip" data-act="jump" data-k="${x.k}" data-date="${today}">${x.t}</button>`).join('');
   return `<section class="card sec todo" id="todo-${today}" tabindex="-1" aria-labelledby="todo-title-${today}"><h3 class="lab" id="todo-title-${today}">Still to log</h3>${links?`<div class="chips">${links}</div>`:''}${prompt}</section>`;
 }
 
@@ -2892,13 +2890,14 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if (a==='jump'){ const k=el.dataset.k;
+    // The card's own date: a recovered draft can show an earlier day after midnight.
     if(k==='bowl'){
-      const previous=shiftDate(localToday(),-1);
+      const previous=shiftDate(iso,-1);
       navigateTo('day',{date:previous,target:'#meal-section-'+previous});
     }else{
       // Same page: move straight to the control. Weight focuses its field, so the keypad opens.
-      const today=localToday(), stool=$('#add-stool-'+today)?'#add-stool-':'#stools-';
-      focusAfterRender((k==='weight'?'#in-weight-':k==='stool'?stool:'#condition-')+today);
+      const stool=$('#add-stool-'+iso)?'#add-stool-':'#stools-';
+      focusAfterRender((k==='weight'?'#in-weight-':k==='stool'?stool:'#condition-')+iso);
     }
     return;
   }
@@ -3058,7 +3057,7 @@ document.addEventListener('click', async (ev)=>{
     if(await saveDay(iso,{meal:{bowl:d.meal?.bowl===el.dataset.k?null:el.dataset.k}})){
       refreshSelectionStates();
       // The Today prompt closes once answered; keep focus on its card, not the page body.
-      if(el.id&&!document.getElementById(el.id))refocus('todo-'+localToday());
+      if(el.id&&!document.getElementById(el.id))refocus('todo-'+shiftDate(iso,1));
     }
     return;
   }
