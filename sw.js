@@ -2,11 +2,14 @@
 const VERSION = '3.6.0';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = new URL('index.html', SCOPE).href;
+const MANIFEST = new URL('manifest.webmanifest', SCOPE).href;
+const ICON = new URL('icon-180.png', SCOPE).href;
 // Older installs removed every "murphy-*" cache. This prefix also identifies its scope.
 const CACHE_PREFIX = 'murphy.logs:' + encodeURIComponent(SCOPE.href) + ':';
 const CACHE_NAME = CACHE_PREFIX + VERSION;
 const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/';
 const MODULES = new Set(['app', 'auth', 'firestore'].map(name => SDK + 'firebase-' + name + '.js'));
+const ASSETS = [MANIFEST, ICON];
 const FILES = [SHELL, ...MODULES];
 const FETCH_TIMEOUT_MS = 10000;
 
@@ -44,6 +47,12 @@ async function prepareCache() {
     return [url,response];
   }));
   await Promise.all(modules.map(([url,response]) => cache.put(url,response)));
+  await Promise.all(ASSETS.map(async url => {
+    try {
+      const response = await freshFile(url);
+      if (response.ok) await cache.put(url, response);
+    } catch {}
+  }));
   await cache.put(SHELL,shell);
 }
 async function appStatus() {
@@ -122,6 +131,13 @@ self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  if (url.href === MANIFEST || url.href === ICON) {
+    event.respondWith(caches.match(request.url).then(cached => cached || fetch(request).then(response => {
+      if (response.ok) openCache().then(c => c?.put(request.url, response.clone())).catch(() => {});
+      return response;
+    }).catch(() => cached || Response.error())));
+    return;
+  }
   if (MODULES.has(url.href)) {
     const loaded = moduleResponse(request);
     event.respondWith(loaded);
