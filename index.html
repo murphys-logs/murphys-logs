@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.6.1">
+<html lang="en-GB" data-version="3.6.2">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -564,7 +564,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.6.1';
+const APP_VERSION = '3.6.2';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -1695,10 +1695,13 @@ function focusAfterRender(selector){
   target.focus({preventScroll:true});
   target.scrollIntoView({block:'start',behavior:'instant'});
 }
-function navigateTo(tab,{date,target}={}){
+function navigateTo(tab,{date,target,stoolId}={}){
+  persistDrafts();
   if(tab==='day'&&!date&&!S.cursor)date=shiftDate(localToday(),-1);
-  S.tab=tab;if(date)S.cursor=date;
-  render();
+  S.tab=tab;if(tab==='day'&&date)S.cursor=date;
+  draftToday=null;draftResume=null;
+  activateDraftView(stoolId);
+  render(true);persistDrafts();
   focusAfterRender(target||(tab==='day'?'#history-heading':'#main h2.screen'));
   if(tab==='day')announceHistoryDate();
 }
@@ -1718,7 +1721,8 @@ function renderFeedback(){
   // Another notice can replace the detailed sync error without resolving it.
   if(recordStatus.text==='Saved locally; retry sync'&&!b?.retry)
     html+='<div class="note warn"><b>Sync pending</b><div class="feedback-actions"><button id="retry-sync" class="link" data-act="retrysync">Retry sync</button></div></div>';
-  if(draftRecovery)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button class="link" data-act="recoverdraft">Restore entries</button><button class="link" data-act="dismissdraft">Later</button></div></div>`;
+  if(draftRecovery&&draftUser===S.user.uid)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button class="link" data-act="recoverdraft">Restore entries</button><button class="link" data-act="dismissdraft">Later</button></div></div>`;
+  html+=hiddenDraftLinks();
   if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
   if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
   if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
@@ -1726,7 +1730,7 @@ function renderFeedback(){
 let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
-  if(S.ready)loadDrafts();
+  if(S.ready&&draftUser!==S.user.uid){loadDrafts();force=true;}
   renderFeedback();
   if (!S.ready){rendered='';$('#main').innerHTML='<p role="status">Loading saved records…</p>';return;}
   // Saved assessments refresh even while unrelated drafts defer the editable page.
@@ -1736,7 +1740,7 @@ function render(force=false){
   $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
   $('#status-attention')?.classList.toggle('hide',!needs);
   syncBcsGuidance();
-  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();return;}
+  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();restoreDraftInputs();renderFeedback();return;}
   renderPending=false;
   // The cursor belongs to History; other tabs leave its selection untouched.
   if(S.tab==='day'&&!S.cursor)S.cursor=shiftDate(localToday(),-1);
@@ -1752,19 +1756,23 @@ function render(force=false){
   const expanded=$$('#main details[id]').map(e=>[e.id,e.open]), focus=document.activeElement?.id;
   replaceRenderedHtml($('#main'),html);
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
-  if(focus&&document.activeElement?.id!==focus)refocus(focus);
+  if(focus&&!pendingDraft&&document.activeElement?.id!==focus)refocus(focus);
   restoreDraftInputs();
   syncBcsGuidance();
   refreshWeightConditionViews();
+  renderFeedback();
 }
 function leaveDraft(){
-  if (!$('#main [data-dirty],#main [data-stool]')) return true;
-  if (!confirm('Discard the unconfirmed draft?')) return false;
+  if (!$('#main [data-dirty],#main [data-stool]')&&!draftFields.length&&!draftStools.length) return true;
+  if (!confirm('Discard all unconfirmed drafts in this app session?')) return false;
   for(const form of $$('#main [data-dirty]')){
     const input=$('input,textarea',form);if(input)clearSaveError((form.hasAttribute('data-feeding')?'feeding:':'form:')+input.id);
     form.removeAttribute('data-dirty');
   }
-  if(stoolDraft)clearSaveError('stool:'+stoolDraft.id);
+  if(stoolDraft)clearSaveError('stool:'+S.adding+':'+stoolDraft.id);
+  for(const field of draftFields)clearSaveError((field.key==='feeding'?'feeding:':'form:')+field.id);
+  for(const stool of draftStools)clearSaveError('stool:'+stool.date+':'+stool.record.id);
+  draftFields=[];draftStools=[];draftExpanded=[];activeStoolKey=null;
   S.adding=null; stoolDraft=null; stoolOriginal=null; persistDrafts(); render(true); return true;
 }
 
@@ -2098,7 +2106,6 @@ function chooseHistoryDate(input,target='#history-date-label'){
     input.setAttribute('aria-invalid','true');
     error.textContent='Choose today or an earlier date within the range, or a future date already saved in History.';error.classList.remove('hide');return;
   }
-  if(!leaveDraft()){input.value=S.cursor;return;}
   navigateTo('day',{date:next,target});
 }
 function viewDay(){
@@ -2698,6 +2705,15 @@ function selfTest(){
 /* EVENTS */
 let stoolDraft=null, stoolOriginal=null, stoolReturnFocus=null;
 let draftSession, draftUser=null, draftTimer, pendingDraft=null, draftRecovery=null, draftToday=null;
+let draftFields=[],draftStools=[],draftExpanded=[],activeStoolKey=null,draftTransfer=null,draftResume=null;
+const fieldDraftId=f=>f.key+':'+(f.key==='setnum'?'':f.date+':')+f.id;
+const stoolDraftId=s=>s.date+':'+s.record.id;
+function mergeDrafts(older,newer,id){
+  const drafts=new Map(older.map(d=>[id(d),d]));
+  // Keep newer entries at the end, including identities also present in recovery.
+  for(const draft of newer){const key=id(draft);drafts.delete(key);drafts.set(key,draft);}
+  return [...drafts.values()];
+}
 function draftKey(){
   if(!draftSession){
     try{
@@ -2705,73 +2721,150 @@ function draftKey(){
       sessionStorage.setItem('murphy-draft-session',draftSession);
     }catch{draftSession=crypto.randomUUID();}
   }
-  return `murphy-draft:${S.user.uid}:${draftSession}`;
+  // Older app versions must not overwrite a multi-view ledger as a one-page draft.
+  return `murphy-draft-v2:${S.user.uid}:${draftSession}`;
 }
 function captureDrafts(){
-  const fields=$$('#main [data-dirty]').map(form=>{
+  const visible=$$('#main [data-form],#main [data-feeding]').map(form=>{
     const input=$('input,textarea',form);
-    return input?{id:input.id,date:form.dataset.date,key:form.dataset.key||'feeding',value:input.value}:null;
+    return input?{form,field:{id:input.id,date:form.dataset.date,key:form.dataset.key||'feeding',value:input.value,
+      ...(input.type==='number'&&(input.validity.badInput||input.dataset.incompleteNumber)?{incomplete:true}:{})}}:null;
   }).filter(Boolean);
+  const represented=new Set(visible.map(v=>fieldDraftId(v.field)));
+  const fields=visible.filter(v=>v.form.hasAttribute('data-dirty')).map(v=>v.field);
+  draftFields=draftFields.filter(f=>!represented.has(fieldDraftId(f))).concat(fields);
   const stool=stoolDraft&&S.adding?{date:S.adding,record:stoolDraft,original:stoolOriginal,
-    time:$('#st-t')?.value??stoolDraft.time,selectedDate:$('#st-date')?.value??S.adding}:null;
-  return fields.length||stool?{version:1,savedAt:Date.now(),tab:S.tab,cursor:S.cursor,fields,stool,
+    time:$('#st-t')?.value??stoolDraft.time,selectedDate:$('#st-date')?.value??S.adding,returnFocus:stoolReturnFocus}:null;
+  if(activeStoolKey)draftStools=draftStools.filter(s=>stoolDraftId(s)!==activeStoolKey);
+  activeStoolKey=stool?stoolDraftId(stool):null;
+  if(stool)draftStools=mergeDrafts(draftStools,[stool],stoolDraftId);
+  const details=$$('#main details[id]'),shown=new Set(details.map(el=>el.id));
+  draftExpanded=draftFields.length||draftStools.length?
+    draftExpanded.filter(id=>!shown.has(id)).concat(details.filter(el=>el.open).map(el=>el.id)):[];
+  if(draftToday&&!fields.length&&!stool){draftToday=null;rendered='';renderPending=true;}
+  return draftFields.length||draftStools.length?{version:2,savedAt:Date.now(),tab:S.tab,cursor:S.cursor,fields:draftFields,stools:draftStools,stool,
     viewDate:$('#main [data-stool-log]')?.dataset.stoolLog||null,
-    expanded:$$('#main details[id][open]').map(el=>el.id)}:null;
+    expanded:draftExpanded}:null;
 }
 function persistDrafts(){
   clearTimeout(draftTimer);
-  if(!S.user||!S.ready||draftUser!==S.user.uid||pendingDraft)return;
+  if(!S.user||!S.ready||draftUser!==S.user.uid||pendingDraft)return false;
+  // Capture first: memory retains every view even when device storage is full.
+  const data=captureDrafts(),key=draftKey();
   try{
-    const data=captureDrafts(),key=draftKey();
-    if(data)localStorage.setItem(key,JSON.stringify(data));else{
-      localStorage.removeItem(key);
-      if(draftToday){draftToday=null;rendered='';renderPending=true;}
+    if(data)localStorage.setItem(key,JSON.stringify(data));else localStorage.removeItem(key);
+    if(draftTransfer){
+      // Existence of an older destination copy is not proof of a successful transfer.
+      if(localStorage.getItem(draftTransfer.key)===draftTransfer.raw)localStorage.removeItem(draftTransfer.key);
+      draftTransfer=null;
     }
     if(S.banner?.source==='draft'){S.banner=null;renderFeedback();}
+    return true;
   }catch{
-    S.banner={kind:'warn',source:'draft',title:'Unfinished entries are only open in this app',text:'Device storage is unavailable. Save your entries before closing the app, or keep it open and try again.'};
+    S.banner={kind:'warn',source:'draft',title:'Unfinished entries are only open in this app',text:'Device storage is unavailable. You can move between screens, but keep this app open until you save your entries or draft storage works again.'};
     renderFeedback();
+    return false;
   }
 }
 function scheduleDrafts(){clearTimeout(draftTimer);draftTimer=setTimeout(persistDrafts,250);}
 function readDraft(raw){
   try{
     const data=JSON.parse(raw);
-    return data?.version===1&&Number.isFinite(data.savedAt)&&['today','day','status','history','more'].includes(data.tab)&&
+    const validStool=s=>validDate(s?.date)&&object(s.record)&&typeof s.record.id==='string'&&
+      typeof s.time==='string'&&typeof s.selectedDate==='string'&&(!s.original||s.original.id===s.record.id);
+    if(!([1,2].includes(data?.version)&&Number.isFinite(data.savedAt)&&['today','day','status','history','more'].includes(data.tab)&&
       (data.cursor===null||validDate(data.cursor))&&Array.isArray(data.fields)&&
       data.fields.every(f=>typeof f.id==='string'&&validDate(f.date)&&typeof f.key==='string'&&typeof f.value==='string')&&
       (data.viewDate===null||validDate(data.viewDate))&&Array.isArray(data.expanded)&&data.expanded.every(id=>typeof id==='string')&&
-      (!data.stool||validDate(data.stool.date)&&object(data.stool.record)&&typeof data.stool.record.id==='string'&&
-        typeof data.stool.time==='string'&&typeof data.stool.selectedDate==='string'&&
-        (!data.stool.original||data.stool.original.id===data.stool.record.id))?data:null;
+      (!data.stool||validStool(data.stool))&&
+      (data.version===1||Array.isArray(data.stools)&&data.stools.every(validStool))))return null;
+    return {...data,stools:data.version===1?(data.stool?[data.stool]:[]):data.stools};
   }catch{return null;}
 }
-function stageDraft(data){
-  pendingDraft=data;S.tab=data.tab;S.cursor=data.cursor;
-  draftToday=data.tab==='today'?data.viewDate:null;
-  if(data.stool){
-    S.adding=data.stool.date;stoolDraft={...data.stool.record};stoolOriginal=data.stool.original;
-    stoolReturnFocus='#add-stool-'+S.adding;
+function activateDraftView(stoolId){
+  const date=S.tab==='today'?(draftToday||localToday()):S.tab==='day'?S.cursor:null;
+  // Capture appends the active draft, so resume the most recently edited one.
+  let stool;
+  for(let i=draftStools.length-1;i>=0;i--){
+    const s=draftStools[i];if(s.date===date&&(!stoolId||s.record.id===stoolId)){stool=s;break;}
   }
-  // Recovery changes the view even if its generated markup matches an earlier render.
-  rendered='';
+  S.adding=stool?.date||null;stoolDraft=stool?{...stool.record}:null;stoolOriginal=stool?.original?{...stool.original}:null;
+  activeStoolKey=stool?stoolDraftId(stool):null;
+  if(stool)stoolReturnFocus=stool.returnFocus||'#add-stool-'+stool.date;
+  pendingDraft={fields:draftFields,stool,expanded:draftExpanded};rendered='';
+}
+function stageDraft(data,merge=false){
+  draftResume=null;
+  draftFields=merge?mergeDrafts(data.fields,draftFields,fieldDraftId):[...data.fields];
+  draftStools=merge?mergeDrafts(data.stools,draftStools,stoolDraftId):[...data.stools];
+  draftExpanded=[...new Set([...(merge?draftExpanded:[]),...data.expanded])];
+  S.tab=data.tab;S.cursor=data.cursor;
+  draftToday=data.tab==='today'?data.viewDate:null;
+  activateDraftView(data.stool?.record.id);
 }
 function loadDrafts(){
   if(draftUser===S.user.uid)return;
-  draftUser=S.user.uid;pendingDraft=null;draftRecovery=null;draftToday=null;
+  draftUser=S.user.uid;pendingDraft=null;draftRecovery=null;draftToday=null;draftTransfer=null;draftResume=null;
+  draftFields=[];draftStools=[];draftExpanded=[];activeStoolKey=null;S.adding=null;stoolDraft=null;stoolOriginal=null;
   try{
     const key=draftKey(),data=readDraft(localStorage.getItem(key));
     if(data){stageDraft(data);return;}
+    const legacy=`murphy-draft:${S.user.uid}:${draftSession}`,raw=localStorage.getItem(legacy),old=readDraft(raw);
+    if(old){draftTransfer={key:legacy,raw};stageDraft(old);return;}
     // A fresh Home Screen session may not retain sessionStorage. Offer its
     // newest durable copy without taking over another open tab's inputs.
-    const prefix=`murphy-draft:${S.user.uid}:`;
+    const prefixes=[`murphy-draft:${S.user.uid}:`,`murphy-draft-v2:${S.user.uid}:`];
     for(let i=0;i<localStorage.length;i++){
       const candidate=localStorage.key(i);
-      if(!candidate?.startsWith(prefix)||candidate===key)continue;
+      if(!prefixes.some(prefix=>candidate?.startsWith(prefix))||candidate===key)continue;
       const raw=localStorage.getItem(candidate),entry=readDraft(raw);
       if(entry&&(!draftRecovery||entry.savedAt>draftRecovery.data.savedAt))draftRecovery={key:candidate,raw,data:entry};
     }
   }catch{} // Saved records and the outbox remain usable if draft storage is denied.
+}
+function hiddenDrafts(){
+  if(!S.user||draftUser!==S.user.uid)return {fields:[],stools:[]};
+  return {fields:draftFields.filter(f=>{
+    const input=document.getElementById(f.id),form=input?.closest('[data-form],[data-feeding]');
+    return !form||(form.dataset.key||'feeding')!==f.key||(f.key!=='setnum'&&form.dataset.date!==f.date);
+  }),stools:draftStools.filter(s=>S.adding!==s.date||stoolDraft?.id!==s.record.id)};
+}
+function hiddenDraftLinks(){
+  const hidden=hiddenDrafts(),routes=new Map();
+  for(const f of hidden.fields){
+    const tab=f.key==='setnum'?'more':'day',id=tab==='more'?'settings':f.date;
+    routes.set(id,{tab,date:f.date,label:tab==='more'?'Settings':fmtDate(f.date)+' '+f.date.slice(0,4)});
+  }
+  for(const s of hidden.stools){
+    routes.set(stoolDraftId(s),{tab:'day',date:s.date,stoolId:s.record.id,label:`Stool · ${fmtDate(s.date)} ${s.date.slice(0,4)} · ${s.time}${BRISTOL[s.record.bristol]?` · Bristol ${s.record.bristol}`:''}`});
+  }
+  const unavailable=draftResume?hidden.fields.filter(f=>draftResume.tab==='more'?f.key==='setnum':f.key!=='setnum'&&f.date===draftResume.date):[];
+  const explanation=unavailable.length?'This entry is not available on this screen. '+
+    (unavailable.some(f=>f.key==='mealamount'&&S.days[f.date]?.meal?.recipe&&isEditablePlan(f.date,S.days[f.date].meal))?
+      'Supplement corrections are available once this meal is marked Fed. ':'')+
+    'Keep it for later, or discard hidden entries.':'Review before saving.';
+  return routes.size?`<div class="note plain"><b>Unfinished entries</b><span>${explanation}</span><div class="feedback-actions">${[...routes.values()].map(r=>`<button class="link" data-act="resumedraft" data-tab="${r.tab}" data-date="${r.date}" ${r.stoolId?`data-id="${esc(r.stoolId)}"`:''}>${esc(r.label)}</button>`).join('')}<button class="link" data-act="discardhiddendrafts">Discard hidden entries</button></div></div>`:'';
+}
+function discardHiddenDrafts(){
+  if(!S.user||!S.ready||draftUser!==S.user.uid||pendingDraft)return;
+  captureDrafts();
+  const hidden=hiddenDrafts();
+  if(!hidden.fields.length&&!hidden.stools.length)return;
+  if(!confirm('Discard all hidden unfinished entries? Entries open on this screen will be kept.'))return;
+  draftFields=draftFields.filter(f=>!hidden.fields.includes(f));
+  draftStools=draftStools.filter(s=>!hidden.stools.includes(s));
+  const retainedErrors=new Set(draftFields.map(f=>(f.key==='feeding'?'feeding:':'form:')+f.id));
+  for(const form of $$('#main [data-form],#main [data-feeding]')){
+    const input=$('input,textarea',form);if(input)retainedErrors.add((form.hasAttribute('data-feeding')?'feeding:':'form:')+input.id);
+  }
+  for(const field of hidden.fields){
+    const scope=(field.key==='feeding'?'feeding:':'form:')+field.id;if(!retainedErrors.has(scope))clearSaveError(scope);
+  }
+  for(const stool of hidden.stools)clearSaveError('stool:'+stool.date+':'+stool.record.id);
+  draftResume=null;
+  if(!persistDrafts())S.banner={kind:'warn',source:'draft',title:'Draft removal could not be stored',
+    text:'The hidden entries are closed in this app, but a previous copy may reappear when you reopen it. Device storage is unavailable.'};
+  renderFeedback();focusAfterRender('#main h2.screen');
 }
 function markInputDirty(input){
   const form=input.closest('[data-form],[data-feeding]');
@@ -2785,13 +2878,16 @@ function markInputDirty(input){
   }
 }
 function restoreDraftInputs(){
-  if(!pendingDraft)return;
-  const data=pendingDraft;pendingDraft=null;
+  const data=pendingDraft||{fields:draftFields};pendingDraft=null;
   for(const field of data.fields){
     const input=document.getElementById(field.id),form=input?.closest('[data-form],[data-feeding]');
-    if(!form||(field.key!=='setnum'&&form.dataset.date!==field.date)||(form.dataset.key||'feeding')!==field.key)continue;
+    if(!form||form.hasAttribute('data-dirty')||(field.key!=='setnum'&&form.dataset.date!==field.date)||(form.dataset.key||'feeding')!==field.key)continue;
     // A recovered weight remains editable even if another device marked it missed.
     input.disabled=false;input.value=field.value;markInputDirty(input);
+    if(field.incomplete){
+      input.dataset.incompleteNumber='true';
+      fieldError(input,'This number was unfinished. Enter it again, or cancel the entry.',false);
+    }
     for(let parent=form.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
   }
   if(data.stool){
@@ -2799,10 +2895,11 @@ function restoreDraftInputs(){
   }
   for(const id of data.expanded||[]){const el=document.getElementById(id);if(el?.tagName==='DETAILS')el.open=true;}
   // Never focus recovered native inputs: reopening must not launch a keyboard/picker.
+  if(draftTransfer)persistDrafts();
 }
 const confirmingInputs=new WeakSet();
 const entryDate=el=>el.dataset.date||(S.tab==='day'?S.cursor:localToday());
-function fieldError(input,message){
+function fieldError(input,message,focus=true){
   const form=input.closest('[data-form]');
   input.setCustomValidity(message);input.setAttribute('aria-invalid','true');
   let error=$('[data-field-error]',form);
@@ -2812,7 +2909,7 @@ function fieldError(input,message){
   error.textContent=message;error.classList.remove('hide');
   const descriptions=(input.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean);
   input.setAttribute('aria-describedby',[...new Set([...descriptions,error.id])].join(' '));
-  input.focus();
+  if(focus)input.focus();
 }
 function clearFieldError(input){
   input.setCustomValidity('');input.removeAttribute('aria-invalid');
@@ -2821,6 +2918,7 @@ function clearFieldError(input){
 }
 function finishInput(form,keep){
   const input=$('input,textarea',form);
+  delete input.dataset.incompleteNumber;
   clearFieldError(input);
   clearSaveError('form:'+input.id);
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
@@ -2841,7 +2939,7 @@ async function confirmInput(form){
   clearFieldError(el);
   const setting=form.dataset.setting, spec=k==='setnum'?settingsSpec[setting]:null;
   const n=v===''?null:Number(v);
-  if(el.validity.badInput){fieldError(el,'Finish entering a number, or clear the field.');return;}
+  if(el.validity.badInput||el.dataset.incompleteNumber){fieldError(el,'Finish entering a number, or clear the field.');return;}
   if(spec&&!validSettingNumber(n,spec)){
     fieldError(el,`${spec.label}: enter ${spec.min} to ${spec.max}${spec.step!==1?`, in steps of ${spec.step}`:''}.`);return;
   }
@@ -2881,22 +2979,25 @@ document.addEventListener('click', async (ev)=>{
   if(S.erasing&&['saveinput','bcs','event','missed','savestool','delstool','extra','fed','savefeedingtime','unfeed','bowl','applyadv','refuseadv','applyfibre','setfibre','addregime','delregime','delchange','undo','theme','signout'].includes(a)){
     eraseBlocksChanges();return;
   }
-  // A jump within Today keeps every draft, so only its History link needs the guard.
-  if ((['go','openday','dayshift','range','signout','erase'].includes(a)||a==='jump'&&el.dataset.k==='bowl')&&!leaveDraft()) return;
+  // Routine navigation keeps drafts. Only deliberate destructive exits discard them.
+  if (['signout','erase'].includes(a)&&!leaveDraft()) return;
   const d=S.days[iso]||{};
 
   if (a==='signin'){ return doSignIn(); }
   if(a==='dismissdraft'){draftRecovery=null;renderFeedback();return;}
   if(a==='recoverdraft'){
-    if(!draftRecovery||!leaveDraft())return;
-    const recovery=draftRecovery;draftRecovery=null;stageDraft(recovery.data);render(true);persistDrafts();
-    // Remove the old copy only after a successful durable transfer, and only
-    // if its original tab has not edited it since it was offered.
-    try{
-      if(localStorage.getItem(draftKey())&&localStorage.getItem(recovery.key)===recovery.raw)localStorage.removeItem(recovery.key);
-    }catch{}
+    if(!draftRecovery)return;
+    persistDrafts();
+    const recovery=draftRecovery;draftRecovery=null;draftTransfer=recovery;
+    stageDraft(recovery.data,true);render(true);persistDrafts();
     return;
   }
+  if(a==='resumedraft'){
+    navigateTo(el.dataset.tab,{date:iso,stoolId:el.dataset.id});
+    if(!el.dataset.id){draftResume={tab:el.dataset.tab,date:iso};renderFeedback();}
+    return;
+  }
+  if(a==='discardhiddendrafts'){discardHiddenDrafts();return;}
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
   if (a==='go'){ navigateTo(el.dataset.tab); return; }
   if (a==='openday'){
@@ -2936,7 +3037,7 @@ document.addEventListener('click', async (ev)=>{
     if(n!==-1&&n!==1)return;
     const next=shiftDate(S.cursor,n);
     if(permittedHistoryDate(next)){
-      S.cursor=next;render();announceHistoryDate();
+      navigateTo('day',{date:next,target:'#'+el.id});
       if(document.getElementById(el.id)?.disabled)refocus('history-date-label');
     }
     return; }
@@ -2973,20 +3074,28 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if (a==='openstool'||a==='editstool'){
-    if (!leaveDraft()) return;
+    persistDrafts();
     const old=(d.stools||[]).find(x=>x.id===el.dataset.id);
+    // New-entry buttons honour the tapped type; hidden new drafts have their own resume links.
+    const previous=old&&draftStools.find(s=>s.date===iso&&s.record.id===old.id);
+    if(previous){
+      activateDraftView(previous.record.id);render(true);persistDrafts();
+      ($('#main [data-act="stooltype"].on')||$('#main [data-act="stooltype"]'))?.focus({preventScroll:true});return;
+    }
     stoolReturnFocus=el.id?'#'+CSS.escape(el.id):old?`[data-act="editstool"][data-id="${CSS.escape(old.id)}"][data-date="${iso}"]`:`[data-act="openstool"][data-date="${iso}"]`;
     stoolOriginal=old?{...old}:null;
     // A quick-log type arrives preselected, so Save is the only remaining tap.
     const type=Number(el.dataset.b);
     stoolDraft=old?{...old}:{id:'s'+crypto.randomUUID(),time:nowHHMM(),mucus:false,blood:false,...(BRISTOL[type]?{bristol:type}:{})};
-    S.adding=iso; render(true);persistDrafts();
+    S.adding=iso;activeStoolKey=null;
+    pendingDraft={fields:draftFields,expanded:draftExpanded};
+    render(true);persistDrafts();
     // Focus the type, not the time: focusing a time field opens the iOS wheel over the form.
     ($('#main [data-act="stooltype"].on')||$('#main [data-act="stooltype"]'))?.focus({preventScroll:true});
     return;
   }
   if(a==='cancelstool'){
-    if(stoolDraft)clearSaveError('stool:'+stoolDraft.id);
+    if(stoolDraft)clearSaveError('stool:'+S.adding+':'+stoolDraft.id);
     const target=stoolReturnFocus,date=S.adding;S.adding=null;stoolDraft=null;stoolOriginal=null;
     persistDrafts();
     if($('#main [data-dirty]'))refreshStoolLog(date);else render(true);
@@ -3012,7 +3121,7 @@ document.addEventListener('click', async (ev)=>{
     const time=$('#st-t'), dateInput=$('#st-date');
     if (!time.reportValidity()||!dateInput.reportValidity()||!validDate(dateInput.value)||dateInput.value>localToday()) return;
     if(stoolOriginal&&!(S.days[S.adding]?.stools||[]).some(s=>s.id===stoolOriginal.id)){
-      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+stoolDraft.id);return;
+      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+S.adding+':'+stoolDraft.id);return;
     }
     el.disabled=true;
     const originalDate=S.adding, date=dateInput.value, list=S.days[date]?.stools||[], edited={...stoolDraft,time:time.value};
@@ -3023,19 +3132,21 @@ document.addEventListener('click', async (ev)=>{
     const saved=moving?moveStool(originalDate,date,next,stoolOriginal):saveDay(date,{stools:st});
     const failureScope=lastSaveFailure;
     if (await saved){
-      clearSaveError('stool:'+next.id);
+      clearSaveError('stool:'+originalDate+':'+next.id);
       S.adding=null;stoolDraft=null;stoolOriginal=null;
       persistDrafts();
       const otherDrafts=!!$('#main [data-dirty]'), moved=date!==originalDate;
       // History follows the record to its new date. Today keeps its daily
       // routine in place and offers the saved date instead (AV-03).
       const follow=moved&&!otherDrafts&&S.tab==='day';
-      if(follow)S.cursor=date;
-      else if(moved)S.banner={kind:'plain',title:`Stool saved for ${fmtDate(date)}`,view:date,
+      if(follow){
+        navigateTo('day',{date,target:`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${date}"]`});return;
+      }
+      if(moved)S.banner={kind:'plain',title:`Stool saved for ${fmtDate(date)}`,view:date,
         text:(otherDrafts?'Your other unfinished entries stay open. ':'')+'The stool is listed on that date in History.'};
       if(otherDrafts)refreshStoolLog(originalDate);else render(true);
       focusAfterRender(moved&&!follow?'#add-stool-'+originalDate:`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${date}"]`);
-    }else{bindSaveError('stool:'+next.id,failureScope);el.disabled=false;}
+    }else{bindSaveError('stool:'+originalDate+':'+next.id,failureScope);el.disabled=false;}
     return;
   }
   if(a==='delstool'){
@@ -3177,7 +3288,7 @@ document.addEventListener('click', async (ev)=>{
 });
 
 document.addEventListener('input',ev=>{
-  if(ev.target.matches('input,textarea'))clearFieldError(ev.target);
+  if(ev.target.matches('input,textarea')){delete ev.target.dataset.incompleteNumber;clearFieldError(ev.target);}
   if(ev.target.id==='history-date')$('#history-date-error')?.classList.add('hide');
   const form=ev.target.closest('[data-form]'), fresh=!!form&&!form.hasAttribute('data-dirty');
   markInputDirty(ev.target);
@@ -3227,7 +3338,6 @@ document.addEventListener('change', async (ev)=>{
 
 $('#tabbar').addEventListener('click', (ev)=>{
   const b=ev.target.closest('button[data-tab]'); if (!b) return;
-  if (!leaveDraft()) return;
   navigateTo(b.dataset.tab);
 });
 
@@ -3292,7 +3402,7 @@ window.addEventListener('focus',refreshLocalDay);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)persistDrafts();else refreshLocalDay();});
 window.addEventListener('pagehide',persistDrafts);
 
-window.appCanUpdate=()=>!S.undoBusy&&!S.erasing&&!importing&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
+window.appCanUpdate=()=>!draftFields.length&&!draftStools.length&&!S.undoBusy&&!S.erasing&&!importing&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
 window.addEventListener('app-shell-status',()=>{renderFeedback();if(S.tab==='more')render()});
 for(const [selector,property]of [['.topbar','--headerh'],['#feedback','--feedbackh']]){
   new ResizeObserver(entries=>document.documentElement.style.setProperty(property,entries[0].target.getBoundingClientRect().height+'px')).observe($(selector));

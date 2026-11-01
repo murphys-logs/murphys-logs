@@ -1,0 +1,19 @@
+{
+  "sourceCommit": "9cc5743da1e95f7b48f8c8f3f57e4557c515a603",
+  "sourceHtmlBytes": 211199,
+  "fixture": "Initial synthetic records and clock in draft-input.browser.cjs; two dates, not a large-history benchmark",
+  "browser": "Headless Microsoft Edge, mobile/touch context, service workers blocked",
+  "measurement": "Full document element count and scrollHeight after selecting each tab; zero document-level horizontal overflow",
+  "views": [
+    {"viewport": [390,844], "tab": "today", "elements": 345, "height": 3515},
+    {"viewport": [390,844], "tab": "day", "elements": 252, "height": 3509},
+    {"viewport": [390,844], "tab": "status", "elements": 181, "height": 2745},
+    {"viewport": [390,844], "tab": "history", "elements": 553, "height": 3928},
+    {"viewport": [390,844], "tab": "more", "elements": 202, "height": 4150},
+    {"viewport": [375,667], "tab": "today", "elements": 345, "height": 3536},
+    {"viewport": [375,667], "tab": "day", "elements": 252, "height": 3595},
+    {"viewport": [375,667], "tab": "status", "elements": 181, "height": 2766},
+    {"viewport": [375,667], "tab": "history", "elements": 553, "height": 3950},
+    {"viewport": [375,667], "tab": "more", "elements": 202, "height": 4194}
+  ]
+}

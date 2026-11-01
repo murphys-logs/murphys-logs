@@ -24,7 +24,7 @@ const html = original.replace(shellScript, `<script>
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
   .replace(/(<script type="module">[\s\S]*?)(<\/script>)/i, (_, body, end) => body + `
     window.testApp={S,persistDrafts,captureDrafts,refreshLocalDay,londonNow,
-      queuedWrites,setStatus,storeError,renderFeedback,open:tab=>navigateTo(tab),draftKey};
+      queuedWrites,setStatus,storeError,renderFeedback,render,open:(tab,options)=>navigateTo(tab,options),draftKey};
   ` + end);
 const stub = `
   const today='2026-11-01',yesterday='2026-10-31';
@@ -283,7 +283,7 @@ async function main() {
     assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1);
     await page.locator('[data-act="recoverdraft"]').click();
     assert.equal(await page.locator('#st-t').inputValue(), '22:17');
-    assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(key=>key.startsWith('murphy-draft:draft-test:')).length), 1);
+    assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(key=>key.startsWith('murphy-draft-v2:draft-test:')).length), 1);
     await page.evaluate(() => localStorage.setItem('test-user','other-account'));
     await reload();
     assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 0);
@@ -331,7 +331,7 @@ async function main() {
     await field('notes').fill('Keep this open when storage fails');
     await page.evaluate(() => {
       window.__setItem=Storage.prototype.setItem;
-      Storage.prototype.setItem=function(key,value){if(key.startsWith('murphy-draft:'))throw new DOMException('Quota','QuotaExceededError');return window.__setItem.call(this,key,value);};
+      Storage.prototype.setItem=function(key,value){if(key.startsWith('murphy-draft-v2:'))throw new DOMException('Quota','QuotaExceededError');return window.__setItem.call(this,key,value);};
       testApp.persistDrafts();
     });
     assert.match(await page.locator('#feedback').textContent(),/Device storage is unavailable/);
@@ -372,11 +372,13 @@ async function main() {
     await field('notes').fill('Previous day before midnight');await flush();
     await page.evaluate(() => localStorage.setItem('test-clock',String(Date.parse('2026-11-02T00:01:00Z'))));
     await reload();
-    page.once('dialog',dialog=>dialog.accept());
     await page.locator('[data-act="jump"][data-k="bowl"]').click();
     assert.equal(await page.evaluate(() => testApp.S.cursor),'2026-10-31');
     assert.equal(await page.evaluate(() => testApp.S.tab),'day');
-    passed++;console.log('PASS a recovered bowl shortcut keeps its displayed date after draft-discard cleanup');
+    await page.locator('[data-act="resumedraft"][data-date="2026-11-01"]').click();
+    assert.equal(await field('notes').inputValue(),'Previous day before midnight');
+    await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+    passed++;console.log('PASS a recovered bowl shortcut keeps its displayed date and the previous-day note');
 
     await page.locator('#tabbar [data-tab="today"]').click();
     const beforeQuick=await page.evaluate(()=>testApp.queuedWrites().length);
@@ -401,22 +403,25 @@ async function main() {
     assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-30');
     await page.locator('#history-date').press('Enter');
     assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
-    await field('notes').fill('History draft stays when date change is cancelled');
-    page.once('dialog',dialog=>dialog.dismiss());
+    await field('notes').fill('History draft survives changing dates');
     await page.locator('#history-date').fill('2026-10-28');
+    assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-28');
+    assert.equal(await field('notes').inputValue(),'');
+    await page.locator('#history-date').fill('2026-10-29');
     assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
-    assert.equal(await field('notes').inputValue(),'History draft stays when date change is cancelled');
+    assert.equal(await field('notes').inputValue(),'History draft survives changing dates');
     assert.equal(await page.locator('#history-date').inputValue(),'2026-10-29');
     assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),beforeQuick);
     await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
     await page.locator('#history-date').fill('2027-01-01');
     assert.equal(await page.locator('#history-date').getAttribute('aria-invalid'),'true');
     assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
-    passed++;console.log('PASS History date changes respect typed-entry commit, bounds and cancelled draft navigation');
+    passed++;console.log('PASS History date changes respect typed-entry commit, bounds and preserved drafts');
 
     assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
     console.log(JSON.stringify({passed,externalRequests:external,pageErrors:errors}));
     await context.close();
   }finally{await browser.close();}
 }
-main().catch(error=>{console.error(error);process.exitCode=1;});
+module.exports={html,stub,origin,chromium};
+if(require.main===module)main().catch(error=>{console.error(error);process.exitCode=1;});
