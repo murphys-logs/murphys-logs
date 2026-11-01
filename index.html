@@ -3082,7 +3082,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='unfeed'){
     if (el.disabled) return; el.disabled=true;
     if (await saveDay(iso,{meal:{fedAt:null}})){
-      const input=$('input',el.closest('[data-feeding]'));if(input)clearSaveError('feeding:'+input.id);
+      const input=el.closest('[data-feeding]')?.querySelector('input');if(input)clearSaveError('feeding:'+input.id);
       el.closest('[data-feeding]')?.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
     } else el.disabled=false;
     return;

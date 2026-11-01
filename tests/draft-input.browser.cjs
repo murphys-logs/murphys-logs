@@ -154,6 +154,17 @@ async function main() {
     assert.equal(await page.evaluate(() => testApp.S.localSaveError),null);
     assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight),18.75);
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length),1);
+    await page.locator('#recipe-2026-11-01').selectOption('fish');
+    await page.locator('[data-live-feeding="2026-11-01"] [data-act="fed"]').click();
+    assert.equal(await page.evaluate(() => !!testApp.S.days['2026-11-01'].meal.fedAt),true);
+    const beforeUndoFed=await page.evaluate(() => testApp.queuedWrites().length);
+    await page.locator('[data-live-feeding="2026-11-01"] [data-act="unfeed"]').click();
+    assert.equal(await page.evaluate(() => !!testApp.S.days['2026-11-01'].meal.fedAt),false);
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.recipe),'fish');
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),beforeUndoFed+1);
+    assert.equal(await page.locator('[data-live-feeding="2026-11-01"] [data-act="fed"]').count(),1);
+    assert.deepEqual(errors,[],'live Today Undo Fed has no explicit feeding-time form');
+    passed++;console.log('PASS live Today Fed and Undo Fed preserve the plan without a feeding-form error');
     // Start the remaining existing scenarios with the original synthetic baseline.
     await page.evaluate(() => {for(const key of Object.keys(localStorage))if(key.startsWith('murphy-outbox'))localStorage.removeItem(key);});
     await reload();
