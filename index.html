@@ -1698,7 +1698,7 @@ function navigateTo(tab,{date,target,stoolId}={}){
   persistDrafts();
   if(tab==='day'&&!date&&!S.cursor)date=shiftDate(localToday(),-1);
   S.tab=tab;if(tab==='day'&&date)S.cursor=date;
-  draftToday=null;
+  draftToday=null;draftResume=null;
   activateDraftView(stoolId);
   render(true);persistDrafts();
   focusAfterRender(target||(tab==='day'?'#history-heading':'#main h2.screen'));
@@ -2704,8 +2704,8 @@ function selfTest(){
 /* EVENTS */
 let stoolDraft=null, stoolOriginal=null, stoolReturnFocus=null;
 let draftSession, draftUser=null, draftTimer, pendingDraft=null, draftRecovery=null, draftToday=null;
-let draftFields=[],draftStools=[],draftExpanded=[],activeStoolKey=null,draftTransfer=null;
-const fieldDraftId=f=>f.key==='setnum'?f.id:f.date+':'+f.id;
+let draftFields=[],draftStools=[],draftExpanded=[],activeStoolKey=null,draftTransfer=null,draftResume=null;
+const fieldDraftId=f=>f.key+':'+(f.key==='setnum'?'':f.date+':')+f.id;
 const stoolDraftId=s=>s.date+':'+s.record.id;
 const mergeDrafts=(older,newer,id)=>[...new Map([...older,...newer].map(d=>[id(d),d])).values()];
 function draftKey(){
@@ -2733,7 +2733,8 @@ function captureDrafts(){
   activeStoolKey=stool?stoolDraftId(stool):null;
   if(stool)draftStools=mergeDrafts(draftStools,[stool],stoolDraftId);
   const details=$$('#main details[id]'),shown=new Set(details.map(el=>el.id));
-  draftExpanded=draftExpanded.filter(id=>!shown.has(id)).concat(details.filter(el=>el.open).map(el=>el.id));
+  draftExpanded=draftFields.length||draftStools.length?
+    draftExpanded.filter(id=>!shown.has(id)).concat(details.filter(el=>el.open).map(el=>el.id)):[];
   if(draftToday&&!fields.length&&!stool){draftToday=null;rendered='';renderPending=true;}
   return draftFields.length||draftStools.length?{version:2,savedAt:Date.now(),tab:S.tab,cursor:S.cursor,fields:draftFields,stools:draftStools,stool,
     viewDate:$('#main [data-stool-log]')?.dataset.stoolLog||null,
@@ -2783,6 +2784,7 @@ function activateDraftView(stoolId){
   pendingDraft={fields:draftFields,stool,expanded:draftExpanded};rendered='';
 }
 function stageDraft(data,merge=false){
+  draftResume=null;
   draftFields=merge?mergeDrafts(data.fields,draftFields,fieldDraftId):[...data.fields];
   draftStools=merge?mergeDrafts(data.stools,draftStools,stoolDraftId):[...data.stools];
   draftExpanded=[...new Set([...(merge?draftExpanded:[]),...data.expanded])];
@@ -2792,7 +2794,7 @@ function stageDraft(data,merge=false){
 }
 function loadDrafts(){
   if(draftUser===S.user.uid)return;
-  draftUser=S.user.uid;pendingDraft=null;draftRecovery=null;draftToday=null;draftTransfer=null;
+  draftUser=S.user.uid;pendingDraft=null;draftRecovery=null;draftToday=null;draftTransfer=null;draftResume=null;
   draftFields=[];draftStools=[];draftExpanded=[];activeStoolKey=null;S.adding=null;stoolDraft=null;stoolOriginal=null;
   try{
     const key=draftKey(),data=readDraft(localStorage.getItem(key));
@@ -2810,20 +2812,49 @@ function loadDrafts(){
     }
   }catch{} // Saved records and the outbox remain usable if draft storage is denied.
 }
-function hiddenDraftLinks(){
-  if(!S.user||draftUser!==S.user.uid)return '';
-  const routes=new Map();
-  for(const f of draftFields){
+function hiddenDrafts(){
+  if(!S.user||draftUser!==S.user.uid)return {fields:[],stools:[]};
+  return {fields:draftFields.filter(f=>{
     const input=document.getElementById(f.id),form=input?.closest('[data-form],[data-feeding]');
-    if(form&&(f.key==='setnum'||form.dataset.date===f.date))continue;
+    return !form||(form.dataset.key||'feeding')!==f.key||(f.key!=='setnum'&&form.dataset.date!==f.date);
+  }),stools:draftStools.filter(s=>S.adding!==s.date||stoolDraft?.id!==s.record.id)};
+}
+function hiddenDraftLinks(){
+  const hidden=hiddenDrafts(),routes=new Map();
+  for(const f of hidden.fields){
     const tab=f.key==='setnum'?'more':'day',id=tab==='more'?'settings':f.date;
     routes.set(id,{tab,date:f.date,label:tab==='more'?'Settings':fmtDate(f.date)+' '+f.date.slice(0,4)});
   }
-  for(const s of draftStools){
-    if(S.adding===s.date&&stoolDraft?.id===s.record.id)continue;
+  for(const s of hidden.stools){
     routes.set(stoolDraftId(s),{tab:'day',date:s.date,stoolId:s.record.id,label:`Stool · ${fmtDate(s.date)} ${s.date.slice(0,4)} · ${s.time}`});
   }
-  return routes.size?`<div class="note plain"><b>Unfinished entries</b><span>Review before saving.</span><div class="feedback-actions">${[...routes.values()].map(r=>`<button class="link" data-act="resumedraft" data-tab="${r.tab}" data-date="${r.date}" ${r.stoolId?`data-id="${esc(r.stoolId)}"`:''}>${esc(r.label)}</button>`).join('')}</div></div>`:'';
+  const unavailable=draftResume?hidden.fields.filter(f=>draftResume.tab==='more'?f.key==='setnum':f.key!=='setnum'&&f.date===draftResume.date):[];
+  const explanation=unavailable.length?'This entry is not available on this screen. '+
+    (unavailable.some(f=>f.key==='mealamount'&&S.days[f.date]?.meal?.recipe&&isEditablePlan(f.date,S.days[f.date].meal))?
+      'Supplement corrections are available once this meal is marked Fed. ':'')+
+    'Keep it for later, or discard hidden entries.':'Review before saving.';
+  return routes.size?`<div class="note plain"><b>Unfinished entries</b><span>${explanation}</span><div class="feedback-actions">${[...routes.values()].map(r=>`<button class="link" data-act="resumedraft" data-tab="${r.tab}" data-date="${r.date}" ${r.stoolId?`data-id="${esc(r.stoolId)}"`:''}>${esc(r.label)}</button>`).join('')}<button class="link" data-act="discardhiddendrafts">Discard hidden entries</button></div></div>`:'';
+}
+function discardHiddenDrafts(){
+  if(!S.user||!S.ready||draftUser!==S.user.uid||pendingDraft)return;
+  captureDrafts();
+  const hidden=hiddenDrafts();
+  if(!hidden.fields.length&&!hidden.stools.length)return;
+  if(!confirm('Discard all hidden unfinished entries? Entries open on this screen will be kept.'))return;
+  draftFields=draftFields.filter(f=>!hidden.fields.includes(f));
+  draftStools=draftStools.filter(s=>!hidden.stools.includes(s));
+  const retainedErrors=new Set(draftFields.map(f=>(f.key==='feeding'?'feeding:':'form:')+f.id));
+  for(const form of $$('#main [data-form],#main [data-feeding]')){
+    const input=$('input,textarea',form);if(input)retainedErrors.add((form.hasAttribute('data-feeding')?'feeding:':'form:')+input.id);
+  }
+  for(const field of hidden.fields){
+    const scope=(field.key==='feeding'?'feeding:':'form:')+field.id;if(!retainedErrors.has(scope))clearSaveError(scope);
+  }
+  for(const stool of hidden.stools)clearSaveError('stool:'+stool.date+':'+stool.record.id);
+  draftResume=null;
+  if(!persistDrafts())S.banner={kind:'warn',source:'draft',title:'Draft removal could not be stored',
+    text:'The hidden entries are closed in this app, but a previous copy may reappear when you reopen it. Device storage is unavailable.'};
+  renderFeedback();focusAfterRender('#main h2.screen');
 }
 function markInputDirty(input){
   const form=input.closest('[data-form],[data-feeding]');
@@ -2952,8 +2983,11 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if(a==='resumedraft'){
-    navigateTo(el.dataset.tab,{date:iso,stoolId:el.dataset.id});return;
+    navigateTo(el.dataset.tab,{date:iso,stoolId:el.dataset.id});
+    if(!el.dataset.id){draftResume={tab:el.dataset.tab,date:iso};renderFeedback();}
+    return;
   }
+  if(a==='discardhiddendrafts'){discardHiddenDrafts();return;}
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
   if (a==='go'){ navigateTo(el.dataset.tab); return; }
   if (a==='openday'){
@@ -3029,7 +3063,8 @@ document.addEventListener('click', async (ev)=>{
   if (a==='openstool'||a==='editstool'){
     persistDrafts();
     const old=(d.stools||[]).find(x=>x.id===el.dataset.id);
-    const previous=draftStools.find(s=>s.date===iso&&(old?s.record.id===old.id:!s.original));
+    // New-entry buttons honour the tapped type; hidden new drafts have their own resume links.
+    const previous=old&&draftStools.find(s=>s.date===iso&&s.record.id===old.id);
     if(previous){
       activateDraftView(previous.record.id);render(true);persistDrafts();
       ($('#main [data-act="stooltype"].on')||$('#main [data-act="stooltype"]'))?.focus({preventScroll:true});return;
