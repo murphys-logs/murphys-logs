@@ -11,7 +11,11 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const original = fs.readFileSync(process.env.APP_HTML || path.join(__dirname, '..', 'index.html'), 'utf8');
 const origin = 'http://127.0.0.1:8876';
 const start = Date.parse('2026-11-01T23:59:30Z');
-const html = original.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/i, `<script>
+// Replace the classic shell script (the first script block), whatever its tag
+// case or end-tag spacing; never the application module.
+const shellScript = /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/i;
+assert.doesNotMatch(original.match(shellScript)[0], /type=["']module["']/i, 'The first script is the classic shell script');
+const html = original.replace(shellScript, `<script>
   window.AppShell={state:{},ready(){}};
   const RealDate=Date;window.__now=Number(localStorage.getItem('test-clock'))||${start};
   window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[window.__now]));}static now(){return window.__now;}};
