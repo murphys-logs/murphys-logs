@@ -24,7 +24,7 @@ const html = original.replace(shellScript, `<script>
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
   .replace(/(<script type="module">[\s\S]*?)(<\/script>)/i, (_, body, end) => body + `
     window.testApp={S,persistDrafts,captureDrafts,refreshLocalDay,londonNow,
-      queuedWrites,open:tab=>navigateTo(tab),draftKey};
+      queuedWrites,setStatus,renderFeedback,open:tab=>navigateTo(tab),draftKey};
   ` + end);
 const stub = `
   const today='2026-11-01',yesterday='2026-10-31';
@@ -68,6 +68,38 @@ async function main() {
     const savedDraft = () => page.evaluate(() => JSON.parse(localStorage.getItem(testApp.draftKey())));
     const reload = async () => { await page.reload(); await page.waitForFunction(() => window.testApp?.S.ready); };
     const flush = () => page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    await field('weight').fill('18.75');
+    await page.evaluate(() => {
+      window.realSetItem=Storage.prototype.setItem;
+      Storage.prototype.setItem=function(key,value){
+        if(key.startsWith('murphy-outbox'))throw Error('Synthetic storage failure');
+        return window.realSetItem.call(this,key,value);
+      };
+    });
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await field('weight').inputValue(),'18.75');
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight),18.7);
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    await page.evaluate(() => { Storage.prototype.setItem=window.realSetItem; });
+    await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
+    await page.evaluate(() => {
+      testApp.S.banner={source:'sync',kind:'warn',retry:true,title:'Sync pending',text:'Synthetic sync failure'};
+      testApp.setStatus('Saved locally; retry sync','warn');
+    });
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+    assert.equal(await page.locator('#feedback').textContent(),'Sync pendingRetry sync');
+    await page.evaluate(() => {
+      testApp.S.banner={kind:'plain',title:'Notice',text:'Ordinary notice'};
+      testApp.setStatus('Synced');
+    });
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Synced');
+    passed++; console.log('PASS Dismiss preserves failed-save truth, sync Retry and a genuinely synced status');
+
     await field('notes').fill('Unfinished notes\nSecond line');
     await field('activeMin').fill('87');
     await flush();
