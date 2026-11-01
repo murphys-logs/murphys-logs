@@ -1215,10 +1215,10 @@ test('CC4: Delete focuses contextual Undo, and Undo returns focus to the restore
 test('CC4: contextual Undo labels escape untrusted stored text', () => {
   const h = makeHarness();
   h.start();
-  h.api.S.undo = { ...savedUndo(), label: 'Stool "<script>" & removed' };
+  h.api.S.undo = { ...savedUndo(), label: 'Stool "<script><SCRIPT>" & removed' };
   h.ui.renderFeedback();
-  assert.match(h.ui.element('#feedback').innerHTML, /aria-label="Undo: Stool &quot;&lt;script&gt;&quot; &amp; removed"/);
-  assert.doesNotMatch(h.ui.element('#feedback').innerHTML, /<script>/);
+  assert.match(h.ui.element('#feedback').innerHTML, /aria-label="Undo: Stool &quot;&lt;script&gt;&lt;SCRIPT&gt;&quot; &amp; removed"/);
+  assert.doesNotMatch(h.ui.element('#feedback').innerHTML, /<script\b/i);
 });
 
 test('CC4: failed Delete keeps its control usable and does not focus a previous Undo', async () => {
