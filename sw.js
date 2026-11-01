@@ -127,15 +127,25 @@ async function moduleResponse(request) {
     return response;
   } catch { return Response.error(); }
 }
+async function assetResponse(request) {
+  const cache = await openCache(), cached = await matchCache(cache,request.url);
+  if (cached) return {response:cached};
+  try {
+    const response = await fetch(request);
+    // Clone while the body is unused, then retain its write through waitUntil.
+    // The browser can consume the response without waiting for cache storage.
+    const saved = response.ok && cache ? cache.put(request.url,response.clone()).catch(() => {}) : undefined;
+    return {response,saved};
+  } catch { return {response:Response.error()}; }
+}
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
   if (url.href === MANIFEST || url.href === ICON) {
-    event.respondWith(caches.match(request.url).then(cached => cached || fetch(request).then(response => {
-      if (response.ok) openCache().then(c => c?.put(request.url, response.clone())).catch(() => {});
-      return response;
-    }).catch(() => cached || Response.error())));
+    const loaded = assetResponse(request);
+    event.respondWith(loaded.then(result => result.response));
+    event.waitUntil(loaded.then(result => result.saved));
     return;
   }
   if (MODULES.has(url.href)) {
