@@ -2,12 +2,17 @@
 <html lang="en-GB" data-version="3.5.5">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="dns-prefetch" href="https://www.gstatic.com">
+<link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#101010">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Murphy’s Logs">
 <title>Murphy’s Logs</title>
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%23161616'/%3E%3Cg fill='%23ddd'%3E%3Cellipse cx='64' cy='62' rx='14' ry='19'/%3E%3Cellipse cx='97' cy='54' rx='14' ry='20'/%3E%3Cellipse cx='128' cy='68' rx='13' ry='18'/%3E%3Cpath d='M96 88c19 0 34 14 34 29 0 13-11 20-24 20-8 0-12-3-20-3s-12 3-20 3c-13 0-24-7-24-20 0-15 15-29 34-29z'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root{
@@ -53,13 +58,15 @@
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{font:-apple-system-body;scroll-padding-top:calc(var(--headerh) + var(--feedbackh) + 1rem);scroll-padding-bottom:calc(var(--tabh) + 1rem)}
-html,body{margin:0;padding:0}
+html{font:-apple-system-body;scroll-padding-top:calc(var(--headerh) + var(--feedbackh) + 1rem);scroll-padding-bottom:calc(var(--tabh) + env(safe-area-inset-bottom, 0px) + 1rem)}
+html,body{margin:0;padding:0;touch-action:manipulation}
 body{
   background:var(--paper); color:var(--ink);
   font-family:var(--sans); font-size:1rem; line-height:1.5;
   -webkit-font-smoothing:antialiased; overscroll-behavior-y:contain;
 }
+button,input,select,textarea,summary,a,.btn,.link,.switch-row,[role="button"]{touch-action:manipulation}
+button,summary,.tabbar,.moment,.scale button,.btn,.link,[role="button"]{-webkit-user-select:none;user-select:none}
 button,input,select,textarea{font:inherit;color:inherit;accent-color:var(--accent);caret-color:var(--ink)}
 /* Neutral browser-owned text selection and form chrome where CSS is supported. */
 ::selection{background:var(--accent);color:var(--on-accent)}
@@ -72,7 +79,7 @@ input,select,.btn{min-height:44px}
 button:disabled{cursor:default}
 button:disabled:not(.btn){color:var(--ink-3)}
 .switch-row:disabled .switch-track{border:1px dashed currentColor;box-shadow:none;opacity:.5}
-button:not(:disabled):active{filter:brightness(.88);box-shadow:inset 0 0 0 2px var(--ink-3)}
+button:not(:disabled):active{opacity:.78;box-shadow:inset 0 0 0 2px var(--ink-3)}
 input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + var(--feedbackh) + 1rem) calc(var(--tabh) + 2rem)}
 .hide{display:none !important}
 .num,.row .v,.field input,.scale button,.bristol b{font-variant-numeric:tabular-nums}
@@ -90,14 +97,15 @@ input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + 
   border-bottom:1px solid var(--rule);
   padding:calc(env(safe-area-inset-top) + var(--s3)) var(--sr) var(--s2) var(--sl);
   display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:var(--s2) var(--s3);
+  transform:translateZ(0);will-change:transform;
 }
 .topbar .who{font-size:1rem;font-weight:650;letter-spacing:-.02em}
 .topbar .state{font-size:.75rem;color:var(--ink-3)}
 .topbar .state.warn{color:var(--watch)}
 .topbar .state.bad{color:var(--alert)}
 
-main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s6)) var(--sl);max-width:42rem;width:100%;margin:0 auto;min-width:0}
-.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow:auto}
+main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + env(safe-area-inset-bottom, 0px) + var(--s4)) var(--sl);max-width:42rem;width:100%;margin:0 auto;min-width:0}
+.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;transform:translateZ(0)}
 .feedback-region:empty{display:none}
 .feedback-region .note{margin:12px 0;padding:12px 16px;border:1px solid var(--rule-2);border-left-width:3px}
 .feedback-actions{display:flex;flex-wrap:wrap;gap:4px 20px;margin-top:4px}
@@ -109,6 +117,7 @@ main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s6)) var(--sl);
   display:grid;grid-template-columns:repeat(auto-fit,minmax(max(20%,8ch),1fr));font:.75rem/1.5 var(--sans);
   background:var(--surface);border-top:1px solid var(--rule-2);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  transform:translateZ(0);will-change:transform;
 }
 .tabbar button{
   position:relative;text-align:center;padding:10px 2px;font:inherit;color:var(--ink-3);white-space:normal;
