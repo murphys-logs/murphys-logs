@@ -2708,7 +2708,12 @@ let draftSession, draftUser=null, draftTimer, pendingDraft=null, draftRecovery=n
 let draftFields=[],draftStools=[],draftExpanded=[],activeStoolKey=null,draftTransfer=null,draftResume=null;
 const fieldDraftId=f=>f.key+':'+(f.key==='setnum'?'':f.date+':')+f.id;
 const stoolDraftId=s=>s.date+':'+s.record.id;
-const mergeDrafts=(older,newer,id)=>[...new Map([...older,...newer].map(d=>[id(d),d])).values()];
+function mergeDrafts(older,newer,id){
+  const drafts=new Map(older.map(d=>[id(d),d]));
+  // Keep newer entries at the end, including identities also present in recovery.
+  for(const draft of newer){const key=id(draft);drafts.delete(key);drafts.set(key,draft);}
+  return [...drafts.values()];
+}
 function draftKey(){
   if(!draftSession){
     try{
@@ -2778,7 +2783,11 @@ function readDraft(raw){
 }
 function activateDraftView(stoolId){
   const date=S.tab==='today'?(draftToday||localToday()):S.tab==='day'?S.cursor:null;
-  const stool=draftStools.find(s=>s.date===date&&(!stoolId||s.record.id===stoolId));
+  // Capture appends the active draft, so resume the most recently edited one.
+  let stool;
+  for(let i=draftStools.length-1;i>=0;i--){
+    const s=draftStools[i];if(s.date===date&&(!stoolId||s.record.id===stoolId)){stool=s;break;}
+  }
   S.adding=stool?.date||null;stoolDraft=stool?{...stool.record}:null;stoolOriginal=stool?.original?{...stool.original}:null;
   activeStoolKey=stool?stoolDraftId(stool):null;
   if(stool)stoolReturnFocus=stool.returnFocus||'#add-stool-'+stool.date;
@@ -2827,7 +2836,7 @@ function hiddenDraftLinks(){
     routes.set(id,{tab,date:f.date,label:tab==='more'?'Settings':fmtDate(f.date)+' '+f.date.slice(0,4)});
   }
   for(const s of hidden.stools){
-    routes.set(stoolDraftId(s),{tab:'day',date:s.date,stoolId:s.record.id,label:`Stool · ${fmtDate(s.date)} ${s.date.slice(0,4)} · ${s.time}`});
+    routes.set(stoolDraftId(s),{tab:'day',date:s.date,stoolId:s.record.id,label:`Stool · ${fmtDate(s.date)} ${s.date.slice(0,4)} · ${s.time}${BRISTOL[s.record.bristol]?` · Bristol ${s.record.bristol}`:''}`});
   }
   const unavailable=draftResume?hidden.fields.filter(f=>draftResume.tab==='more'?f.key==='setnum':f.key!=='setnum'&&f.date===draftResume.date):[];
   const explanation=unavailable.length?'This entry is not available on this screen. '+

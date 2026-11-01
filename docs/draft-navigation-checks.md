@@ -29,5 +29,6 @@ On a synthetic-data preview, check Safari and the installed Home Screen app at n
 5. Use VoiceOver to reach the dated unfinished-entry links, Save, Cancel and Retry. Verify safe-area spacing and 44px tap targets. Native picker behavior is not established by desktop emulation.
 6. Check offline reopening and app-update blocking while unfinished entries exist, including hidden drafts.
 7. Hide an unfinished supplement correction with Undo Fed, follow its resume link, and check the explanation and Discard hidden entries control. Cancel the confirmation first, then confirm; any visible unfinished entry must remain. Also verify a new quick-log type does not reopen an older hidden stool draft.
+8. Keep two stool drafts for the same date. Visit Status and return: the draft last edited should reopen with its type and flags intact. Resume the older draft explicitly and repeat. Check the Bristol types in the resume links with VoiceOver.
 
 Do not mark these device checks complete from an emulated viewport. The version-2 draft store is device-only, isolated by account and session; legacy version-1 drafts are read and transferred only after successful local persistence. Firebase document shapes and persistence operations are unchanged.

@@ -231,6 +231,92 @@ async function main() {
       assert.equal(await queued(), 2, 'resuming the old draft must not save it');
     });
 
+    await scenario('same-date stool drafts resume the last-used entry and same-minute links distinguish their Bristol types', async ({ page, tab, day, reload, flush, drafts, queued }) => {
+      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="4"]`).click();
+      await page.locator('[data-act="savestool"]').click();
+      const savedId = await page.evaluate(() => testApp.S.days['2026-11-01'].stools[0].id);
+      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="6"]`).click();
+      await page.locator('#st-t').fill('22:16'); await flush();
+      const olderId = (await drafts()).stool.record.id;
+      await page.locator(`[data-act="editstool"][data-date="${TODAY}"][data-id="${savedId}"]`).click();
+      await page.locator('[data-act="cancelstool"]').click();
+      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="1"]`).click();
+      await page.locator('#st-t').fill('22:16');
+      await page.locator('[data-act="tog-mucus"]').click(); await flush();
+      const newerId = (await drafts()).stool.record.id;
+      assert.notEqual(newerId, olderId);
+
+      await tab('status'); await tab('today');
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true', 'returning to Today must retain the just-used draft, not silently select the oldest');
+      assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.locator('#st-t').inputValue(), '22:16');
+      await day(TODAY);
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true', 'the same-day History route must resume the same most recently used draft');
+
+      await tab('status'); await reload();
+      assert.equal(await page.evaluate(() => testApp.S.tab), 'status');
+      assert.equal((await drafts()).stool, null, 'Status has no active stool but still retains the dated draft ledger');
+      await tab('today');
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true', 'reopening from Status must preserve the most recently used draft');
+      assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
+
+      await tab('status'); await page.setViewportSize({ width: 375, height: 667 });
+      for (const [id, type] of [[olderId, 6], [newerId, 1]]) {
+        const link = page.locator(`[data-act="resumedraft"][data-id="${id}"]`);
+        assert.match(await link.textContent(), new RegExp(`Bristol\\s+${type}`));
+        assert.match(await link.textContent(), /22:16/);
+        assert.equal(await page.getByRole('button', { name: new RegExp(`Bristol\\s+${type}`) }).count(), 1, 'the visible type must also distinguish the accessible button name');
+        const bounds = await link.boundingBox();
+        assert.ok(bounds && bounds.height >= 44 && bounds.width >= 44, 'each resume action must remain an adequate tap target at 375 px');
+      }
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
+
+      await page.locator(`[data-act="resumedraft"][data-id="${olderId}"]`).click();
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'false');
+      await tab('status'); await tab('today');
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true', 'explicitly resuming the older entry makes it the last-used entry');
+      await day(TODAY); await flush();
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true');
+      const retainedNewer = (await drafts()).stools.find(s => s.record.id === newerId);
+      assert.equal(retainedNewer.record.bristol, 1); assert.equal(retainedNewer.record.mucus, true); assert.equal(retainedNewer.time, '22:16');
+      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-11-01'].stools.map(s => s.bristol)), [4]);
+      assert.equal(await queued(), 1, 'resuming and navigating must not confirm either draft');
+    });
+
+    const recoverySourceStools = [
+      { id: 'recovery-a', time: '07:10', bristol: 4, mucus: false, blood: false },
+      { id: 'recovery-b', time: '08:20', bristol: 3, mucus: false, blood: false }
+    ];
+    const olderRecoveryKey = 'murphy-draft-v2:draft-test:older-overlapping-session';
+    const olderRecovery = { version: 2, savedAt: Date.parse('2026-11-01T21:00:00Z'), tab: 'status', cursor: null, viewDate: null, expanded: [], fields: [], stool: null,
+      stools: recoverySourceStools.map((original, i) => ({ date: TODAY, record: { ...original, bristol: i === 0 ? 6 : 1 }, original,
+        time: '22:16', selectedDate: TODAY, returnFocus: '#add-stool-' + TODAY })) };
+    await scenario('restoring overlapping older drafts retains the current edit and its most-recent position', async ({ page, tab, flush, drafts, queued }) => {
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1);
+      await page.evaluate(stools => {
+        testApp.S.days['2026-11-01'].stools = stools;
+        testApp.render(true);
+      }, recoverySourceStools);
+      await page.locator(`[data-act="editstool"][data-date="${TODAY}"][data-id="recovery-a"]`).click();
+      await page.locator('#st-t').fill('09:42');
+      await page.locator('[data-act="tog-mucus"]').click();
+      await tab('status');
+      await page.locator('[data-act="recoverdraft"]').click(); await flush();
+      const merged = (await drafts()).stools;
+      const current = merged.find(s => s.record.id === 'recovery-a');
+      assert.equal(current.time, '09:42'); assert.equal(current.record.mucus, true); assert.equal(current.record.bristol, 4);
+      assert.equal(merged.find(s => s.record.id === 'recovery-b').record.bristol, 1, 'the other recovered entry must remain available');
+      assert.equal(merged.at(-1).record.id, 'recovery-a', 'replacing the older duplicate must also retain the current edit’s recency');
+      await tab('today');
+      assert.equal(await page.locator('#st-t').inputValue(), '09:42');
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="4"]').getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.locator('[data-act="resumedraft"][data-id="recovery-b"]').count(), 1);
+      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-11-01'].stools), recoverySourceStools);
+      assert.equal(await queued(), 0, 'recovery restores drafts without confirming any record');
+    }, { local: { [olderRecoveryKey]: JSON.stringify(olderRecovery) } });
+
     await scenario('discarding inaccessible supplement and stool drafts requires confirmation and preserves a visible failed note', async ({ page, field, tab, day, flush, drafts, queued, expectDialog }) => {
       await page.locator(`#recipe-${TODAY}`).selectOption('fish');
       await page.locator(`#meal-fed-action-${TODAY}`).click();
