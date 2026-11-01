@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.5.5">
+<html lang="en-GB" data-version="3.6.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -544,7 +544,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.5.5';
+const APP_VERSION = '3.6.0';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -889,9 +889,15 @@ const S = {
 
 const localClock = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London',
   year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+let clockMinute, clockValue;
 function londonNow(){
-  const p=Object.fromEntries(localClock.formatToParts(new Date()).map(x=>[x.type,x.value]));
-  return {date:`${p.year}-${p.month}-${p.day}`,time:`${p.hour}:${p.minute}`,hour:Number(p.hour)};
+  const now=Date.now(),minute=Math.floor(now/60000);
+  if(minute!==clockMinute){
+    const p=Object.fromEntries(localClock.formatToParts(new Date(now)).map(x=>[x.type,x.value]));
+    clockValue={date:`${p.year}-${p.month}-${p.day}`,time:`${p.hour}:${p.minute}`,hour:Number(p.hour)};
+    clockMinute=minute;
+  }
+  return clockValue;
 }
 function localToday(){ return londonNow().date; }
 function nowHHMM(){ return londonNow().time; }
@@ -1655,6 +1661,7 @@ function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
   const b=S.banner,u=S.undo,app=window.AppShell?.state;
   let html=b?`<div class="note ${esc(b.kind)}" ${b.kind==='bad'?'role="alert"':''}><b>${esc(b.title)}</b>${esc(b.text)}<div class="feedback-actions">${b.retry?'<button id="retry-sync" class="link" data-act="retrysync">Retry sync</button>':''}<button id="dismiss-notice" class="link" data-act="dismiss-banner">Dismiss</button></div></div>`:'';
+  if(draftRecovery)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button class="link" data-act="recoverdraft">Restore entries</button><button class="link" data-act="dismissdraft">Later</button></div></div>`;
   if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
   if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
   if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
@@ -1662,6 +1669,7 @@ function renderFeedback(){
 let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
+  if(S.ready)loadDrafts();
   renderFeedback();
   if (!S.ready){rendered='';$('#main').innerHTML='<p role="status">Loading saved records…</p>';return;}
   // Saved assessments refresh even while unrelated drafts defer the editable page.
@@ -1690,18 +1698,20 @@ function render(force=false){
   replaceRenderedHtml($('#main'),html);
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
   if(focus&&document.activeElement?.id!==focus)refocus(focus);
+  restoreDraftInputs();
   syncBcsGuidance();
   refreshWeightConditionViews();
 }
 function leaveDraft(){
   if (!$('#main [data-dirty],#main [data-stool]')) return true;
   if (!confirm('Discard the unconfirmed draft?')) return false;
-  S.adding=null; stoolDraft=null; stoolOriginal=null; render(true); return true;
+  for(const form of $$('#main [data-dirty]'))form.removeAttribute('data-dirty');
+  S.adding=null; stoolDraft=null; stoolOriginal=null; persistDrafts(); render(true); return true;
 }
 
 /* TODAY */
 function viewToday(){
-  const today=localToday();
+  const today=draftToday||localToday();
   const adv=weeklyAdvice(), {fib,vet}=insights();
   let head='';
   if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>v.title).join('. '))}. <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
@@ -1709,7 +1719,7 @@ function viewToday(){
   else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
 
   const miss=missingFor(today);
-  return `<span class="moment">Today</span><h2 class="screen">${fmtDate(today)}</h2>`+weightConditionSummary(today)+head+
+  return `<span class="moment">${today===localToday()?'Today':'Unfinished entries'}</span><h2 class="screen">${fmtDate(today)}</h2>`+weightConditionSummary(today)+head+
     dailyFields(today,{activityDate:shiftDate(today,-1),live:true})+
     `<div class="note ${miss.length?'plain':'good'}">${miss.length?'<b>Still to log</b>'+miss.map(x=>`<button class="link" data-act="jump" data-k="${x.k}">${x.t}</button>`).join(', '):'<b>Core observations recorded</b>Stools, weight and condition are recorded. You can keep editing throughout the day.'}</div>`;
 }
@@ -1757,7 +1767,7 @@ function inputField(iso,k,label,min=0,max=600,step=1,helpText=''){
   const attrs=(spec?'required ':'')+(guidance?`aria-describedby="${id}-help ${id}-error"`:'');
   return `<div data-form data-date="${iso}" data-key="${k}" data-setting="${esc(label)}">
     ${k==='notes'?`<label class="inline-lab" for="${id}">Notes for ${fmtDate(iso)}</label><textarea id="${id}" class="tin" data-act="notes">${esc(value||'')}</textarea>`:
-    `<div class="field"><label for="${id}">${esc(shownLabel)}</label><input id="${id}" type="number" inputmode="${(spec?.step||step)<1?'decimal':'numeric'}" min="${spec?.min??min}" max="${spec?.max??max}" step="${spec?.step||step}" value="${esc(value??'')}" data-act="${k}" ${attrs} ${k==='weight'&&d.weightMissed===true?`disabled aria-describedby="weight-missed-${iso}-help"`:''} placeholder="—"></div>${help}`}
+    `<div class="field"><label for="${id}">${esc(shownLabel)}</label><input id="${id}" type="number" inputmode="${(spec?.step||step)<1?'decimal':'numeric'}" enterkeyhint="done" min="${spec?.min??min}" max="${spec?.max??max}" step="${spec?.step||step}" value="${esc(value??'')}" data-act="${k}" ${attrs} ${k==='weight'&&d.weightMissed===true?`disabled aria-describedby="weight-missed-${iso}-help"`:''} placeholder="—"></div>${help}`}
     <p class="field-error hide" id="${id}-error" data-field-error role="alert"></p>
   </div>`;
 }
@@ -1816,7 +1826,7 @@ function mealAmountEditor(iso,m){
   if(isEditablePlan(iso,m)||!m.recipe)return '';
   const fields=[['oilMl','Salmon oil, ml'],['fibreG','Pro-Fibre, g']].map(([key,label])=>{
     const id=`meal-amount-${iso}-${key}`;
-    return `<div data-form data-date="${iso}" data-key="mealamount" data-setting="${key}"><div class="field"><label for="${id}">${label}</label><input id="${id}" type="number" inputmode="decimal" min="0" step="0.1" value="${esc(m[key]??'')}" aria-describedby="${id}-help ${id}-error"></div><p class="field-help" id="${id}-help">Leave blank if the quantity is unknown. Save changes this quantity only.</p><p class="field-error hide" id="${id}-error" data-field-error role="alert"></p></div>`;
+    return `<div data-form data-date="${iso}" data-key="mealamount" data-setting="${key}"><div class="field"><label for="${id}">${label}</label><input id="${id}" type="number" inputmode="decimal" enterkeyhint="done" min="0" step="0.1" value="${esc(m[key]??'')}" aria-describedby="${id}-help ${id}-error"></div><p class="field-help" id="${id}-help">Leave blank if the quantity is unknown. Save changes this quantity only.</p><p class="field-error hide" id="${id}-error" data-field-error role="alert"></p></div>`;
   }).join('');
   return `<details class="meal-correction" id="meal-correction-${iso}"><summary>Correct supplement amounts</summary><p class="sub">These are corrections to the meal on ${fmtDate(iso)}. Inclusion switches, DARF, schedules and the original calorie estimate stay unchanged.</p><div class="stack">${fields}</div></details>`;
 }
@@ -1828,7 +1838,7 @@ function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null
   const m=plannedMeal(iso), r=RECIPES.find(x=>x.id===m.recipe), fed=isFedMeal(m);
   const disabled=live&&!fed;
   const title=previous?"Last night's meal":'Evening Meal';
-  const feedingControls=live?`<div data-live-feeding="${iso}">${liveFeedingControls(iso,m)}</div>`:
+  const feedingControls=live&&iso===localToday()?`<div data-live-feeding="${iso}">${liveFeedingControls(iso,m)}</div>`:
     `<div data-feeding data-date="${iso}"><label class="inline-lab" for="fed-time-${iso}">Actual feeding time · ${fmtDate(iso)}</label>
       <input class="tin" id="fed-time-${iso}" type="time" required value="${fed?esc(m.fedAt):''}">
       <div class="btnrow"><button class="btn sm" data-act="${fed?'savefeedingtime':'fed'}" data-fed-time="explicit" data-date="${iso}">${fed?'Save feeding time':'Fed'}</button><button class="btn ghost sm" data-act="cancelfeedingtime" data-date="${iso}">Cancel</button>${fed?`<button class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button>`:''}</div>
@@ -2601,6 +2611,110 @@ function selfTest(){
 
 /* EVENTS */
 let stoolDraft=null, stoolOriginal=null, stoolReturnFocus=null;
+let draftSession, draftUser=null, draftTimer, pendingDraft=null, draftRecovery=null, draftToday=null;
+function draftKey(){
+  if(!draftSession){
+    try{
+      draftSession=sessionStorage.getItem('murphy-draft-session')||crypto.randomUUID();
+      sessionStorage.setItem('murphy-draft-session',draftSession);
+    }catch{draftSession=crypto.randomUUID();}
+  }
+  return `murphy-draft:${S.user.uid}:${draftSession}`;
+}
+function captureDrafts(){
+  const fields=$$('#main [data-dirty]').map(form=>{
+    const input=$('input,textarea',form);
+    return input?{id:input.id,date:form.dataset.date,key:form.dataset.key||'feeding',value:input.value}:null;
+  }).filter(Boolean);
+  const stool=stoolDraft&&S.adding?{date:S.adding,record:stoolDraft,original:stoolOriginal,
+    time:$('#st-t')?.value??stoolDraft.time,selectedDate:$('#st-date')?.value??S.adding}:null;
+  return fields.length||stool?{version:1,savedAt:Date.now(),tab:S.tab,cursor:S.cursor,fields,stool,
+    viewDate:$('#main [data-stool-log]')?.dataset.stoolLog||null,
+    expanded:$$('#main details[id][open]').map(el=>el.id)}:null;
+}
+function persistDrafts(){
+  clearTimeout(draftTimer);
+  if(!S.user||!S.ready||draftUser!==S.user.uid||pendingDraft)return;
+  try{
+    const data=captureDrafts(),key=draftKey();
+    if(data)localStorage.setItem(key,JSON.stringify(data));else{
+      localStorage.removeItem(key);
+      if(draftToday){draftToday=null;rendered='';renderPending=true;}
+    }
+    if(S.banner?.source==='draft'){S.banner=null;renderFeedback();}
+  }catch{
+    S.banner={kind:'warn',source:'draft',title:'Unfinished entries are only open in this app',text:'Device storage is unavailable. Save your entries before closing the app, or keep it open and try again.'};
+    renderFeedback();
+  }
+}
+function scheduleDrafts(){clearTimeout(draftTimer);draftTimer=setTimeout(persistDrafts,250);}
+function readDraft(raw){
+  try{
+    const data=JSON.parse(raw);
+    return data?.version===1&&Number.isFinite(data.savedAt)&&['today','day','status','history','more'].includes(data.tab)&&
+      (data.cursor===null||validDate(data.cursor))&&Array.isArray(data.fields)&&
+      data.fields.every(f=>typeof f.id==='string'&&validDate(f.date)&&typeof f.key==='string'&&typeof f.value==='string')&&
+      (data.viewDate===null||validDate(data.viewDate))&&Array.isArray(data.expanded)&&data.expanded.every(id=>typeof id==='string')&&
+      (!data.stool||validDate(data.stool.date)&&object(data.stool.record)&&typeof data.stool.record.id==='string'&&
+        typeof data.stool.time==='string'&&typeof data.stool.selectedDate==='string'&&
+        (!data.stool.original||data.stool.original.id===data.stool.record.id))?data:null;
+  }catch{return null;}
+}
+function stageDraft(data){
+  pendingDraft=data;S.tab=data.tab;S.cursor=data.cursor;
+  draftToday=data.tab==='today'?data.viewDate:null;
+  if(data.stool){
+    S.adding=data.stool.date;stoolDraft={...data.stool.record};stoolOriginal=data.stool.original;
+    stoolReturnFocus='#add-stool-'+S.adding;
+  }
+  // Recovery changes the view even if its generated markup matches an earlier render.
+  rendered='';
+}
+function loadDrafts(){
+  if(draftUser===S.user.uid)return;
+  draftUser=S.user.uid;pendingDraft=null;draftRecovery=null;draftToday=null;
+  try{
+    const key=draftKey(),data=readDraft(localStorage.getItem(key));
+    if(data){stageDraft(data);return;}
+    // A fresh Home Screen session may not retain sessionStorage. Offer its
+    // newest durable copy without taking over another open tab's inputs.
+    const prefix=`murphy-draft:${S.user.uid}:`;
+    for(let i=0;i<localStorage.length;i++){
+      const candidate=localStorage.key(i);
+      if(!candidate?.startsWith(prefix)||candidate===key)continue;
+      const raw=localStorage.getItem(candidate),entry=readDraft(raw);
+      if(entry&&(!draftRecovery||entry.savedAt>draftRecovery.data.savedAt))draftRecovery={key:candidate,raw,data:entry};
+    }
+  }catch{} // Saved records and the outbox remain usable if draft storage is denied.
+}
+function markInputDirty(input){
+  const form=input.closest('[data-form],[data-feeding]');
+  if(!form||form.hasAttribute('data-dirty'))return;
+  form.setAttribute('data-dirty','');
+  if(form.hasAttribute('data-feeding'))return;
+  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
+  if(form.dataset.key==='weight'){
+    const toggle=document.getElementById('weight-missed-'+form.dataset.date);
+    if(toggle){toggle.disabled=true;$('.switch-detail',toggle).textContent='Save or cancel the weight entry before marking it missed.';}
+  }
+}
+function restoreDraftInputs(){
+  if(!pendingDraft)return;
+  const data=pendingDraft;pendingDraft=null;
+  for(const field of data.fields){
+    const input=document.getElementById(field.id),form=input?.closest('[data-form],[data-feeding]');
+    if(!form||(field.key!=='setnum'&&form.dataset.date!==field.date)||(form.dataset.key||'feeding')!==field.key)continue;
+    // A recovered weight remains editable even if another device marked it missed.
+    input.disabled=false;input.value=field.value;markInputDirty(input);
+    for(let parent=form.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+  }
+  if(data.stool){
+    $('#st-t').value=data.stool.time;$('#st-date').value=data.stool.selectedDate;
+  }
+  for(const id of data.expanded||[]){const el=document.getElementById(id);if(el?.tagName==='DETAILS')el.open=true;}
+  // Never focus recovered native inputs: reopening must not launch a keyboard/picker.
+}
+const confirmingInputs=new WeakSet();
 const entryDate=el=>el.dataset.date||(S.tab==='day'?S.cursor:localToday());
 function fieldError(input,message){
   const form=input.closest('[data-form]');
@@ -2612,7 +2726,7 @@ function fieldError(input,message){
   error.textContent=message;error.classList.remove('hide');
   const descriptions=(input.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean);
   input.setAttribute('aria-describedby',[...new Set([...descriptions,error.id])].join(' '));
-  input.reportValidity();input.focus();
+  input.focus();
 }
 function clearFieldError(input){
   input.setCustomValidity('');input.removeAttribute('aria-invalid');
@@ -2629,6 +2743,7 @@ function finishInput(form,keep){
   }
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
   form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
+  persistDrafts();
   if(form.dataset.key==='weight'){
     const toggle=document.getElementById('weight-missed-'+form.dataset.date);
     if(toggle) toggle.outerHTML=weightSwitch(form.dataset.date,S.days[form.dataset.date]||{});
@@ -2637,11 +2752,14 @@ function finishInput(form,keep){
   if(document.activeElement.id!==input.id) refocus(input.id);
 }
 async function confirmInput(form){
-  if (!form.hasAttribute('data-dirty')) return;
+  if (!form.hasAttribute('data-dirty')||confirmingInputs.has(form)) return;
+  confirmingInputs.add(form);
+  try{
   const el=$('input,textarea',form), k=form.dataset.key, iso=form.dataset.date, v=el.value;
   clearFieldError(el);
   const setting=form.dataset.setting, spec=k==='setnum'?settingsSpec[setting]:null;
   const n=v===''?null:Number(v);
+  if(el.validity.badInput){fieldError(el,'Finish entering a number, or clear the field.');return;}
   if(spec&&!validSettingNumber(n,spec)){
     fieldError(el,`${spec.label}: enter ${spec.min} to ${spec.max}${spec.step!==1?`, in steps of ${spec.step}`:''}.`);return;
   }
@@ -2658,7 +2776,17 @@ async function confirmInput(form){
   const saved=k==='setnum'?saveSettings({[setting]:n}):k==='mealamount'?saveDay(iso,{meal:{[setting]:n}}):k==='darfFed'?saveMeal(iso,patch.meal):saveDay(iso,patch);
   if(await saved)finishInput(form,true);
   else if(S.banner?.source==='local-save')S.localSaveError='form:'+el.id;
+  }finally{confirmingInputs.delete(form);}
 }
+
+document.addEventListener('keydown',ev=>{
+  if(ev.key!=='Enter'||ev.isComposing||ev.keyCode===229||ev.repeat||ev.ctrlKey||ev.metaKey||ev.altKey||ev.shiftKey)return;
+  const input=ev.target;
+  if(!input.matches('input[type="number"]')||input.disabled)return;
+  const form=input.closest('[data-form]');
+  if(!form)return;
+  ev.preventDefault();void confirmInput(form);
+});
 
 document.addEventListener('click', async (ev)=>{
   const el=ev.target.closest('[data-act]'); if (!el) return;
@@ -2674,6 +2802,17 @@ document.addEventListener('click', async (ev)=>{
   const d=S.days[iso]||{};
 
   if (a==='signin'){ return doSignIn(); }
+  if(a==='dismissdraft'){draftRecovery=null;renderFeedback();return;}
+  if(a==='recoverdraft'){
+    if(!draftRecovery||!leaveDraft())return;
+    const recovery=draftRecovery;draftRecovery=null;stageDraft(recovery.data);render(true);persistDrafts();
+    // Remove the old copy only after a successful durable transfer, and only
+    // if its original tab has not edited it since it was offered.
+    try{
+      if(localStorage.getItem(draftKey())&&localStorage.getItem(recovery.key)===recovery.raw)localStorage.removeItem(recovery.key);
+    }catch{}
+    return;
+  }
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
   if (a==='go'){ navigateTo(el.dataset.tab); return; }
   if (a==='openday'){ navigateTo('day',{date:iso,target:el.dataset.target||'#history-date-label'}); return; }
@@ -2722,7 +2861,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='cancelinput'){ finishInput(el.closest('[data-form]')); return; }
   if (a==='cancelfeedingtime'){
     const form=el.closest('[data-feeding]'), input=$('input',form);
-    input.value=input.defaultValue; form.removeAttribute('data-dirty'); render();focusAfterRender('#'+input.id);return;
+    input.value=input.defaultValue; form.removeAttribute('data-dirty'); persistDrafts();render();focusAfterRender('#'+input.id);return;
   }
   if (a==='retrysync'){ flushWrites(); return; }
   if (a==='missed'){
@@ -2744,21 +2883,22 @@ document.addEventListener('click', async (ev)=>{
     stoolReturnFocus=el.id?'#'+CSS.escape(el.id):old?`[data-act="editstool"][data-id="${CSS.escape(old.id)}"][data-date="${iso}"]`:`[data-act="openstool"][data-date="${iso}"]`;
     stoolOriginal=old?{...old}:null;
     stoolDraft=old?{...old}:{id:'s'+crypto.randomUUID(),time:nowHHMM(),mucus:false,blood:false};
-    S.adding=iso; render(true); $('#st-t')?.focus(); return;
+    S.adding=iso; render(true);persistDrafts(); $('#st-t')?.focus(); return;
   }
   if(a==='cancelstool'){
     const target=stoolReturnFocus,date=S.adding;S.adding=null;stoolDraft=null;stoolOriginal=null;
+    persistDrafts();
     if($('#main [data-dirty]'))refreshStoolLog(date);else render(true);
     focusAfterRender(target);return;
   }
   if (a==='stooltype'){
     if (!stoolDraft) return;
     stoolDraft.bristol=Number(el.dataset.b);
-    $$('.bristol button').forEach(b=>{const on=Number(b.dataset.b)===stoolDraft.bristol;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)}); return;
+    $$('.bristol button').forEach(b=>{const on=Number(b.dataset.b)===stoolDraft.bristol;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)}); scheduleDrafts();return;
   }
   if (a==='tog-mucus'||a==='tog-blood'){
     if (!stoolDraft) return; const k=a.slice(4);
-    stoolDraft[k]=!stoolDraft[k];el.classList.toggle('on',stoolDraft[k]);el.setAttribute('aria-pressed',stoolDraft[k]);return;
+    stoolDraft[k]=!stoolDraft[k];el.classList.toggle('on',stoolDraft[k]);el.setAttribute('aria-pressed',stoolDraft[k]);scheduleDrafts();return;
   }
   if (a==='savestool'){
     if (el.disabled||!stoolDraft) return;
@@ -2777,6 +2917,7 @@ document.addEventListener('click', async (ev)=>{
     const saved=moving?moveStool(originalDate,date,next,stoolOriginal):saveDay(date,{stools:st});
     if (await saved){
       S.adding=null;stoolDraft=null;stoolOriginal=null;
+      persistDrafts();
       const otherDrafts=!!$('#main [data-dirty]');
       if(date!==originalDate&&!otherDrafts){S.cursor=date;S.tab='day';}
       if(otherDrafts){
@@ -2820,7 +2961,7 @@ document.addEventListener('click', async (ev)=>{
       if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
       el.disabled=true;
       if (await saveMeal(iso,{fedAt:input.value,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})})){
-        input.defaultValue=input.value; form.removeAttribute('data-dirty'); el.disabled=false; render();
+        input.defaultValue=input.value; form.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
       } else el.disabled=false;
       return;
     }
@@ -2832,7 +2973,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='unfeed'){
     if (el.disabled) return; el.disabled=true;
     if (await saveDay(iso,{meal:{fedAt:null}})){
-      el.closest('[data-feeding]')?.removeAttribute('data-dirty'); el.disabled=false; render();
+      el.closest('[data-feeding]')?.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
     } else el.disabled=false;
     return;
   }
@@ -2918,17 +3059,8 @@ document.addEventListener('click', async (ev)=>{
 
 document.addEventListener('input',ev=>{
   if(ev.target.matches('input,textarea'))clearFieldError(ev.target);
-  const feeding=ev.target.closest('[data-feeding]');
-  if(feeding){feeding.setAttribute('data-dirty','');return;}
-  const form=ev.target.closest('[data-form]');
-  if (form&&!form.hasAttribute('data-dirty')){
-    form.setAttribute('data-dirty','');
-    form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
-    if(form.dataset.key==='weight'){
-      const toggle=document.getElementById('weight-missed-'+form.dataset.date);
-      if(toggle){toggle.disabled=true;$('.switch-detail',toggle).textContent='Save or cancel the weight entry before marking it missed.';}
-    }
-  }
+  markInputDirty(ev.target);
+  if(ev.target.closest('[data-form],[data-feeding],[data-stool]'))scheduleDrafts();
 });
 
 
@@ -3023,9 +3155,10 @@ function refreshLocalDay(){
   renderedLocalDay=today;
   render();
 }
-setInterval(refreshLocalDay,1000);
+setInterval(refreshLocalDay,60000);
 window.addEventListener('focus',refreshLocalDay);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshLocalDay();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistDrafts();else refreshLocalDay();});
+window.addEventListener('pagehide',persistDrafts);
 
 window.appCanUpdate=()=>!S.undoBusy&&!S.erasing&&!importing&&!$('#history-picker').open&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
 window.addEventListener('app-shell-status',()=>{renderFeedback();if(S.tab==='more')render()});

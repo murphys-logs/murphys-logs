@@ -17,9 +17,13 @@ Reviewer: Codex. Baseline: `6ebf856`. Scope: local state, input events and execu
 
 ## Validation and review status
 
-Planned: existing import/restore/Undo regression suites; synthetic lifecycle, recovery, account isolation, keyboard and interrupted-input checks; exact comparison of protected Firebase functions/configuration; local browser checks if available.
+Implemented: per-tab durable draft records, 250 ms input debounce plus immediate hidden/pagehide capture, numeric Enter confirmation with an in-flight guard, inline number errors, minute-cached London time and minute-level midnight polling. Same-session drafts restore automatically; a fresh session offers recovery before taking over another tab's saved copy. Recovered Today entries retain their original date, including yesterday's activity and explicit feeding times; settings survive date changes. Confirmation/cancellation removes the corresponding durable input. Native inputs are never automatically focused during recovery.
 
-- [ ] Codex implementation and validation completed
+Validation: all **115** existing Node import/restore/Undo tests pass (including 62 calculation checks). `tests/draft-input.browser.cjs` adds **11** real-DOM browser scenarios with synthetic SDK modules, held sync locks and all external requests blocked: reload/background/cold-session recovery; midnight and settings dates; account/tab isolation; Enter deduplication, multiline notes, IME and incomplete-number validation; successful stool cleanup; unavailable/corrupt storage; minute caching and clock rollback. Zero page errors and zero external requests. The 1,000 same-minute clock reads performed zero additional Intl formatting calls.
+
+Compared the SDK imports, Firebase configuration/initialization, complete store/outbox/subscription block, auth block and destructive backend calls with baseline: unchanged. No runtime dependency or build step added. App/worker release identifiers are aligned at **3.6.0**.
+
+- [x] Codex implementation and validation completed
 - [ ] Independent Claude Code review of final changes
 - [ ] Independent Antigravity review of final changes
 
