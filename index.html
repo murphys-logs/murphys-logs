@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.5.3">
+<html lang="en-GB" data-version="3.5.4">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -544,7 +544,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.5.3';
+const APP_VERSION = '3.5.4';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -1084,6 +1084,7 @@ async function write(op){
     if(!S.user) throw Error('Sign in before saving');
     writeClock=Math.max(Date.now(),writeClock+1);
     op=timedRecovery(op,writeClock);
+    // Validate the successor timestamp before persisting; an out-of-range date must keep Undo usable.
     if(op.recover?.kind==='stool'&&recoveryMissing(op.recover))stoolRecoveryPatch(op.recover,S.days[op.recover.date]);
     localStorage.setItem(currentQueuePrefix()+writeClock+'-'+crypto.randomUUID(),JSON.stringify(op));
   }catch(e){storeError(e,writeScope(op));return false;}
@@ -1335,10 +1336,12 @@ async function removeWithUndo(recovery,operation){
     S.undo=previous;render();return false;
   }
   r.state='removed';S.undo=r;
+  if(S.banner?.kind==='good')S.banner=null;
   // If this small final write fails, the prepared copy remains recoverable after
   // the durable removal is replayed on reopening.
   try{localStorage.setItem(deviceKey('undo'),JSON.stringify(r));}catch{}
-  render();return true;
+  if(r.kind==='stool'&&renderPending)refreshStoolLog(r.date);else render();
+  return true;
 }
 async function undoRemoval(){
   const r=S.undo;if(!r||S.undoBusy)return;
@@ -1348,12 +1351,17 @@ async function undoRemoval(){
   }
   S.undoBusy=true;renderFeedback();
   const op=r.kind==='regime'?{regime:{date:r.date,count:r.count||1,indices:r.indices}}:{recover:r};
-  if(await write(op)){
+  const restored=await write(op);
+  if(restored){
     try{localStorage.removeItem(deviceKey('undo'));}catch{}
     S.undo=null;
     S.banner={kind:'good',title:'Restored on this device',text:'The removed item has been restored. Other saved entries are kept.'};
   }
-  S.undoBusy=false;render();
+  S.undoBusy=false;
+  if(restored&&r.kind==='stool'&&renderPending)refreshStoolLog(r.date);else render();
+  const targets=restored?r.kind==='stool'?[`stool-actions-${r.date}-${r.record.id}`,'add-stool-'+r.date,'dismiss-notice']:['dismiss-notice']:['undo-removal'];
+  const target=targets.map(id=>document.getElementById(id)).find(Boolean);
+  if(target){target.focus({preventScroll:true});target.scrollIntoView({block:'nearest',behavior:'instant'});}
 }
 
 function subscribe(){
@@ -1644,7 +1652,7 @@ function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
   const b=S.banner,u=S.undo,app=window.AppShell?.state;
   let html=b?`<div class="note ${esc(b.kind)}" ${b.kind==='bad'?'role="alert"':''}><b>${esc(b.title)}</b>${esc(b.text)}<div class="feedback-actions">${b.retry?'<button id="retry-sync" class="link" data-act="retrysync">Retry sync</button>':''}<button id="dismiss-notice" class="link" data-act="dismiss-banner">Dismiss</button></div></div>`:'';
-  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
+  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
   if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
   if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
 }
@@ -1881,7 +1889,7 @@ function stoolsCard(iso,previousMeal=false){
     const b=BRISTOL[s.bristol]||{word:'?',band:'a'};
     const attr=meal?`Last night's meal: ${RECIPES.find(x=>x.id===meal.recipe)?.short||meal.recipe}`:"Last night's meal not recorded as fed";
     return `<div class="stool"><span class="dot ${b.band}"></span><div class="body"><span class="t">${esc(s.time)} · Bristol ${esc(s.bristol)}, ${b.word}${s.mucus?' · mucus':''}${s.blood?' · blood':''}</span><span class="attr">${esc(attr)}</span>
-      <details id="stool-${esc(s.id)}"><summary class="link" aria-label="Stool actions at ${esc(s.time)}">Actions</summary><div class="chips">
+      <details id="stool-${esc(s.id)}"><summary id="stool-actions-${iso}-${esc(s.id)}" class="link" aria-label="Stool actions at ${esc(s.time)}">Actions</summary><div class="chips">
       <button class="link" data-act="editstool" data-date="${iso}" data-id="${esc(s.id)}">Edit</button>
       <button class="link" data-act="delstool" data-date="${iso}" data-id="${esc(s.id)}" aria-label="Delete stool at ${esc(s.time)}">Delete</button></div></details></div></div>`;
   }).join('');
@@ -1901,8 +1909,16 @@ function refreshStoolLog(iso){
   // including the previous-meal editor nested beside this log.
   const log=document.querySelector(`[data-stool-log="${iso}"]`);
   if(log){
+    const expanded=Array.from(log.querySelectorAll('details[id]'),el=>[el.id,el.open]), focus=document.activeElement?.id;
     const template=document.createElement('template');template.innerHTML=stoolsCard(iso);
-    log.replaceWith(template.content.querySelector('[data-stool-log]'));
+    const next=template.content.querySelector('[data-stool-log]'), draft=log.querySelector('[data-stool]'), nextDraft=next.querySelector('[data-stool]');
+    if(draft&&nextDraft){
+      // Keep the live draft connected: date/time values and iPhone picker state belong to its inputs.
+      for(const node of Array.from(log.childNodes))if(node!==draft)node.remove();
+      for(const node of Array.from(next.childNodes))if(node!==nextDraft)draft.before(node);
+    }else log.replaceWith(next);
+    for(const [id,open] of expanded){const el=document.getElementById(id);if(el)el.open=open;}
+    if(focus&&document.activeElement?.id!==focus)refocus(focus);
   }
   render();
 }
@@ -2771,8 +2787,9 @@ document.addEventListener('click', async (ev)=>{
   if(a==='delstool'){
     const record=(d.stools||[]).find(x=>x.id===el.dataset.id);if(!record)return;
     el.disabled=true;
-    await removeWithUndo({kind:'stool',date:iso,record,index:d.stools.indexOf(record),label:`Stool removed · ${fmtShort(iso)} at ${record.time||'time not recorded'}`},
+    const removed=await removeWithUndo({kind:'stool',date:iso,record,index:d.stools.indexOf(record),label:`Stool removed · ${fmtShort(iso)} at ${record.time||'time not recorded'}`},
       {col:'days',id:iso,patch:{date:iso,updatedAt:new Date().toISOString()},stools:{put:[],drop:[record.id]}});
+    if(removed)refocus('undo-removal');
     el.disabled=false;return;
   }
 

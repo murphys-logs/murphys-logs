@@ -46,25 +46,30 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
   const watchCache = empty();
   const snapshotData = value => sortSnapshotFields ? sortedFields(copy(value)) : copy(value);
   const storage = new Map(restoredStorage || []);
-  const subscriptions = new Map(), nodes = new Map(), downloads = [], windowListeners = new Map();
+  const subscriptions = new Map(), nodes = new Map(), downloads = [], windowListeners = new Map(), documentListeners = new Map();
   const serverWrites = [], transactions = [], failures = new Set();
   let held = true;
   const waitingLocks = [];
-  const controls = { beforeTransaction: null, beforeSet: null, afterRead: null, beforeCommit: null, afterTransaction: null, retryTransaction: null, beforeRemoveItem: null };
+  const controls = { beforeTransaction: null, beforeSet: null, afterRead: null, beforeCommit: null, afterTransaction: null, retryTransaction: null, beforeRemoveItem: null, beforeSetItem: null, absentIds: new Set() };
   const element = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
       id: selector.startsWith('#') ? selector.slice(1) : '',
       value: '', textContent: '', innerHTML: '', content: '', dataset: {},
       style: { setProperty() {} }, classList: { add() {}, remove() {}, toggle() {} },
       addEventListener() {}, setAttribute() {}, removeAttribute() {},
+      focus() { document.activeElement = this; },
+      scrollIntoView(options) { this.scrolled = copy(options); },
       getBoundingClientRect: () => ({ height: 0 }),
       querySelector: element, querySelectorAll: () => [], contains: () => false,
     });
     return nodes.get(selector);
   };
   const document = {
-    querySelector: element, querySelectorAll: () => [], getElementById: id => element('#' + id),
-    addEventListener() {}, documentElement: element('html'), activeElement: element('body'),
+    querySelector: element, querySelectorAll: () => [], getElementById: id => controls.absentIds.has(id) ? null : element('#' + id),
+    addEventListener(name, callback) {
+      if (!documentListeners.has(name)) documentListeners.set(name, []);
+      documentListeners.get(name).push(callback);
+    }, documentElement: element('html'), activeElement: element('body'),
   };
   const docData = ref => ref.col === 'settings' ? remote.settings : remote[ref.col][ref.id];
   const snapshot = value => ({ exists: () => value !== undefined, data: () => snapshotData(value), metadata: { fromCache: false } });
@@ -149,7 +154,10 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
     localStorage: {
       get length() { return storage.size; }, key: index => [...storage.keys()][index] ?? null,
       getItem: key => storage.has(key) ? storage.get(key) : null,
-      setItem: (key, value) => storage.set(key, String(value)),
+      setItem: (key, value) => {
+        if (controls.beforeSetItem) controls.beforeSetItem(key);
+        storage.set(key, String(value));
+      },
       removeItem: key => {
         if (controls.beforeRemoveItem) controls.beforeRemoveItem(key);
         storage.delete(key);
@@ -165,6 +173,10 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
     captureDownload: (...args) => downloads.push(args),
   });
   vm.runInContext(moduleSource + `
+    globalThis.uiApi = { renderFeedback, stoolsCard, refreshStoolLog,
+      deferRender: value => { renderPending = value; },
+      setStoolDraft: value => { stoolDraft = value; },
+      useRefresh: callback => { refreshStoolLog = callback; } };
     render = () => {};
     renderFeedback = () => {};
     download = captureDownload;
@@ -215,7 +227,14 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
     assert.ok(listeners.length, 'Application listens for ' + name);
     for (const callback of listeners) callback(event);
   };
+  const click = async (act, data = {}) => {
+    const target = { dataset: { act, ...data }, disabled: false, closest: () => target };
+    document.activeElement = target;
+    for (const callback of documentListeners.get('click') || []) await callback({ target });
+    return target;
+  };
   return { api, remote, watchCache, storage, serverWrites, transactions, failures, controls, emit, start, drain, importData, exported, setNow, dispatchWindowEvent,
+    ui: { ...context.uiApi, document, element, click },
     now: () => new Date(clockMs ?? Date.now()).toISOString() };
 }
 
@@ -1119,3 +1138,150 @@ test('AG-11: a retried Undo transaction derives freshness from its final remote 
   assertDayAndExport(h, expected);
   assertDrained(h);
 });
+
+// Focused UI boundary tests use the actual event handlers and recovery helpers.
+// Browser layout, native pickers and screen-reader output require a browser run.
+for (const deferred of [false, true]) {
+  test(`CC4: Delete and Undo ${deferred ? 'refresh the stool list while a draft defers rendering' : 'use normal rendering without an unnecessary targeted refresh'}`, async () => {
+    const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+    h.start(undoState(undoDay));
+    const refreshes = [];
+    h.ui.deferRender(deferred);
+    h.ui.useRefresh(iso => refreshes.push({ iso, stools: copy(h.api.S.days[iso].stools) }));
+    await h.ui.click('delstool', { date, id: undoStool.id });
+    h.setNow(time(11));
+    await h.ui.click('undo', { date });
+    assert.deepEqual(refreshes, deferred ? [
+      { iso: date, stools: [otherStool] },
+      { iso: date, stools: [undoStool, otherStool] },
+    ] : []);
+  });
+}
+
+test('CC4: targeted stool refresh keeps the live draft connected, with typed values and focus intact', () => {
+  const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+  h.start(undoState(undoDay));
+  h.api.S.adding = date;
+  h.ui.setStoolDraft({ ...undoStool, time: '08:00' });
+  const log = { childNodes: [], connected: true }, next = { childNodes: [] };
+  const node = parent => {
+    const value = { parent, remove() { this.parent.childNodes.splice(this.parent.childNodes.indexOf(this), 1); this.parent = null; } };
+    parent.childNodes.push(value);
+    return value;
+  };
+  const oldRow = node(log), draft = node(log), newRow = node(next), nextDraft = node(next);
+  draft.before = value => {
+    value.remove();
+    value.parent = log;
+    log.childNodes.splice(log.childNodes.indexOf(draft), 0, value);
+  };
+  const input = { id: 'st-t', value: '14:37', focus() { h.ui.document.activeElement = this; } };
+  const oldDetails = { id: 'existing-stool-actions', open: true }, newDetails = { id: oldDetails.id, open: false };
+  log.querySelectorAll = () => [oldDetails];
+  log.querySelector = () => draft;
+  log.replaceWith = () => { log.connected = false; };
+  next.querySelector = () => nextDraft;
+  h.ui.document.querySelector = selector => selector === `[data-stool-log="${date}"]` ? log : h.ui.element(selector);
+  h.ui.document.getElementById = id => id === input.id ? input : id === newDetails.id ? newDetails : h.ui.element('#' + id);
+  h.ui.document.createElement = name => {
+    assert.equal(name, 'template');
+    return { set innerHTML(value) { assert.match(value, /data-stool data-date=/); }, content: { querySelector: () => next } };
+  };
+  input.focus();
+  h.ui.refreshStoolLog(date);
+  assert.equal(log.connected, true, 'the draft ancestor must never be detached');
+  assert.equal(draft.parent, log);
+  assert.deepEqual(log.childNodes, [newRow, draft]);
+  assert.equal(oldRow.parent, null);
+  assert.equal(input.value, '14:37', 'the unsaved input value differs from stoolDraft and must survive');
+  assert.equal(h.ui.document.activeElement, input);
+  assert.equal(newDetails.open, true, 'unrelated expanded Actions stay expanded');
+});
+
+test('CC4: Delete focuses contextual Undo, and Undo returns focus to the restored stool Actions', async () => {
+  const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+  h.start(undoState(undoDay));
+  await h.ui.click('delstool', { date, id: undoStool.id });
+  assert.equal(h.ui.document.activeElement.id, 'undo-removal');
+  h.ui.renderFeedback();
+  assert.match(h.ui.element('#feedback').innerHTML, /aria-label="Undo: Stool removed .* at 08:00"/);
+  h.setNow(time(11));
+  await h.ui.click('undo', { date });
+  assert.equal(h.ui.document.activeElement.id, `stool-actions-${date}-${undoStool.id}`);
+  assert.equal(h.ui.document.activeElement.scrolled.block, 'nearest', 'the restored control must be brought into view');
+  assert.match(h.ui.stoolsCard(date), new RegExp(`id="stool-actions-${date}-${undoStool.id}"`));
+});
+
+test('CC4: contextual Undo labels escape untrusted stored text', () => {
+  const h = makeHarness();
+  h.start();
+  h.api.S.undo = { ...savedUndo(), label: 'Stool "<script>" & removed' };
+  h.ui.renderFeedback();
+  assert.match(h.ui.element('#feedback').innerHTML, /aria-label="Undo: Stool &quot;&lt;script&gt;&quot; &amp; removed"/);
+  assert.doesNotMatch(h.ui.element('#feedback').innerHTML, /<script>/);
+});
+
+test('CC4: failed Delete keeps its control usable and does not focus a previous Undo', async () => {
+  const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+  h.start(undoState(undoDay));
+  const previous = { kind: 'change', id: 'previous-undo', record: change('previous-change', 1) };
+  h.api.S.undo = previous;
+  h.controls.beforeSetItem = key => { if (key.startsWith('murphy-outbox')) throw Error('Synthetic quota failure'); };
+  const clicked = await h.ui.click('delstool', { date, id: undoStool.id });
+  assert.equal(clicked.disabled, false);
+  assert.equal(h.ui.document.activeElement, clicked);
+  assert.equal(h.api.S.undo, previous);
+  assert.equal(h.api.S.banner.kind, 'bad');
+  assert.equal(h.api.queuedWrites().length, 0);
+  assert.deepEqual(copy(h.api.S.days[date].stools), [undoStool, otherStool]);
+});
+
+test('CC4: failed Undo keeps its recovery and returns focus to the enabled Undo control', async () => {
+  const h = makeHarness({ server: undoState(deletedUndoDay()), storage: undoStorage(), now: time(11) });
+  h.start(undoState(deletedUndoDay()));
+  h.controls.beforeSetItem = key => { if (key.startsWith('murphy-outbox')) throw Error('Synthetic quota failure'); };
+  await h.ui.click('undo', { date });
+  assert.equal(h.api.S.undo.record.id, undoStool.id);
+  assert.equal(h.api.S.undoBusy, false);
+  assert.equal(h.ui.document.activeElement.id, 'undo-removal');
+  h.ui.renderFeedback();
+  assert.doesNotMatch(h.ui.element('#feedback').innerHTML, /id="undo-removal"[^>]*disabled/);
+  assert.equal(h.api.S.banner.kind, 'bad');
+  assert.deepEqual(copy(h.api.S.days[date].stools), [otherStool]);
+});
+
+test('CC4: Undo uses a visible fallback when its original day is not on screen', async () => {
+  const h = makeHarness({ server: undoState(deletedUndoDay()), storage: undoStorage(), now: time(11) });
+  h.start(undoState(deletedUndoDay()));
+  h.controls.absentIds.add(`stool-actions-${date}-${undoStool.id}`);
+  h.controls.absentIds.add('add-stool-' + date);
+  await h.ui.click('undo', { date });
+  assert.equal(h.ui.document.activeElement.id, 'dismiss-notice');
+});
+
+test('CC4: a non-stool Undo retains its recovery behavior and focuses its success notice', async () => {
+  const h = makeHarness({ now: time(11) });
+  h.start();
+  const record = change('removed-ration', -2);
+  h.api.S.undo = { id: 'ration-undo', kind: 'change', record, label: 'Ration adjustment removed' };
+  h.ui.deferRender(true);
+  h.ui.useRefresh(() => assert.fail('A ration recovery must not refresh a stool editor'));
+  await h.ui.click('undo', { date });
+  assert.equal(h.ui.document.activeElement.id, 'dismiss-notice');
+  assert.deepEqual(copy(h.api.S.changes), [record]);
+  await h.drain();
+  assert.deepEqual(h.remote.changes[record.id], record);
+  assertDrained(h);
+});
+
+for (const kind of ['good', 'warn', 'bad']) {
+  test(`CC4: a new successful removal ${kind === 'good' ? 'clears an old success banner' : `preserves a ${kind} banner`}`, async () => {
+    const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+    h.start(undoState(undoDay));
+    const banner = { kind, title: 'Previous feedback', text: 'Keep actionable feedback' };
+    h.api.S.banner = banner;
+    await deleteWithRealUndo(h);
+    assert.equal(h.api.S.banner, kind === 'good' ? null : banner);
+    assert.equal(h.api.S.undo.record.id, undoStool.id);
+  });
+}
