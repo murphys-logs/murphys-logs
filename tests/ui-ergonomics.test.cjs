@@ -198,16 +198,27 @@ test('History chooses a date inline with the existing bounds and no dialog', () 
   assert.doesNotMatch(html, /<dialog|history-picker/);
 });
 
-test('Return confirms a numeric field through its Save control; textareas keep newlines', async () => {
+test('Escape cancels a draft field; Return in the stool time saves through the Save control', async () => {
   const h = makeHarness();
-  const clicks = [], save = { click: () => clicks.push('save') };
-  const form = { hasAttribute: () => true, querySelector: selector => selector === '[data-act="saveinput"]' ? save : null };
-  const key = (tag, prevented = []) => ({ key: 'Enter', isComposing: false, preventDefault: () => prevented.push(true),
-    target: { id: 'in-weight-' + TODAY, matches: selector => selector === tag, closest: selector => selector === '[data-form]' ? form : null } });
-  const input = key('input'), textarea = key('textarea');
-  await h.dispatch('keydown', input);
-  await h.dispatch('keydown', textarea);
-  assert.deepEqual(clicks, ['save']);
+  const key = (name, target) => ({ key: name, isComposing: false, preventDefault() { this.prevented = true; }, target });
+  // Escape restores the saved value and clears the draft marker.
+  const attributes = new Set(['data-dirty']), confirmRow = { removed: false, remove() { this.removed = true; } };
+  const field = { id: 'in-treats-' + TODAY, value: '3', defaultValue: '1', setCustomValidity() {}, removeAttribute() {},
+    matches: selector => selector === 'input', closest: selector => selector === '[data-form]' ? form : null };
+  const form = { dataset: { key: 'treats', date: TODAY }, hasAttribute: name => attributes.has(name), removeAttribute: name => attributes.delete(name),
+    querySelector: selector => selector === 'input,textarea' ? field : selector === '[data-confirm]' ? confirmRow : null };
+  h.document.activeElement = field;
+  const escape = key('Escape', field);
+  await h.dispatch('keydown', escape);
+  assert.equal(escape.prevented, true);
+  assert.equal(field.value, '1');
+  assert.equal(attributes.has('data-dirty'), false);
+  assert.equal(confirmRow.removed, true);
+  // Return in the stool time field uses the stool Save control (and its validation).
+  const save = h.element('#main [data-act="savestool"]'); let saved = 0; save.click = () => saved++;
+  const time = { id: 'st-t', matches: selector => selector === '#st-t,#st-date', closest: () => null };
+  await h.dispatch('keydown', key('Enter', time));
+  assert.equal(saved, 1);
 });
 
 test('weight target labels derive from the single monitoring constant', () => {

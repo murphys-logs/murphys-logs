@@ -2,12 +2,17 @@
 <html lang="en-GB" data-version="3.6.0">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="dns-prefetch" href="https://www.gstatic.com">
+<link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#101010">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Murphy’s Logs">
 <title>Murphy’s Logs</title>
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%23161616'/%3E%3Cg fill='%23ddd'%3E%3Cellipse cx='64' cy='62' rx='14' ry='19'/%3E%3Cellipse cx='97' cy='54' rx='14' ry='20'/%3E%3Cellipse cx='128' cy='68' rx='13' ry='18'/%3E%3Cpath d='M96 88c19 0 34 14 34 29 0 13-11 20-24 20-8 0-12-3-20-3s-12 3-20 3c-13 0-24-7-24-20 0-15 15-29 34-29z'/%3E%3C/g%3E%3C/svg%3E">
 <style>
 :root{
@@ -54,19 +59,18 @@
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{font:-apple-system-body;scroll-padding-top:calc(var(--headerh) + var(--feedbackh) + 1rem);scroll-padding-bottom:calc(var(--tabh) + 1rem)}
-html,body{margin:0;padding:0}
+html,body{margin:0;padding:0;touch-action:manipulation}
 body{
   background:var(--paper); color:var(--ink);
   font-family:var(--sans); font-size:1rem; line-height:1.5;
   -webkit-font-smoothing:antialiased; overscroll-behavior-y:contain;
 }
+button,input,select,textarea,summary,a,.btn,.link,.switch-row,[role="button"]{touch-action:manipulation}
+button,summary,.tabbar,.moment,.scale button,.btn,.link,[role="button"]{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 button,input,select,textarea{font:inherit;color:inherit;accent-color:var(--accent);caret-color:var(--ink)}
 /* iOS zooms into a focused field under 16px. 1rem follows Dynamic Type and can be
    14–15px at smaller text sizes, so fields never drop below 16px. */
 input,select,textarea{font-size:max(16px,1rem)}
-/* Native-feeling taps: no double-tap zoom delay, no text-selection callout on controls. */
-button,summary,select,input,label{touch-action:manipulation}
-button,summary{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 /* Neutral browser-owned text selection and form chrome where CSS is supported. */
 ::selection{background:var(--accent);color:var(--on-accent)}
 input::file-selector-button{color:var(--ink);background:var(--surface-2);border-color:var(--rule-2)}
@@ -78,7 +82,7 @@ input,select,.btn{min-height:44px}
 button:disabled{cursor:default}
 button:disabled:not(.btn){color:var(--ink-3)}
 .switch-row:disabled .switch-track{border:1px dashed currentColor;box-shadow:none;opacity:.5}
-button:not(:disabled):active{filter:brightness(.88);box-shadow:inset 0 0 0 2px var(--ink-3)}
+button:not(:disabled):active{opacity:.78;box-shadow:inset 0 0 0 2px var(--ink-3)}
 input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + var(--feedbackh) + 1rem) calc(var(--tabh) + 2rem)}
 .hide{display:none !important}
 .num,.row .v,.field input,.scale button,.bristol b{font-variant-numeric:tabular-nums}
@@ -96,14 +100,15 @@ input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + 
   border-bottom:1px solid var(--rule);
   padding:calc(env(safe-area-inset-top) + var(--s3)) var(--sr) var(--s2) var(--sl);
   display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:var(--s2) var(--s3);
+  transform:translateZ(0);will-change:transform;
 }
 .topbar .who{font-size:1rem;font-weight:650;letter-spacing:-.02em}
 .topbar .state{font-size:.75rem;color:var(--ink-3)}
 .topbar .state.warn{color:var(--watch)}
 .topbar .state.bad{color:var(--alert)}
 
-main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s6)) var(--sl);max-width:42rem;width:100%;margin:0 auto;min-width:0}
-.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow:auto}
+main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s4)) var(--sl);max-width:42rem;width:100%;margin:0 auto;min-width:0}
+.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;transform:translateZ(0)}
 .feedback-region:empty{display:none}
 .feedback-region .note{margin:12px 0;padding:12px 16px;border:1px solid var(--rule-2);border-left-width:3px}
 .feedback-actions{display:flex;flex-wrap:wrap;gap:4px 20px;margin-top:4px}
@@ -115,6 +120,7 @@ main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s6)) var(--sl);
   display:grid;grid-template-columns:repeat(auto-fit,minmax(max(20%,8ch),1fr));font:.75rem/1.5 var(--sans);
   background:var(--surface);border-top:1px solid var(--rule-2);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  transform:translateZ(0);will-change:transform;
 }
 .tabbar button{
   position:relative;text-align:center;padding:10px 2px;font:inherit;color:var(--ink-3);white-space:normal;
@@ -908,9 +914,15 @@ const S = {
 
 const localClock = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London',
   year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+let clockMinute, clockValue;
 function londonNow(){
-  const p=Object.fromEntries(localClock.formatToParts(new Date()).map(x=>[x.type,x.value]));
-  return {date:`${p.year}-${p.month}-${p.day}`,time:`${p.hour}:${p.minute}`,hour:Number(p.hour)};
+  const now=Date.now(),minute=Math.floor(now/60000);
+  if(minute!==clockMinute){
+    const p=Object.fromEntries(localClock.formatToParts(new Date(now)).map(x=>[x.type,x.value]));
+    clockValue={date:`${p.year}-${p.month}-${p.day}`,time:`${p.hour}:${p.minute}`,hour:Number(p.hour)};
+    clockMinute=minute;
+  }
+  return clockValue;
 }
 function localToday(){ return londonNow().date; }
 function nowHHMM(){ return londonNow().time; }
@@ -1686,6 +1698,7 @@ function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
   const b=S.banner,u=S.undo,app=window.AppShell?.state;
   let html=b?`<div class="note ${esc(b.kind)}" ${b.kind==='bad'?'role="alert"':''}><b>${esc(b.title)}</b>${esc(b.text)}<div class="feedback-actions">${b.retry?'<button id="retry-sync" class="link" data-act="retrysync">Retry sync</button>':''}${b.view&&validDate(b.view)?`<button id="view-saved-day" class="link" data-act="openday" data-date="${b.view}">View in History</button>`:''}<button id="dismiss-notice" class="link" data-act="dismiss-banner">Dismiss</button></div></div>`:'';
+  if(draftRecovery)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button class="link" data-act="recoverdraft">Restore entries</button><button class="link" data-act="dismissdraft">Later</button></div></div>`;
   if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
   if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
   if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
@@ -1693,6 +1706,7 @@ function renderFeedback(){
 let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
+  if(S.ready)loadDrafts();
   renderFeedback();
   if (!S.ready){rendered='';$('#main').innerHTML='<p role="status">Loading saved records…</p>';return;}
   // Saved assessments refresh even while unrelated drafts defer the editable page.
@@ -1719,18 +1733,20 @@ function render(force=false){
   replaceRenderedHtml($('#main'),html);
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
   if(focus&&document.activeElement?.id!==focus)refocus(focus);
+  restoreDraftInputs();
   syncBcsGuidance();
   refreshWeightConditionViews();
 }
 function leaveDraft(){
   if (!$('#main [data-dirty],#main [data-stool]')) return true;
   if (!confirm('Discard the unconfirmed draft?')) return false;
-  S.adding=null; stoolDraft=null; stoolOriginal=null; render(true); return true;
+  for(const form of $$('#main [data-dirty]'))form.removeAttribute('data-dirty');
+  S.adding=null; stoolDraft=null; stoolOriginal=null; persistDrafts(); render(true); return true;
 }
 
 /* TODAY */
 function viewToday(){
-  const today=localToday();
+  const today=draftToday||localToday();
   const adv=weeklyAdvice(), {fib,vet}=insights();
   let head='';
   if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>v.title).join('. '))}. <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
@@ -1738,7 +1754,7 @@ function viewToday(){
   else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
 
   // Actionable logging leads; the read-only assessment folds to one line.
-  return `<span class="moment">Today</span><h2 class="screen">${fmtDate(today)}</h2>`+head+todoCard(today)+weightConditionFold(today)+
+  return `<span class="moment">${today===localToday()?'Today':'Unfinished entries'}</span><h2 class="screen">${fmtDate(today)}</h2>`+head+todoCard(today)+weightConditionFold(today)+
     dailyFields(today,{activityDate:shiftDate(today,-1),live:true});
 }
 const BOWLS=['cleared','left','refused'];
@@ -1867,7 +1883,7 @@ function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null
   const m=plannedMeal(iso), r=RECIPES.find(x=>x.id===m.recipe), fed=isFedMeal(m);
   const disabled=live&&!fed;
   const title=previous?"Last night's meal":'Evening Meal';
-  const feedingControls=live?`<div data-live-feeding="${iso}">${liveFeedingControls(iso,m)}</div>`:
+  const feedingControls=live&&iso===localToday()?`<div data-live-feeding="${iso}">${liveFeedingControls(iso,m)}</div>`:
     `<div data-feeding data-date="${iso}"><label class="inline-lab" for="fed-time-${iso}">Actual feeding time · ${fmtDate(iso)}</label>
       <input class="tin" id="fed-time-${iso}" type="time" required value="${fed?esc(m.fedAt):''}">
       <div class="btnrow"><button class="btn sm" data-act="${fed?'savefeedingtime':'fed'}" data-fed-time="explicit" data-date="${iso}">${fed?'Save feeding time':'Fed'}</button><button class="btn ghost sm" data-act="cancelfeedingtime" data-date="${iso}">Cancel</button>${fed?`<button class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button>`:''}</div>
@@ -2654,6 +2670,110 @@ function selfTest(){
 
 /* EVENTS */
 let stoolDraft=null, stoolOriginal=null, stoolReturnFocus=null;
+let draftSession, draftUser=null, draftTimer, pendingDraft=null, draftRecovery=null, draftToday=null;
+function draftKey(){
+  if(!draftSession){
+    try{
+      draftSession=sessionStorage.getItem('murphy-draft-session')||crypto.randomUUID();
+      sessionStorage.setItem('murphy-draft-session',draftSession);
+    }catch{draftSession=crypto.randomUUID();}
+  }
+  return `murphy-draft:${S.user.uid}:${draftSession}`;
+}
+function captureDrafts(){
+  const fields=$$('#main [data-dirty]').map(form=>{
+    const input=$('input,textarea',form);
+    return input?{id:input.id,date:form.dataset.date,key:form.dataset.key||'feeding',value:input.value}:null;
+  }).filter(Boolean);
+  const stool=stoolDraft&&S.adding?{date:S.adding,record:stoolDraft,original:stoolOriginal,
+    time:$('#st-t')?.value??stoolDraft.time,selectedDate:$('#st-date')?.value??S.adding}:null;
+  return fields.length||stool?{version:1,savedAt:Date.now(),tab:S.tab,cursor:S.cursor,fields,stool,
+    viewDate:$('#main [data-stool-log]')?.dataset.stoolLog||null,
+    expanded:$$('#main details[id][open]').map(el=>el.id)}:null;
+}
+function persistDrafts(){
+  clearTimeout(draftTimer);
+  if(!S.user||!S.ready||draftUser!==S.user.uid||pendingDraft)return;
+  try{
+    const data=captureDrafts(),key=draftKey();
+    if(data)localStorage.setItem(key,JSON.stringify(data));else{
+      localStorage.removeItem(key);
+      if(draftToday){draftToday=null;rendered='';renderPending=true;}
+    }
+    if(S.banner?.source==='draft'){S.banner=null;renderFeedback();}
+  }catch{
+    S.banner={kind:'warn',source:'draft',title:'Unfinished entries are only open in this app',text:'Device storage is unavailable. Save your entries before closing the app, or keep it open and try again.'};
+    renderFeedback();
+  }
+}
+function scheduleDrafts(){clearTimeout(draftTimer);draftTimer=setTimeout(persistDrafts,250);}
+function readDraft(raw){
+  try{
+    const data=JSON.parse(raw);
+    return data?.version===1&&Number.isFinite(data.savedAt)&&['today','day','status','history','more'].includes(data.tab)&&
+      (data.cursor===null||validDate(data.cursor))&&Array.isArray(data.fields)&&
+      data.fields.every(f=>typeof f.id==='string'&&validDate(f.date)&&typeof f.key==='string'&&typeof f.value==='string')&&
+      (data.viewDate===null||validDate(data.viewDate))&&Array.isArray(data.expanded)&&data.expanded.every(id=>typeof id==='string')&&
+      (!data.stool||validDate(data.stool.date)&&object(data.stool.record)&&typeof data.stool.record.id==='string'&&
+        typeof data.stool.time==='string'&&typeof data.stool.selectedDate==='string'&&
+        (!data.stool.original||data.stool.original.id===data.stool.record.id))?data:null;
+  }catch{return null;}
+}
+function stageDraft(data){
+  pendingDraft=data;S.tab=data.tab;S.cursor=data.cursor;
+  draftToday=data.tab==='today'?data.viewDate:null;
+  if(data.stool){
+    S.adding=data.stool.date;stoolDraft={...data.stool.record};stoolOriginal=data.stool.original;
+    stoolReturnFocus='#add-stool-'+S.adding;
+  }
+  // Recovery changes the view even if its generated markup matches an earlier render.
+  rendered='';
+}
+function loadDrafts(){
+  if(draftUser===S.user.uid)return;
+  draftUser=S.user.uid;pendingDraft=null;draftRecovery=null;draftToday=null;
+  try{
+    const key=draftKey(),data=readDraft(localStorage.getItem(key));
+    if(data){stageDraft(data);return;}
+    // A fresh Home Screen session may not retain sessionStorage. Offer its
+    // newest durable copy without taking over another open tab's inputs.
+    const prefix=`murphy-draft:${S.user.uid}:`;
+    for(let i=0;i<localStorage.length;i++){
+      const candidate=localStorage.key(i);
+      if(!candidate?.startsWith(prefix)||candidate===key)continue;
+      const raw=localStorage.getItem(candidate),entry=readDraft(raw);
+      if(entry&&(!draftRecovery||entry.savedAt>draftRecovery.data.savedAt))draftRecovery={key:candidate,raw,data:entry};
+    }
+  }catch{} // Saved records and the outbox remain usable if draft storage is denied.
+}
+function markInputDirty(input){
+  const form=input.closest('[data-form],[data-feeding]');
+  if(!form||form.hasAttribute('data-dirty'))return;
+  form.setAttribute('data-dirty','');
+  if(form.hasAttribute('data-feeding'))return;
+  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
+  if(form.dataset.key==='weight'){
+    const toggle=document.getElementById('weight-missed-'+form.dataset.date);
+    if(toggle){toggle.disabled=true;$('.switch-detail',toggle).textContent='Save or cancel the weight entry before marking it missed.';}
+  }
+}
+function restoreDraftInputs(){
+  if(!pendingDraft)return;
+  const data=pendingDraft;pendingDraft=null;
+  for(const field of data.fields){
+    const input=document.getElementById(field.id),form=input?.closest('[data-form],[data-feeding]');
+    if(!form||(field.key!=='setnum'&&form.dataset.date!==field.date)||(form.dataset.key||'feeding')!==field.key)continue;
+    // A recovered weight remains editable even if another device marked it missed.
+    input.disabled=false;input.value=field.value;markInputDirty(input);
+    for(let parent=form.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+  }
+  if(data.stool){
+    $('#st-t').value=data.stool.time;$('#st-date').value=data.stool.selectedDate;
+  }
+  for(const id of data.expanded||[]){const el=document.getElementById(id);if(el?.tagName==='DETAILS')el.open=true;}
+  // Never focus recovered native inputs: reopening must not launch a keyboard/picker.
+}
+const confirmingInputs=new WeakSet();
 const entryDate=el=>el.dataset.date||(S.tab==='day'?S.cursor:localToday());
 function fieldError(input,message){
   const form=input.closest('[data-form]');
@@ -2665,7 +2785,7 @@ function fieldError(input,message){
   error.textContent=message;error.classList.remove('hide');
   const descriptions=(input.getAttribute('aria-describedby')||'').split(/\s+/).filter(Boolean);
   input.setAttribute('aria-describedby',[...new Set([...descriptions,error.id])].join(' '));
-  input.reportValidity();input.focus();
+  input.focus();
 }
 function clearFieldError(input){
   input.setCustomValidity('');input.removeAttribute('aria-invalid');
@@ -2682,6 +2802,7 @@ function finishInput(form,keep){
   }
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
   form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
+  persistDrafts();
   if(form.dataset.key==='weight'){
     const toggle=document.getElementById('weight-missed-'+form.dataset.date);
     if(toggle) toggle.outerHTML=weightSwitch(form.dataset.date,S.days[form.dataset.date]||{});
@@ -2690,11 +2811,14 @@ function finishInput(form,keep){
   if(document.activeElement.id!==input.id) refocus(input.id);
 }
 async function confirmInput(form){
-  if (!form.hasAttribute('data-dirty')) return;
+  if (!form.hasAttribute('data-dirty')||confirmingInputs.has(form)) return;
+  confirmingInputs.add(form);
+  try{
   const el=$('input,textarea',form), k=form.dataset.key, iso=form.dataset.date, v=el.value;
   clearFieldError(el);
   const setting=form.dataset.setting, spec=k==='setnum'?settingsSpec[setting]:null;
   const n=v===''?null:Number(v);
+  if(el.validity.badInput){fieldError(el,'Finish entering a number, or clear the field.');return;}
   if(spec&&!validSettingNumber(n,spec)){
     fieldError(el,`${spec.label}: enter ${spec.min} to ${spec.max}${spec.step!==1?`, in steps of ${spec.step}`:''}.`);return;
   }
@@ -2711,7 +2835,17 @@ async function confirmInput(form){
   const saved=k==='setnum'?saveSettings({[setting]:n}):k==='mealamount'?saveDay(iso,{meal:{[setting]:n}}):k==='darfFed'?saveMeal(iso,patch.meal):saveDay(iso,patch);
   if(await saved)finishInput(form,true);
   else if(S.banner?.source==='local-save')S.localSaveError='form:'+el.id;
+  }finally{confirmingInputs.delete(form);}
 }
+
+document.addEventListener('keydown',ev=>{
+  if(ev.key!=='Enter'||ev.isComposing||ev.keyCode===229||ev.repeat||ev.ctrlKey||ev.metaKey||ev.altKey||ev.shiftKey)return;
+  const input=ev.target;
+  if(!input.matches('input[type="number"]')||input.disabled)return;
+  const form=input.closest('[data-form]');
+  if(!form)return;
+  ev.preventDefault();void confirmInput(form);
+});
 
 document.addEventListener('click', async (ev)=>{
   const el=ev.target.closest('[data-act]'); if (!el) return;
@@ -2728,6 +2862,17 @@ document.addEventListener('click', async (ev)=>{
   const d=S.days[iso]||{};
 
   if (a==='signin'){ return doSignIn(); }
+  if(a==='dismissdraft'){draftRecovery=null;renderFeedback();return;}
+  if(a==='recoverdraft'){
+    if(!draftRecovery||!leaveDraft())return;
+    const recovery=draftRecovery;draftRecovery=null;stageDraft(recovery.data);render(true);persistDrafts();
+    // Remove the old copy only after a successful durable transfer, and only
+    // if its original tab has not edited it since it was offered.
+    try{
+      if(localStorage.getItem(draftKey())&&localStorage.getItem(recovery.key)===recovery.raw)localStorage.removeItem(recovery.key);
+    }catch{}
+    return;
+  }
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
   if (a==='go'){ navigateTo(el.dataset.tab); return; }
   if (a==='openday'){
@@ -2780,7 +2925,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='cancelinput'){ finishInput(el.closest('[data-form]')); return; }
   if (a==='cancelfeedingtime'){
     const form=el.closest('[data-feeding]'), input=$('input',form);
-    input.value=input.defaultValue; form.removeAttribute('data-dirty'); render();focusAfterRender('#'+input.id);return;
+    input.value=input.defaultValue; form.removeAttribute('data-dirty'); persistDrafts();render();focusAfterRender('#'+input.id);return;
   }
   if (a==='retrysync'){ flushWrites(); return; }
   if (a==='missed'){
@@ -2804,13 +2949,14 @@ document.addEventListener('click', async (ev)=>{
     // A quick-log type arrives preselected, so Save is the only remaining tap.
     const type=Number(el.dataset.b);
     stoolDraft=old?{...old}:{id:'s'+crypto.randomUUID(),time:nowHHMM(),mucus:false,blood:false,...(BRISTOL[type]?{bristol:type}:{})};
-    S.adding=iso; render(true);
+    S.adding=iso; render(true);persistDrafts();
     // Focus the type, not the time: focusing a time field opens the iOS wheel over the form.
     ($('#main [data-act="stooltype"].on')||$('#main [data-act="stooltype"]'))?.focus({preventScroll:true});
     return;
   }
   if(a==='cancelstool'){
     const target=stoolReturnFocus,date=S.adding;S.adding=null;stoolDraft=null;stoolOriginal=null;
+    persistDrafts();
     if($('#main [data-dirty]'))refreshStoolLog(date);else render(true);
     focusAfterRender(target);return;
   }
@@ -2818,11 +2964,11 @@ document.addEventListener('click', async (ev)=>{
     if (!stoolDraft) return;
     stoolDraft.bristol=Number(el.dataset.b);
     $('#st-error')?.classList.add('hide');
-    $$('#main [data-act="stooltype"]').forEach(b=>{const on=Number(b.dataset.b)===stoolDraft.bristol;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)}); return;
+    $$('#main [data-act="stooltype"]').forEach(b=>{const on=Number(b.dataset.b)===stoolDraft.bristol;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)}); scheduleDrafts();return;
   }
   if (a==='tog-mucus'||a==='tog-blood'){
     if (!stoolDraft) return; const k=a.slice(4);
-    stoolDraft[k]=!stoolDraft[k];el.classList.toggle('on',stoolDraft[k]);el.setAttribute('aria-pressed',stoolDraft[k]);return;
+    stoolDraft[k]=!stoolDraft[k];el.classList.toggle('on',stoolDraft[k]);el.setAttribute('aria-pressed',stoolDraft[k]);scheduleDrafts();return;
   }
   if (a==='savestool'){
     if (el.disabled||!stoolDraft) return;
@@ -2845,6 +2991,7 @@ document.addEventListener('click', async (ev)=>{
     const saved=moving?moveStool(originalDate,date,next,stoolOriginal):saveDay(date,{stools:st});
     if (await saved){
       S.adding=null;stoolDraft=null;stoolOriginal=null;
+      persistDrafts();
       const otherDrafts=!!$('#main [data-dirty]'), moved=date!==originalDate;
       // History follows the record to its new date. Today keeps its daily
       // routine in place and offers the saved date instead (AV-03).
@@ -2890,7 +3037,7 @@ document.addEventListener('click', async (ev)=>{
       if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
       el.disabled=true;
       if (await saveMeal(iso,{fedAt:input.value,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})})){
-        input.defaultValue=input.value; form.removeAttribute('data-dirty'); el.disabled=false; render();
+        input.defaultValue=input.value; form.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
       } else el.disabled=false;
       return;
     }
@@ -2902,7 +3049,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='unfeed'){
     if (el.disabled) return; el.disabled=true;
     if (await saveDay(iso,{meal:{fedAt:null}})){
-      el.closest('[data-feeding]')?.removeAttribute('data-dirty'); el.disabled=false; render();
+      el.closest('[data-feeding]')?.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
     } else el.disabled=false;
     return;
   }
@@ -2994,18 +3141,11 @@ document.addEventListener('click', async (ev)=>{
 document.addEventListener('input',ev=>{
   if(ev.target.matches('input,textarea'))clearFieldError(ev.target);
   if(ev.target.id==='history-date')$('#history-date-error')?.classList.add('hide');
-  const feeding=ev.target.closest('[data-feeding]');
-  if(feeding){feeding.setAttribute('data-dirty','');return;}
-  const form=ev.target.closest('[data-form]');
-  if (form&&!form.hasAttribute('data-dirty')){
-    form.setAttribute('data-dirty','');
-    form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
-    if(form.dataset.key==='weight'){
-      const toggle=document.getElementById('weight-missed-'+form.dataset.date);
-      if(toggle){toggle.disabled=true;$('.switch-detail',toggle).textContent='Save or cancel the weight entry before marking it missed.';}
-    }
-    revealAboveKeyboard($('[data-confirm]',form));
-  }
+  const form=ev.target.closest('[data-form]'), fresh=!!form&&!form.hasAttribute('data-dirty');
+  markInputDirty(ev.target);
+  // Only a newly typed entry scrolls; recovered drafts never move the page.
+  if(fresh)revealAboveKeyboard($('[data-confirm]',form));
+  if(ev.target.closest('[data-form],[data-feeding],[data-stool]'))scheduleDrafts();
 });
 // iOS keeps the layout viewport full height behind the keyboard; only the visual
 // viewport shrinks. Scroll just enough for the new Save row to clear the keyboard
@@ -3017,14 +3157,13 @@ function revealAboveKeyboard(el){
   if(overlap>0)window.scrollBy(0,overlap);
 }
 window.visualViewport?.addEventListener('resize',()=>revealAboveKeyboard(document.activeElement?.closest?.('[data-dirty]')?.querySelector('[data-confirm]')));
-// Return/Enter confirms through the same Save control, so validation and the
-// weight-outlier confirmation are unchanged; textareas keep their newlines.
+// Numeric Return/Enter is handled above. Escape cancels a draft field; Return in
+// the stool time/date saves through the same Save control and its checks.
 document.addEventListener('keydown',ev=>{
   if(ev.isComposing||typeof ev.target?.closest!=='function')return;
   const t=ev.target, form=t.closest('[data-form]');
   if(form&&t.matches('input')){
-    if(ev.key==='Enter'){ev.preventDefault();$('[data-act="saveinput"]',form)?.click();}
-    else if(ev.key==='Escape'&&form.hasAttribute('data-dirty')){ev.preventDefault();finishInput(form);}
+    if(ev.key==='Escape'&&form.hasAttribute('data-dirty')){ev.preventDefault();finishInput(form);}
   }else if(ev.key==='Enter'&&t.matches('#st-t,#st-date')){ev.preventDefault();$('#main [data-act="savestool"]')?.click();}
   else if(t.id==='history-date'){
     if(ev.key==='Enter'){ev.preventDefault();chooseHistoryDate(t,'#history-date');}
@@ -3110,9 +3249,10 @@ function refreshLocalDay(){
   renderedLocalDay=today;
   render();
 }
-setInterval(refreshLocalDay,1000);
+setInterval(refreshLocalDay,60000);
 window.addEventListener('focus',refreshLocalDay);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden) refreshLocalDay();});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistDrafts();else refreshLocalDay();});
+window.addEventListener('pagehide',persistDrafts);
 
 window.appCanUpdate=()=>!S.undoBusy&&!S.erasing&&!importing&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
 window.addEventListener('app-shell-status',()=>{renderFeedback();if(S.tab==='more')render()});

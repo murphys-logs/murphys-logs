@@ -2,11 +2,14 @@
 const VERSION = '3.6.0';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = new URL('index.html', SCOPE).href;
+const MANIFEST = new URL('manifest.webmanifest', SCOPE).href;
+const ICON = new URL('icon-180.png', SCOPE).href;
 // Older installs removed every "murphy-*" cache. This prefix also identifies its scope.
 const CACHE_PREFIX = 'murphy.logs:' + encodeURIComponent(SCOPE.href) + ':';
 const CACHE_NAME = CACHE_PREFIX + VERSION;
 const SDK = 'https://www.gstatic.com/firebasejs/12.19.0/';
 const MODULES = new Set(['app', 'auth', 'firestore'].map(name => SDK + 'firebase-' + name + '.js'));
+const ASSETS = [MANIFEST, ICON];
 const FILES = [SHELL, ...MODULES];
 const FETCH_TIMEOUT_MS = 10000;
 
@@ -44,6 +47,12 @@ async function prepareCache() {
     return [url,response];
   }));
   await Promise.all(modules.map(([url,response]) => cache.put(url,response)));
+  await Promise.all(ASSETS.map(async url => {
+    try {
+      const response = await freshFile(url);
+      if (response.ok) await cache.put(url, response);
+    } catch {}
+  }));
   await cache.put(SHELL,shell);
 }
 async function appStatus() {
@@ -118,10 +127,27 @@ async function moduleResponse(request) {
     return response;
   } catch { return Response.error(); }
 }
+async function assetResponse(request) {
+  const cache = await openCache(), cached = await matchCache(cache,request.url);
+  if (cached) return {response:cached};
+  try {
+    const response = await fetch(request);
+    // Clone while the body is unused, then retain its write through waitUntil.
+    // The browser can consume the response without waiting for cache storage.
+    const saved = response.ok && cache ? cache.put(request.url,response.clone()).catch(() => {}) : undefined;
+    return {response,saved};
+  } catch { return {response:Response.error()}; }
+}
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = new URL(request.url);
+  if (url.href === MANIFEST || url.href === ICON) {
+    const loaded = assetResponse(request);
+    event.respondWith(loaded.then(result => result.response));
+    event.waitUntil(loaded.then(result => result.saved));
+    return;
+  }
   if (MODULES.has(url.href)) {
     const loaded = moduleResponse(request);
     event.respondWith(loaded);
