@@ -20,6 +20,7 @@ async function main() {
   let passed = 0;
   try {
     async function scenario(name, run, seed) {
+      const dialogExpectations = [];
       const context = await browser.newContext({
         viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block'
       });
@@ -38,7 +39,12 @@ async function main() {
       }, { seed, expectedOrigin: origin });
       async function boot(page) {
         page.on('pageerror', error => errors.push(name + ': ' + error.message));
-        page.on('dialog', dialog => { unexpectedDialogs.push(name + ': ' + dialog.message()); void dialog.dismiss(); });
+        page.on('dialog', dialog => {
+          const index = dialogExpectations.findIndex(expected => expected.page === page);
+          const expected = index < 0 ? null : dialogExpectations.splice(index, 1)[0];
+          if (!expected || !expected.pattern.test(dialog.message())) unexpectedDialogs.push(name + ': ' + dialog.message());
+          void (expected?.accept ? dialog.accept() : dialog.dismiss());
+        });
         await page.goto(origin + '/index.html');
         await page.waitForFunction(() => window.testApp?.S.ready);
       }
@@ -58,8 +64,10 @@ async function main() {
       const flush = () => page.evaluate(() => testApp.persistDrafts());
       const drafts = () => page.evaluate(() => JSON.parse(localStorage.getItem(testApp.draftKey())));
       const queued = () => page.evaluate(() => testApp.queuedWrites().length);
+      const expectDialog = (accept, pattern = /discard.*hidden/i, target = page) => dialogExpectations.push({ page: target, accept, pattern });
       try {
-        await run({ context, page, boot, field, tab, day, reload, flush, drafts, queued });
+        await run({ context, page, boot, field, tab, day, reload, flush, drafts, queued, expectDialog });
+        assert.equal(dialogExpectations.length, 0, 'every requested destructive action must display its expected confirmation');
         passed++; console.log('PASS ' + name);
       } finally { await context.close(); }
     }
@@ -197,6 +205,202 @@ async function main() {
         ['nav-a', '07:10', false, false], ['nav-b', '12:20', false, false]
       ]);
       await flush(); assert.equal(await drafts(), null); assert.equal(await queued(), 0);
+    });
+
+    await scenario('a new quick-log tap never resumes an older hidden new-stool draft', async ({ page, flush, drafts, queued }) => {
+      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="4"]`).click();
+      await page.locator('[data-act="savestool"]').click();
+      const savedId = await page.evaluate(() => testApp.S.days['2026-11-01'].stools[0].id);
+      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="6"]`).click();
+      await page.locator('#st-t').fill('22:16'); await flush();
+      const hiddenId = (await drafts()).stool.record.id;
+      await page.locator(`[data-act="editstool"][data-date="${TODAY}"][data-id="${savedId}"]`).click();
+      await page.locator('[data-act="cancelstool"]').click();
+      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="1"]`).click();
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true');
+      await flush();
+      assert.notEqual((await drafts()).stool.record.id, hiddenId, 'a new type tap creates a distinct observation');
+      await page.locator('[data-act="savestool"]').click();
+      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-11-01'].stools.map(s => s.bristol)), [4, 1]);
+      assert.equal(await queued(), 2);
+      const retained = (await drafts()).stools.find(s => s.record.id === hiddenId);
+      assert.equal(retained.record.bristol, 6); assert.equal(retained.time, '22:16');
+      await page.locator(`[data-act="resumedraft"][data-id="${hiddenId}"]`).click();
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true');
+      assert.equal(await page.locator('#st-t').inputValue(), '22:16');
+      assert.equal(await queued(), 2, 'resuming the old draft must not save it');
+    });
+
+    await scenario('discarding inaccessible supplement and stool drafts requires confirmation and preserves a visible failed note', async ({ page, field, tab, day, flush, drafts, queued, expectDialog }) => {
+      await page.locator(`#recipe-${TODAY}`).selectOption('fish');
+      await page.locator(`#meal-fed-action-${TODAY}`).click();
+      await page.locator(`#meal-correction-${TODAY} > summary`).click();
+      await page.locator(`#meal-amount-${TODAY}-oilMl`).fill('5');
+      await page.evaluate(() => {
+        window.navigationRealSetItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function(key, value) {
+          if (key.startsWith('murphy-outbox')) throw new DOMException('Synthetic local failure', 'QuotaExceededError');
+          return window.navigationRealSetItem.call(this, key, value);
+        };
+      });
+      await page.locator(`[data-form][data-key="mealamount"][data-setting="oilMl"][data-date="${TODAY}"] [data-act="saveinput"]`).click();
+      assert.equal(await page.locator('#state').textContent(), 'Not saved');
+      await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
+      await page.locator(`#meal-fed-action-${TODAY}`).click();
+      await tab('day');
+      await page.locator(`[data-act="resumedraft"][data-date="${TODAY}"]`).first().click();
+      assert.equal(await page.locator(`#meal-amount-${TODAY}-oilMl`).count(), 0);
+      assert.match(await page.locator('#feedback').textContent(), /Supplement corrections are available once this meal is marked Fed\./);
+
+      await field('notes').fill('Visible note must remain after hidden drafts are discarded');
+      await page.evaluate(() => {
+        Storage.prototype.setItem = function(key, value) {
+          if (key.startsWith('murphy-outbox')) throw new DOMException('Synthetic note failure', 'QuotaExceededError');
+          return window.navigationRealSetItem.call(this, key, value);
+        };
+      });
+      await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
+      await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
+      await day(YESTERDAY);
+      await page.locator(`[data-act="openstool"][data-date="${YESTERDAY}"][data-b="6"]`).click();
+      await page.locator('#st-t').fill('21:06');
+      await page.evaluate(() => {
+        Storage.prototype.setItem = function(key, value) {
+          if (key.startsWith('murphy-outbox')) throw new DOMException('Synthetic stool failure', 'QuotaExceededError');
+          return window.navigationRealSetItem.call(this, key, value);
+        };
+      });
+      await page.locator('[data-act="savestool"]').click();
+      await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
+      await day(TODAY); await flush();
+      const before = await drafts(), beforeWrites = await queued();
+      assert.equal(before.stools.length, 1); assert.equal(before.fields.length, 2);
+      assert.equal(await page.evaluate(() => window.appCanUpdate()), false);
+      await page.setViewportSize({ width: 375, height: 667 });
+      const discardBounds = await page.locator('[data-act="discardhiddendrafts"]').boundingBox();
+      assert.ok(discardBounds && discardBounds.height >= 44, 'hidden-draft discard keeps a 44 px tap target on the smaller iPhone viewport');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true, 'the new hidden-draft controls must not introduce horizontal scrolling');
+
+      expectDialog(false);
+      await page.locator('[data-act="discardhiddendrafts"]').click();
+      await flush();
+      assert.deepEqual((await drafts()).fields, before.fields);
+      assert.deepEqual((await drafts()).stools, before.stools);
+      assert.equal(await page.locator('#state').textContent(), 'Not saved');
+
+      expectDialog(true);
+      await page.locator('[data-act="discardhiddendrafts"]').click();
+      await flush();
+      assert.equal(await field('notes').inputValue(), 'Visible note must remain after hidden drafts are discarded');
+      assert.equal(await page.locator('[data-key="notes"][data-dirty]').count(), 1);
+      assert.equal((await drafts()).fields.length, 1);
+      assert.equal((await drafts()).fields[0].key, 'notes');
+      assert.equal((await drafts()).stools.length, 0);
+      assert.equal(await page.locator('#state').textContent(), 'Not saved', 'discarding the failed hidden correction cannot clear the visible failed note');
+      assert.equal(await page.evaluate(() => window.appCanUpdate()), false);
+      assert.equal(await queued(), beforeWrites, 'discarding drafts changes no recorded data');
+      await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+      await flush();
+      assert.equal(await drafts(), null);
+      assert.equal(await page.evaluate(() => window.appCanUpdate()), true);
+      assert.equal(await page.locator('#state').textContent(), 'Saved locally; syncing', 'both failed drafts were deliberately cancelled');
+      assert.equal(await queued(), beforeWrites);
+    });
+
+    const retiredKey = 'murphy-draft-v2:draft-test:retired-field-session';
+    const retiredDraft = { version: 2, savedAt: Date.parse('2026-11-01T22:00:00Z'), tab: 'status', cursor: '2026-10-29', viewDate: null, expanded: [], stool: null, stools: [],
+      fields: [
+        { id: 'in-retired-field-2026-10-29', date: '2026-10-29', key: 'retiredField', value: 'An unavailable old field' },
+        { id: 'in-weight-' + TODAY, date: TODAY, key: 'retiredWeightField', value: '99' },
+        { id: 'in-notes-' + TODAY, date: TODAY, key: 'retiredNotesField', value: 'An obsolete note field' }
+      ] };
+    await scenario('unknown recovered fields can be discarded without deleting a current field or its failed-save status', async ({ page, field, flush, drafts, queued, expectDialog }) => {
+      await page.locator('[data-act="resumedraft"][data-date="2026-10-29"]').click();
+      assert.match(await page.locator('#feedback').textContent(), /This entry is not available on this screen\./);
+      await page.locator(`[data-act="resumedraft"][data-date="${TODAY}"]`).click();
+      assert.equal(await page.locator('#in-weight-' + TODAY).inputValue(), '18.7', 'an obsolete field key cannot overwrite a current field with the same DOM id');
+      assert.equal(await field('notes').inputValue(), '');
+      await flush();
+      assert.deepEqual((await drafts()).fields.map(f => f.key).sort(), ['retiredField', 'retiredNotesField', 'retiredWeightField'], 'matching a current DOM id must not silently delete an obsolete draft key');
+      const underlyingStatus = await page.locator('#state').textContent();
+      await field('notes').fill('The current note remains unfinished');
+      await page.evaluate(() => {
+        window.navigationRealSetItem = Storage.prototype.setItem;
+        Storage.prototype.setItem = function(key, value) {
+          if (key.startsWith('murphy-outbox')) throw new DOMException('Synthetic current-note failure', 'QuotaExceededError');
+          return window.navigationRealSetItem.call(this, key, value);
+        };
+      });
+      await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
+      await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
+      assert.equal(await page.evaluate(() => window.appCanUpdate()), false);
+      expectDialog(true);
+      await page.locator('[data-act="discardhiddendrafts"]').click();
+      await flush();
+      assert.deepEqual((await drafts()).fields.map(f => f.key), ['notes']);
+      assert.equal(await field('notes').inputValue(), 'The current note remains unfinished');
+      assert.equal(await page.locator('#state').textContent(), 'Not saved', 'discarding an obsolete alias cannot acknowledge the current field’s failed save');
+      assert.equal(await page.evaluate(() => window.appCanUpdate()), false);
+      await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+      await flush();
+      assert.equal(await drafts(), null);
+      assert.equal(await page.locator('[data-act="resumedraft"],[data-act="discardhiddendrafts"]').count(), 0);
+      assert.equal(await page.evaluate(() => window.appCanUpdate()), true);
+      assert.equal(await page.locator('#state').textContent(), underlyingStatus);
+      assert.equal(await queued(), 0);
+    }, { session: { 'murphy-draft-session': 'retired-field-session' }, local: { [retiredKey]: JSON.stringify(retiredDraft) } });
+
+    await scenario('failed persistence of hidden-draft removal warns that the old copy can return and keeps visible entries', async ({ page, field, day, flush, drafts, reload, queued, expectDialog }) => {
+      await day(TODAY); await field('notes').fill('Keep the visible draft through a failed discard write'); await flush();
+      const storedBefore = await page.evaluate(() => localStorage.getItem(testApp.draftKey()));
+      assert.equal((await drafts()).fields.length, 4);
+      await page.evaluate(() => {
+        window.navigationRealSetItem = Storage.prototype.setItem;
+        window.navigationRealRemoveItem = Storage.prototype.removeItem;
+        Storage.prototype.setItem = function(key, value) {
+          if (key.startsWith('murphy-draft')) throw new DOMException('Synthetic discard persistence failure', 'QuotaExceededError');
+          return window.navigationRealSetItem.call(this, key, value);
+        };
+        Storage.prototype.removeItem = function(key) {
+          if (key.startsWith('murphy-draft')) throw new DOMException('Synthetic discard removal failure', 'QuotaExceededError');
+          return window.navigationRealRemoveItem.call(this, key);
+        };
+      });
+      expectDialog(true);
+      await page.locator('[data-act="discardhiddendrafts"]').click();
+      assert.equal(await field('notes').inputValue(), 'Keep the visible draft through a failed discard write');
+      assert.equal(await page.locator('[data-act="resumedraft"],[data-act="discardhiddendrafts"]').count(), 0);
+      assert.match(await page.locator('#feedback').textContent(), /Draft removal could not be stored/);
+      assert.match(await page.locator('#feedback').textContent(), /previous copy may reappear/);
+      assert.equal(await page.evaluate(() => localStorage.getItem(testApp.draftKey())), storedBefore, 'failed storage must not be described as durable removal');
+      assert.deepEqual(await page.evaluate(() => testApp.captureDrafts().fields.map(f => f.key)), ['notes']);
+      assert.equal(await queued(), 0);
+      await page.evaluate(() => {
+        Storage.prototype.setItem = window.navigationRealSetItem;
+        Storage.prototype.removeItem = window.navigationRealRemoveItem;
+      });
+      await flush(); await reload();
+      assert.equal(await field('notes').inputValue(), 'Keep the visible draft through a failed discard write');
+      assert.deepEqual((await drafts()).fields.map(f => f.key), ['notes']);
+      assert.equal(await queued(), 0);
+    }, { session: { 'murphy-draft-session': 'retired-field-session' }, local: { [retiredKey]: JSON.stringify(retiredDraft) } });
+
+    await scenario('disclosures reopen only for actual drafts rather than retaining empty navigation state', async ({ page, tab, flush, drafts, queued }) => {
+      const disclosure = page.locator(`#meal-${YESTERDAY}`);
+      assert.equal(await disclosure.evaluate(el => el.open), false);
+      await disclosure.locator(':scope > summary').click();
+      assert.equal(await disclosure.evaluate(el => el.open), true);
+      await tab('status'); await tab('today');
+      assert.equal(await disclosure.evaluate(el => el.open), false, 'merely reading last night’s meal must not leave a persistent expanded draft view');
+      await disclosure.locator(':scope > summary').click();
+      await page.locator(`#fed-time-${YESTERDAY}`).fill('19:15');
+      await tab('status'); await tab('today');
+      assert.equal(await disclosure.evaluate(el => el.open), true, 'the disclosure containing an unfinished entry is restored');
+      assert.equal(await page.locator(`#fed-time-${YESTERDAY}`).inputValue(), '19:15');
+      await page.locator(`[data-act="cancelfeedingtime"][data-date="${YESTERDAY}"]`).click();
+      await tab('status'); await tab('today'); await flush();
+      assert.equal(await disclosure.evaluate(el => el.open), false);
+      assert.equal(await drafts(), null); assert.equal(await queued(), 0);
     });
 
     for (const finishOther of ['cancel', 'save']) {
