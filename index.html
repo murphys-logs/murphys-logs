@@ -100,7 +100,6 @@ input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + 
   border-bottom:1px solid var(--rule);
   padding:calc(env(safe-area-inset-top) + var(--s3)) var(--sr) var(--s2) var(--sl);
   display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:var(--s2) var(--s3);
-  transform:translateZ(0);will-change:transform;
 }
 .topbar .who{font-size:1rem;font-weight:650;letter-spacing:-.02em}
 .topbar .state{font-size:.75rem;color:var(--ink-3)}
@@ -108,7 +107,7 @@ input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + 
 .topbar .state.bad{color:var(--alert)}
 
 main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s4)) var(--sl);max-width:42rem;width:100%;margin:0 auto;min-width:0}
-.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;transform:translateZ(0)}
+.feedback-region{position:sticky;top:var(--headerh);z-index:19;width:100%;max-width:42rem;margin-inline:auto;padding-inline:var(--sl) var(--sr);background:var(--paper);max-height:45dvh;overflow-y:auto}
 .feedback-region:empty{display:none}
 .feedback-region .note{margin:12px 0;padding:12px 16px;border:1px solid var(--rule-2);border-left-width:3px}
 .feedback-actions{display:flex;flex-wrap:wrap;gap:4px 20px;margin-top:4px}
@@ -120,7 +119,6 @@ main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s4)) var(--sl);
   display:grid;grid-template-columns:repeat(auto-fit,minmax(max(20%,8ch),1fr));font:.75rem/1.5 var(--sans);
   background:var(--surface);border-top:1px solid var(--rule-2);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  transform:translateZ(0);will-change:transform;
 }
 .tabbar button{
   position:relative;text-align:center;padding:10px 2px;font:inherit;color:var(--ink-3);white-space:normal;
@@ -2388,6 +2386,8 @@ function viewMore(){
     panel('Backup and export',`<div class="stack">
         <button class="btn ghost sm" data-act="exportmonth">Export this month as CSV</button>
         <button class="btn ghost sm" data-act="exportmd">Export this month as Markdown</button>
+        <button class="btn ghost sm" data-act="exportmonth" data-month="previous">Export last month as CSV</button>
+        <button class="btn ghost sm" data-act="exportmd" data-month="previous">Export last month as Markdown</button>
         <button class="btn ghost sm" data-act="exportall">Export everything as JSON</button>
         <label class="inline-lab" for="backup-file">Import JSON</label><input id="backup-file" class="tin" type="file" accept="application/json,.json" data-act="import">
       </div>
@@ -2418,8 +2418,9 @@ function csvCell(v){
   return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
 }
 const yesNo=v=>v===true?'Y':v===false?'N':'';
-function exportMonthCsv(){
-  const ym=localToday().slice(0,7), isos=monthIsos(ym);
+const previousMonth=()=>shiftDate(localToday().slice(0,7)+'-01',-1).slice(0,7);
+function exportMonthCsv(ym=localToday().slice(0,7)){
+  const isos=monthIsos(ym);
   const head=['date','worstBristol','stoolCount','mucus','blood','weightKg','bcs','recipe','darfPlanned','darfFed','oilMl','fibreG','egg','broth','bowl','fedAt','walkMin','walkKm','activeMin','treats','events','notes','weightMissed','fibreGiven','oilGiven'];
   const rows=isos.map(i=>{
     const d=S.days[i], st=d.stools||[], m=d.meal?plannedMeal(i,d.meal):{};
@@ -2437,8 +2438,8 @@ function exportMonthCsv(){
   }));
   setTimeout(()=>download(`Murphy_Log_${ym}_stools.csv`, [sh.join(','),...srows].join('\n'), 'text/csv;charset=utf-8'), 400);
 }
-function exportMonthMd(){
-  const ym=localToday().slice(0,7), isos=monthIsos(ym), s=S.settings;
+function exportMonthMd(ym=localToday().slice(0,7)){
+  const isos=monthIsos(ym), s=S.settings;
   const L=[];
   L.push(`# Murphy's Logs: ${MON[Number(ym.slice(5,7))-1]} ${ym.slice(0,4)}`,'');
   L.push(`**Exported:** ${fmtDate(localToday())}  `);
@@ -2851,6 +2852,9 @@ document.addEventListener('click', async (ev)=>{
   const el=ev.target.closest('[data-act]'); if (!el) return;
   if(el.disabled)return;
   const a=el.dataset.act, iso=entryDate(el);
+  // Capture before leaveDraft() clears a recovered day's state. The DOM can
+  // also retain yesterday's date when the app stays open across midnight.
+  const jumpDate=a==='jump'?(draftToday||$('#main [data-stool-log]')?.dataset.stoolLog||localToday()):null;
   if(['erase','signout'].includes(a)&&importing){
     S.banner={kind:'plain',source:'import',title:'Import in progress',text:a==='erase'?'Wait for the import to finish before erasing the log. Nothing has been erased.':'Wait for the import to finish before signing out. Your import stays in progress.'};renderFeedback();return;
   }
@@ -2893,11 +2897,11 @@ document.addEventListener('click', async (ev)=>{
   }
   if (a==='jump'){ const k=el.dataset.k;
     if(k==='bowl'){
-      const previous=shiftDate(localToday(),-1);
+      const previous=shiftDate(jumpDate,-1);
       navigateTo('day',{date:previous,target:'#meal-section-'+previous});
     }else{
       // Same page: move straight to the control. Weight focuses its field, so the keypad opens.
-      const today=localToday(), stool=$('#add-stool-'+today)?'#add-stool-':'#stools-';
+      const today=jumpDate, stool=$('#add-stool-'+today)?'#add-stool-':'#stools-';
       focusAfterRender((k==='weight'?'#in-weight-':k==='stool'?stool:'#condition-')+today);
     }
     return;
@@ -3106,8 +3110,8 @@ document.addEventListener('click', async (ev)=>{
     el.disabled=true;await removeWithUndo({kind:'change',record,label:`Ration adjustment removed · ${fmtShort(record.date)}`},{col:'changes',id:record.id,erase:true});el.disabled=false;return;
   }
 
-  if (a==='exportmonth'){ exportMonthCsv(); return; }
-  if (a==='exportmd'){ exportMonthMd(); return; }
+  if (a==='exportmonth'){ exportMonthCsv(el.dataset.month==='previous'?previousMonth():undefined); return; }
+  if (a==='exportmd'){ exportMonthMd(el.dataset.month==='previous'?previousMonth():undefined); return; }
   if (a==='exportall'){ exportAll(); return; }
   if (a==='selftest'){ selfTest(); return; }
   if (a==='erase'){

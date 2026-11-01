@@ -8,17 +8,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const original = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const original = fs.readFileSync(process.env.APP_HTML || path.join(__dirname, '..', 'index.html'), 'utf8');
 const origin = 'http://127.0.0.1:8876';
 const start = Date.parse('2026-11-01T23:59:30Z');
-const html = original.replace(/<script>[\s\S]*?<\/script>/, `<script>
+const html = original.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/i, `<script>
   window.AppShell={state:{},ready(){}};
   const RealDate=Date;window.__now=Number(localStorage.getItem('test-clock'))||${start};
   window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[window.__now]));}static now(){return window.__now;}};
   Object.defineProperty(navigator,'locks',{value:{request:()=>new Promise(()=>{})}});
-</script>`).replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/g, '')
+</script>`).replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/gi, '')
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
-  .replace(/(<script type="module">[\s\S]*?)(<\/script>)/, (_, body, end) => body + `
+  .replace(/(<script type="module">[\s\S]*?)(<\/script>)/i, (_, body, end) => body + `
     window.testApp={S,persistDrafts,captureDrafts,refreshLocalDay,londonNow,
       queuedWrites,open:tab=>navigateTo(tab),draftKey};
   ` + end);
@@ -29,7 +29,7 @@ const stub = `
     collection=(_db,col)=>({col}),doc=(_db,col,id)=>({col,id});
   export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb({uid:localStorage.getItem('test-user')||'draft-test'}));return()=>{};};
   export const onSnapshot=(ref,_options,cb)=>{
-    const data=ref.col==='days'?{[today]:{date:today,weight:18.7,bcs:5},[yesterday]:{date:yesterday,meal:{recipe:'lamb',fedAt:'18:00',darfFed:100}}}:{};
+    const data=ref.col==='days'?{[today]:{date:today,weight:18.7,bcs:5},[yesterday]:{date:yesterday,meal:{recipe:'lamb',fedAt:localStorage.getItem('test-planned-meal')?'':'18:00',darfFed:100}}}:{};
     queueMicrotask(()=>cb(ref.id?{exists:()=>false,metadata:{fromCache:true}}:
       {docChanges:()=>Object.entries(data).map(([id,value])=>({type:'added',doc:{id,data:()=>value}})),metadata:{fromCache:true}}));
     return()=>{};
@@ -133,6 +133,8 @@ async function main() {
     assert.equal(await field('activeMin').evaluate(input => input.closest('[data-form]').dataset.date), '2026-10-31');
     assert.equal(await page.locator('.moment').textContent(), 'Unfinished entries');
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
+    await page.locator('[data-act="jump"][data-k="stool"]').click();
+    assert.equal(await page.evaluate(() => document.activeElement.id),'stools-2026-11-01');
     passed++; console.log('PASS hidden/midnight reload preserves complete stool, explicit meal time and original activity date');
 
     await page.evaluate(() => { testApp.persistDrafts();sessionStorage.removeItem('murphy-draft-session'); });
@@ -219,6 +221,57 @@ async function main() {
     assert.equal(await page.locator('[data-stool]').count(),0);
     assert.equal(await page.evaluate(() => testApp.S.ready),true);
     passed++;console.log('PASS corrupted draft storage does not prevent saved records from loading');
+
+    await page.evaluate(() => {
+      localStorage.removeItem(testApp.draftKey());
+      localStorage.setItem('test-clock',String(Date.parse('2026-11-01T23:59:30Z')));
+      localStorage.setItem('test-planned-meal','true');
+    });
+    await reload();
+    await field('notes').fill('Previous day before midnight');await flush();
+    await page.evaluate(() => localStorage.setItem('test-clock',String(Date.parse('2026-11-02T00:01:00Z'))));
+    await reload();
+    page.once('dialog',dialog=>dialog.accept());
+    await page.locator('[data-act="jump"][data-k="bowl"]').click();
+    assert.equal(await page.evaluate(() => testApp.S.cursor),'2026-10-31');
+    assert.equal(await page.evaluate(() => testApp.S.tab),'day');
+    passed++;console.log('PASS a recovered bowl shortcut keeps its displayed date after draft-discard cleanup');
+
+    await page.locator('#tabbar [data-tab="today"]').click();
+    const beforeQuick=await page.evaluate(()=>testApp.queuedWrites().length);
+    await page.locator('[data-act="openstool"][data-b="6"]').first().click();
+    assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'),'true');
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.act),'stooltype');
+    assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),beforeQuick);
+    await page.locator('[data-act="cancelstool"]').click();
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.b),'6');
+    assert.equal(await savedDraft(),null);
+    passed++;console.log('PASS quick logging preselects only the tapped type, requires confirmation and restores focus on Cancel');
+
+    await page.locator('#tabbar [data-tab="day"]').click();
+    await page.locator('#history-date').fill('2026-10-30');
+    assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-30');
+    await page.locator('#history-date').evaluate(input=>{
+      input.dispatchEvent(new KeyboardEvent('keydown',{key:'2',bubbles:true}));
+      input.value='2026-10-29';
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+    });
+    assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-30');
+    await page.locator('#history-date').press('Enter');
+    assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
+    await field('notes').fill('History draft stays when date change is cancelled');
+    page.once('dialog',dialog=>dialog.dismiss());
+    await page.locator('#history-date').fill('2026-10-28');
+    assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
+    assert.equal(await field('notes').inputValue(),'History draft stays when date change is cancelled');
+    assert.equal(await page.locator('#history-date').inputValue(),'2026-10-29');
+    assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),beforeQuick);
+    await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+    await page.locator('#history-date').fill('2027-01-01');
+    assert.equal(await page.locator('#history-date').getAttribute('aria-invalid'),'true');
+    assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
+    passed++;console.log('PASS History date changes respect typed-entry commit, bounds and cancelled draft navigation');
 
     assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
     console.log(JSON.stringify({passed,externalRequests:external,pageErrors:errors}));

@@ -34,3 +34,19 @@ Physical iPhone lifecycle behavior and a universal sub-16ms frame budget require
 Merged Antigravity's `24c5d63` without conflicts. Reproduced and fixed an asset-cache race: cloning a response after the browser consumes it silently prevented caching. Asset loading now clones before returning, retains the cache write through `event.waitUntil`, and reads only the current scoped release cache. Seven Node worker regressions cover consumption/lifetime, offline cached assets, unavailable storage, missing assets, and unchanged Firebase/non-GET routing. Removed duplicate safe-area additions because the existing measured `--tabh` already includes the inset; kept Antigravity's chosen content gap.
 
 The core shell/SDK readiness check retains its original contract; icons and manifest are optional cached install metadata, and their download failure does not prevent opening saved logs. Permanent compositing hints and native keyboard/frame-time claims still require independent device review. Independent final reviews remain pending; the draft PR is not a merge recommendation. No Claude proposal was present at the time of this integration check.
+
+## Re-review after Claude's integration
+
+Reviewed Claude's implementation and cross-review at `46cbb95` against the combined branch. Applied these suggestions:
+
+- Removed the manifest's portrait lock to retain landscape behavior; declared the existing 180 px icon as `any`, without claiming maskable artwork. Larger Chromium-specific icons remain follow-up work for this iPhone-focused app.
+- Removed permanent `translateZ`/`will-change` promotion and the legacy scrolling hint. Kept native input sizing, touch feedback, measured safe-area sizing and `visualViewport` keyboard handling. No claim of verified iPhone frame timing or keyboard behavior.
+- Fixed CodeQL's uppercase-SCRIPT finding in the local browser fixture, including case-insensitive bootstrap replacement and module instrumentation. Ran the real browser scenarios against both normal and uppercase-tag HTML.
+- Addressed Claude's D-1 / BUG-01 with explicit **last month** CSV and Markdown actions. This-month defaults, exported columns, historical data and Firebase access stay unchanged. Added month/year rollover, leap-year and export-content coverage.
+- Found and fixed a midnight integration regression: recovered Today's shortcuts used the current day, and a bowl shortcut could lose its original day when `leaveDraft()` cleared recovery state. Capture the displayed date before cleanup. Covered both in-place focus and the History destination in the real DOM.
+
+Validation: **142/142 Node tests** and **14/14 browser scenarios**, repeated successfully with uppercase SCRIPT tags; zero page errors and external requests. Recompared Firebase imports, configuration/initialization, complete store/outbox/subscription block, auth callback, erase handler and all Firebase API call lines against `6ebf856`: unchanged.
+
+Claude's D-3 (keep drafts while switching tabs), mobile Data rows and other deferred component work remain separate follow-ups. Retaining multiple views' drafts needs a deliberate storage/navigation design; the existing explicit discard confirmation remains intact in this PR.
+
+**Merge recommendation: not yet.** Claude reviewed `aedcd9c` and tested the combined `46cbb95` tree, but the subsequent corrections still need relevant independent re-review, and Antigravity has not reviewed the final integrated tree. The repository's `docs/review-handoff.md` requires all three actual reviewers on current changes. Keep both final-review checklist entries pending. Native iPhone keyboard reveal, date picker, Dynamic Type and lifecycle checks are still outstanding; Chromium emulation does not establish those results.

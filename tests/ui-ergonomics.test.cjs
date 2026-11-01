@@ -29,8 +29,8 @@ const TODAY = '2026-10-28', YESTERDAY = '2026-10-27';
 const fedMeal = { recipe: 'lamb', fedAt: '18:30', darfFed: 140, darfPlanned: 140 };
 const stool = { id: 's1', time: '07:30', bristol: 4, mucus: false, blood: false };
 
-function makeHarness({ days = {}, dirty = false } = {}) {
-  const storage = new Map(), listeners = new Map(), nodes = new Map(), confirms = [];
+function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = {}) {
+  const storage = new Map(), listeners = new Map(), nodes = new Map(), confirms = [], timers = [];
   const element = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
       selector, id: selector.startsWith('#') ? selector.slice(1) : '', value: '', dataset: {}, innerHTML: '', textContent: '',
@@ -47,7 +47,7 @@ function makeHarness({ days = {}, dirty = false } = {}) {
     querySelectorAll: () => [], getElementById: id => element('#' + id), documentElement: element('html'), activeElement: null,
     addEventListener(name, callback) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(callback); },
   };
-  const fixed = Date.parse(TODAY + 'T10:00:00Z');
+  const fixed = Date.parse(now);
   class ClockDate extends Date { constructor(...args) { super(...(args.length ? args : [fixed])); } static now() { return fixed; } }
   const forbidden = name => () => { throw Error('Unexpected ' + name + ' in a local UI test'); };
   const firebase = Object.fromEntries(importNames.map(name => [name, name === 'onAuthStateChanged' ? () => () => {} : forbidden('Firebase call: ' + name)]));
@@ -61,14 +61,18 @@ function makeHarness({ days = {}, dirty = false } = {}) {
     },
     window: { addEventListener() {}, AppShell: { ready() {} } },
     ResizeObserver: class { observe() {} }, matchMedia: () => ({ matches: false, addEventListener() {} }),
-    setInterval() {}, setTimeout() {}, clearTimeout() {}, fetch: forbidden('network'), prompt: forbidden('prompt'),
+    setInterval() {}, setTimeout(callback) { timers.push(callback); }, clearTimeout() {}, fetch: forbidden('network'), prompt: forbidden('prompt'),
     confirm: message => { confirms.push(message); return true; },
   });
   vm.runInContext(moduleSource + `
     globalThis.renders = [];
     render = (...args) => { globalThis.renders.push(args); };
     renderFeedback = () => {};
+    globalThis.testDownloads = [];
+    download = (...args) => globalThis.testDownloads.push(args);
     globalThis.api = { S, stoolsCard, todoCard, viewToday, viewDay, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
+      exportMonthCsv, exportMonthMd, previousMonth, downloads: globalThis.testDownloads,
+      setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
   `, context, { filename: htmlPath, timeout: 5000 });
   const { api } = context;
@@ -80,7 +84,7 @@ function makeHarness({ days = {}, dirty = false } = {}) {
       focus() { document.activeElement = this; } };
     return dispatch('click', { target }).then(() => target);
   };
-  return { api, storage, confirms, element, document, click, dispatch };
+  return { api, storage, confirms, element, document, click, dispatch, timers };
 }
 
 test('stool rows expose Edit and Delete inline and keep the Undo focus target', () => {
@@ -233,4 +237,39 @@ test('fields never render below 16px, so iOS does not zoom on focus at any text 
   assert.match(css, /input,select,textarea\{font-size:max\(16px,1rem\)\}/);
   assert.match(css, /\.tin\{[^}]*font-size:max\(16px,1rem\)/);
   assert.match(css, /\.field input\{[^}]*font-size:max\(16px,1\.0625rem\)/);
+});
+
+test('recovered Today shortcuts use the displayed draft day rather than the current day', async () => {
+  const h = makeHarness({dirty:true});
+  h.api.setDraftToday('2026-10-26');
+  await h.click('jump',{k:'weight'});
+  assert.equal(h.document.activeElement.selector,'#in-weight-2026-10-26');
+  await h.click('jump',{k:'bowl'});
+  assert.equal(h.api.S.cursor,'2026-10-25');
+});
+
+for(const [now,expected] of [['2027-01-01T12:00:00Z','2026-12'],['2024-03-01T12:00:00Z','2024-02'],['2026-11-01T12:00:00Z','2026-10']]) {
+  test(`last-month export selects ${expected} at ${now.slice(0,10)}`,()=>{
+    assert.equal(makeHarness({now}).api.previousMonth(),expected);
+  });
+}
+
+test('last-month CSV and Markdown export only the completed month, retaining this-month defaults', async()=>{
+  const h=makeHarness({days:{'2026-09-30':{notes:'last-month-note',stools:[stool]},[TODAY]:{notes:'current-month-note'}}});
+  await h.click('exportmonth',{month:'previous'});
+  assert.equal(h.api.downloads[0][0],'Murphy_Log_2026-09.csv');
+  assert.match(h.api.downloads[0][1],/last-month-note/);
+  assert.doesNotMatch(h.api.downloads[0][1],/current-month-note/);
+  h.timers.shift()();
+  assert.equal(h.api.downloads[1][0],'Murphy_Log_2026-09_stools.csv');
+  assert.match(h.api.downloads[1][1],/2026-09-30,07:30,4/);
+  await h.click('exportmd',{month:'previous'});
+  assert.equal(h.api.downloads[2][0],'Murphy_Log_2026-09.md');
+  assert.match(h.api.downloads[2][1],/September|Sept/);
+  assert.match(h.api.downloads[2][1],/last-month-note/);
+  assert.doesNotMatch(h.api.downloads[2][1],/current-month-note/);
+  await h.click('exportmonth');
+  assert.equal(h.api.downloads[3][0],'Murphy_Log_2026-10.csv');
+  await h.click('exportmd');
+  assert.equal(h.api.downloads[4][0],'Murphy_Log_2026-10.md');
 });
