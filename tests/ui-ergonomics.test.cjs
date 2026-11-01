@@ -71,7 +71,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
     renderFeedback = () => {};
     globalThis.testDownloads = [];
     download = (...args) => globalThis.testDownloads.push(args);
-    globalThis.api = { S, setStatus, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
+    globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
       exportMonthCsv, exportMonthMd, previousMonth, downloads: globalThis.testDownloads,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
@@ -122,6 +122,39 @@ test('dismissing ordinary notices preserves actual synced, connecting and offlin
     assert.equal(h.api.S.status,status);
     assert.equal(h.api.S.banner,null);
   }
+});
+
+test('independent failures keep Not saved until each entry is resolved, then restore the real base status', () => {
+  for(const [status,cls] of [['Synced',''],['Saved locally; retry sync','warn'],['Offline · entries saved on this device','warn']]){
+    const h=makeHarness();
+    h.api.setStatus(status,cls);
+    h.api.storeError(Error('Full'),'days:'+TODAY+':weight');
+    h.api.bindSaveError('form:weight','days:'+TODAY+':weight');
+    h.api.storeError(Error('Full'),'days:'+TODAY+':notes');
+    h.api.bindSaveError('form:notes','days:'+TODAY+':notes');
+    h.api.clearSaveError('form:notes');
+    assert.equal(h.api.S.status,'Not saved');
+    assert.equal(h.api.S.localSaveError,'form:weight');
+    h.api.clearSaveError('form:weight');
+    assert.equal(h.api.S.status,status);
+    assert.equal(h.element('#state').className,'state '+cls);
+    h.api.feedback();
+    if(status.includes('retry sync'))assert.match(h.element('#feedback').innerHTML,/data-act="retrysync"/);
+    assert.equal(h.storage.size,0,'feedback recovery never writes a record');
+  }
+});
+
+test('two stool failures sharing an operation scope remain separate after binding to their entries', () => {
+  const h=makeHarness(),scope='days:'+TODAY+'::stools';
+  h.api.setStatus('Synced');
+  h.api.storeError(Error('Full'),scope);h.api.bindSaveError('stool:first',scope);
+  h.api.storeError(Error('Full'),scope);h.api.bindSaveError('stool:second',scope);
+  h.api.clearSaveError('stool:second');assert.equal(h.api.S.status,'Not saved');
+  h.api.clearSaveError('stool:first');assert.equal(h.api.S.status,'Synced');
+  h.api.storeError(Error('Full'),scope);h.api.resetSaveFeedback();
+  h.api.setStatus('Cached; checking sync');
+  assert.equal(h.api.S.localSaveError,null);
+  assert.equal(h.api.S.status,'Cached; checking sync','new account state cannot inherit prior failures');
 });
 
 test('stool rows expose Edit and Delete inline and keep the Undo focus target', () => {

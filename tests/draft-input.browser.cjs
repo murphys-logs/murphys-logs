@@ -100,6 +100,65 @@ async function main() {
     assert.equal(await page.locator('#state').textContent(),'Synced');
     passed++; console.log('PASS Dismiss preserves failed-save truth, sync Retry and a genuinely synced status');
 
+    const blockWrites=()=>page.evaluate(() => {
+      window.realSetItem=Storage.prototype.setItem;
+      Storage.prototype.setItem=function(key,value){
+        if(key.startsWith('murphy-outbox'))throw Error('Synthetic storage failure');
+        return window.realSetItem.call(this,key,value);
+      };
+    });
+    const allowWrites=()=>page.evaluate(() => {Storage.prototype.setItem=window.realSetItem;});
+    await blockWrites();
+    await field('weight').fill('18.75');
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    await field('notes').fill('Unsaved note');
+    await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
+    await page.locator('[data-act="dismiss-banner"]').click();
+    await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await field('weight').inputValue(),'18.75');
+    await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Synced');
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    await allowWrites();
+    passed++;console.log('PASS cancelling one of two failed entries preserves the other failure and then restores Synced');
+
+    await page.evaluate(() => testApp.setStatus('Saved locally; retry sync','warn'));
+    await blockWrites();
+    await page.locator('[data-act="openstool"][data-b="4"]').first().click();
+    await page.locator('[data-act="savestool"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1,'sync retry survives a separate local-save error');
+    await page.locator('[data-act="dismiss-banner"]').click();
+    await page.locator('[data-act="cancelstool"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+    await page.locator('.previous-meal summary').first().click();
+    await page.locator('#fed-time-2026-10-31').fill('19:45');
+    await page.locator('[data-act="savefeedingtime"]').first().click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    await page.locator('[data-act="cancelfeedingtime"]').first().click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('#fed-time-2026-10-31').inputValue(),'18:00');
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-10-31'].meal.fedAt),'18:00');
+    await allowWrites();
+    passed++;console.log('PASS stool and feeding-time cancellation clear only their failure and retain pending-sync Retry');
+
+    await blockWrites();
+    await field('weight').fill('18.75');
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    await allowWrites();
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; syncing');
+    assert.equal(await page.evaluate(() => testApp.S.localSaveError),null);
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight),18.75);
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),1);
+    // Start the remaining existing scenarios with the original synthetic baseline.
+    await page.evaluate(() => {for(const key of Object.keys(localStorage))if(key.startsWith('murphy-outbox'))localStorage.removeItem(key);});
+    await reload();
+    passed++;console.log('PASS successful retry clears only the resolved error and retains normal queued-save semantics');
+
     await field('notes').fill('Unfinished notes\nSecond line');
     await field('activeMin').fill('87');
     await flush();
