@@ -933,7 +933,27 @@ function fmtDate(iso){
 }
 function fmtShort(iso){ const d=new Date(toDay(iso)*DAY_MS); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; }
 
+// Feedback only: unfinished entries can fail independently while other writes sync.
+const localSaveErrors=new Set();
+let lastSaveFailure=null, recordStatus={text:'Connecting',cls:''};
+function resetSaveFeedback(){
+  localSaveErrors.clear();lastSaveFailure=null;S.localSaveError=null;
+  recordStatus={text:'Connecting',cls:''};
+}
+function bindSaveError(owner,scope){
+  if(!scope)return;
+  localSaveErrors.delete(scope);localSaveErrors.add(owner);
+  S.localSaveError=owner;
+}
+function clearSaveError(scope){
+  const removed=localSaveErrors.delete(scope), current=S.localSaveError===scope;
+  if(!removed&&!current)return;
+  S.localSaveError=[...localSaveErrors].at(-1)||null;
+  if(!S.localSaveError&&S.banner?.source==='local-save')S.banner=null;
+  setStatus(recordStatus.text,recordStatus.cls);
+}
 function setStatus(text, cls){
+  if(text!=='Not saved')recordStatus={text,cls:cls||''};
   if(S.erasing){text='Erasing log data…';cls='';}
   if(S.localSaveError){text='Not saved';cls='bad';}
   S.status=text; const el=$('#state');
@@ -1095,7 +1115,8 @@ function applyOperation(op){
     .concat(op.erase?[]:[operationData(op,S.changes.find(c=>c.id===op.id))]).sort((a,b)=>toDay(a.date)-toDay(b.date));
 }
 function storeError(e,scope=null){
-  if(scope) S.localSaveError=scope;
+  lastSaveFailure=scope;
+  if(scope){localSaveErrors.add(scope);S.localSaveError=scope;}
   setStatus('Not saved','bad');
   S.banner={kind:'bad',source:'local-save',title:'Could not save locally',text:String(e.message||e)+'. Your previous saved information is unchanged. Keep any unfinished entry open and try saving again.'};
   render();
@@ -1117,10 +1138,7 @@ async function write(op){
     if(op.recover?.kind==='stool'&&recoveryMissing(op.recover))stoolRecoveryPatch(op.recover,S.days[op.recover.date]);
     localStorage.setItem(currentQueuePrefix()+writeClock+'-'+crypto.randomUUID(),JSON.stringify(op));
   }catch(e){storeError(e,writeScope(op));return false;}
-  if(S.localSaveError===writeScope(op)){
-    S.localSaveError=null;
-    if(S.banner?.source==='local-save') S.banner=null;
-  }
+  clearSaveError(writeScope(op));
   applyOperation(op); setStatus('Saved locally; syncing','warn'); render();
   void flushWrites(); return true;
 }
@@ -1401,7 +1419,7 @@ function subscribe(){
   const uid=S.user.uid, seen=new Set();let observedSettings;
   S.days={}; savedDays=null; S.changes=savedChanges=[]; S.savedSettings={};S.rawSettings={};
   S.settings={...DEFAULTS}; S.ready=false;snapshotVersions.clear();
-  S.undo=null;S.fibreSnooze=null;S.fibreSnoozedUntil=null;S.localSaveError=null;S.banner=null;
+  S.undo=null;S.fibreSnooze=null;S.fibreSnoozedUntil=null;resetSaveFeedback();S.banner=null;
   const received=(name,snap)=>{
     if(S.user?.uid!==uid) return;
     const wasReady=S.ready;
@@ -1699,6 +1717,9 @@ function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
   const b=S.banner,u=S.undo,app=window.AppShell?.state;
   let html=b?`<div class="note ${esc(b.kind)}" ${b.kind==='bad'?'role="alert"':''}><b>${esc(b.title)}</b>${b.compact?'':esc(b.text)}<div class="feedback-actions">${b.retry?'<button id="retry-sync" class="link" data-act="retrysync">Retry sync</button>':''}${b.view&&validDate(b.view)?`<button id="view-saved-day" class="link" data-act="openday" data-date="${b.view}">View in History</button>`:''}${b.compact?'':'<button id="dismiss-notice" class="link" data-act="dismiss-banner">Dismiss</button>'}</div></div>`:'';
+  // Another notice can replace the detailed sync error without resolving it.
+  if(recordStatus.text==='Saved locally; retry sync'&&!b?.retry)
+    html+='<div class="note warn"><b>Sync pending</b><div class="feedback-actions"><button id="retry-sync" class="link" data-act="retrysync">Retry sync</button></div></div>';
   if(draftRecovery&&draftUser===S.user.uid)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button class="link" data-act="recoverdraft">Restore entries</button><button class="link" data-act="dismissdraft">Later</button></div></div>`;
   html+=hiddenDraftLinks();
   if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
@@ -1743,7 +1764,13 @@ function render(force=false){
 function leaveDraft(){
   if (!$('#main [data-dirty],#main [data-stool]')&&!draftFields.length&&!draftStools.length) return true;
   if (!confirm('Discard all unconfirmed drafts in this app session?')) return false;
-  for(const form of $$('#main [data-dirty]'))form.removeAttribute('data-dirty');
+  for(const form of $$('#main [data-dirty]')){
+    const input=$('input,textarea',form);if(input)clearSaveError((form.hasAttribute('data-feeding')?'feeding:':'form:')+input.id);
+    form.removeAttribute('data-dirty');
+  }
+  if(stoolDraft)clearSaveError('stool:'+stoolDraft.id);
+  for(const field of draftFields)clearSaveError((field.key==='feeding'?'feeding:':'form:')+field.id);
+  for(const stool of draftStools)clearSaveError('stool:'+stool.record.id);
   draftFields=[];draftStools=[];draftExpanded=[];activeStoolKey=null;
   S.adding=null; stoolDraft=null; stoolOriginal=null; persistDrafts(); render(true); return true;
 }
@@ -2852,11 +2879,7 @@ function finishInput(form,keep){
   const input=$('input,textarea',form);
   delete input.dataset.incompleteNumber;
   clearFieldError(input);
-  if(S.localSaveError==='form:'+input.id){
-    S.localSaveError=null;
-    if(S.banner?.source==='local-save')S.banner=null;
-    setStatus(navigator.onLine?'Saved on this device':'Offline · saved on this device');
-  }
+  clearSaveError('form:'+input.id);
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
   form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
   persistDrafts();
@@ -2890,8 +2913,9 @@ async function confirmInput(form){
   // A deliberate historical amount correction changes just that saved field.
   // It must never call calculatedMeal or rewrite the stored calorie snapshot.
   const saved=k==='setnum'?saveSettings({[setting]:n}):k==='mealamount'?saveDay(iso,{meal:{[setting]:n}}):k==='darfFed'?saveMeal(iso,patch.meal):saveDay(iso,patch);
+  const failureScope=lastSaveFailure;
   if(await saved)finishInput(form,true);
-  else if(S.banner?.source==='local-save')S.localSaveError='form:'+el.id;
+  else bindSaveError('form:'+el.id,failureScope);
   }finally{confirmingInputs.delete(form);}
 }
 
@@ -2985,6 +3009,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='cancelinput'){ finishInput(el.closest('[data-form]')); return; }
   if (a==='cancelfeedingtime'){
     const form=el.closest('[data-feeding]'), input=$('input',form);
+    clearSaveError('feeding:'+input.id);
     input.value=input.defaultValue; form.removeAttribute('data-dirty'); persistDrafts();render();focusAfterRender('#'+input.id);return;
   }
   if (a==='retrysync'){ flushWrites(); return; }
@@ -3022,6 +3047,7 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if(a==='cancelstool'){
+    if(stoolDraft)clearSaveError('stool:'+stoolDraft.id);
     const target=stoolReturnFocus,date=S.adding;S.adding=null;stoolDraft=null;stoolOriginal=null;
     persistDrafts();
     if($('#main [data-dirty]'))refreshStoolLog(date);else render(true);
@@ -3047,7 +3073,7 @@ document.addEventListener('click', async (ev)=>{
     const time=$('#st-t'), dateInput=$('#st-date');
     if (!time.reportValidity()||!dateInput.reportValidity()||!validDate(dateInput.value)||dateInput.value>localToday()) return;
     if(stoolOriginal&&!(S.days[S.adding]?.stools||[]).some(s=>s.id===stoolOriginal.id)){
-      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'));return;
+      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+stoolDraft.id);return;
     }
     el.disabled=true;
     const originalDate=S.adding, date=dateInput.value, list=S.days[date]?.stools||[], edited={...stoolDraft,time:time.value};
@@ -3056,7 +3082,9 @@ document.addEventListener('click', async (ev)=>{
     const next=stoolOriginal&&!moving?{...list.find(s=>s.id===stoolOriginal.id),...changes}:edited;
     const st=list.some(x=>x.id===next.id)?list.map(x=>x.id===next.id?next:x):[...list,next];
     const saved=moving?moveStool(originalDate,date,next,stoolOriginal):saveDay(date,{stools:st});
+    const failureScope=lastSaveFailure;
     if (await saved){
+      clearSaveError('stool:'+next.id);
       S.adding=null;stoolDraft=null;stoolOriginal=null;
       persistDrafts();
       const otherDrafts=!!$('#main [data-dirty]'), moved=date!==originalDate;
@@ -3070,7 +3098,7 @@ document.addEventListener('click', async (ev)=>{
         text:(otherDrafts?'Your other unfinished entries stay open. ':'')+'The stool is listed on that date in History.'};
       if(otherDrafts)refreshStoolLog(originalDate);else render(true);
       focusAfterRender(moved&&!follow?'#add-stool-'+originalDate:`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${date}"]`);
-    }else el.disabled=false;
+    }else{bindSaveError('stool:'+next.id,failureScope);el.disabled=false;}
     return;
   }
   if(a==='delstool'){
@@ -3105,9 +3133,12 @@ document.addEventListener('click', async (ev)=>{
       const form=el.closest('[data-feeding]'), input=$('input',form);
       if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
       el.disabled=true;
-      if (await saveMeal(iso,{fedAt:input.value,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})})){
+      const saved=saveMeal(iso,{fedAt:input.value,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})});
+      const failureScope=lastSaveFailure;
+      if (await saved){
+        clearSaveError('feeding:'+input.id);
         input.defaultValue=input.value; form.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
-      } else el.disabled=false;
+      } else{bindSaveError('feeding:'+input.id,failureScope);el.disabled=false;}
       return;
     }
     if (a!=='fed'||isFedMeal(meal)||iso!==localToday()) return;
@@ -3118,6 +3149,7 @@ document.addEventListener('click', async (ev)=>{
   if (a==='unfeed'){
     if (el.disabled) return; el.disabled=true;
     if (await saveDay(iso,{meal:{fedAt:null}})){
+      const input=el.closest('[data-feeding]')?.querySelector('input');if(input)clearSaveError('feeding:'+input.id);
       el.closest('[data-feeding]')?.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
     } else el.disabled=false;
     return;
@@ -3183,7 +3215,7 @@ document.addEventListener('click', async (ev)=>{
     if(S.erasing)return;
     if (!confirm('Delete every day and every recorded change? Settings are kept. Export first.')) return;
     if (prompt('Type ERASE to confirm')!=='ERASE') return;
-    S.erasing=true;S.localSaveError=null;el.disabled=true;el.textContent='Erasing log data…';
+    S.erasing=true;resetSaveFeedback();el.disabled=true;el.textContent='Erasing log data…';
     eraseBlocksChanges();setStatus('Erasing log data…');
     try{
       await flushWrites();
