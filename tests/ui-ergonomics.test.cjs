@@ -184,13 +184,13 @@ test('the bowl prompt saves its result against yesterday through the durable out
   assert.deepEqual(JSON.parse(queued[0][1]).patch.meal, { bowl: 'cleared' });
 });
 
-test('in-page jumps keep drafts without a discard prompt; the History jump still guards them', async () => {
+test('in-page and History shortcuts do not ask to discard drafts', async () => {
   const h = makeHarness({ dirty: true });
   await h.click('jump', { k: 'weight' });
   await h.click('jump', { k: 'stool' });
   assert.deepEqual(h.confirms, []);
   await h.click('jump', { k: 'bowl' });
-  assert.equal(h.confirms.length, 1);
+  assert.equal(h.confirms.length, 0);
 });
 
 test('to-log shortcuts act on their own card date, including a recovered earlier day', async () => {
@@ -252,7 +252,7 @@ test('Escape cancels a draft field; Return in the stool time saves through the S
   const key = (name, target) => ({ key: name, isComposing: false, preventDefault() { this.prevented = true; }, target });
   // Escape restores the saved value and clears the draft marker.
   const attributes = new Set(['data-dirty']), confirmRow = { removed: false, remove() { this.removed = true; } };
-  const field = { id: 'in-treats-' + TODAY, value: '3', defaultValue: '1', setCustomValidity() {}, removeAttribute() {},
+  const field = { id: 'in-treats-' + TODAY, dataset: {}, value: '3', defaultValue: '1', setCustomValidity() {}, removeAttribute() {},
     matches: selector => selector === 'input', closest: selector => selector === '[data-form]' ? form : null };
   const form = { dataset: { key: 'treats', date: TODAY }, hasAttribute: name => attributes.has(name), removeAttribute: name => attributes.delete(name),
     querySelector: selector => selector === 'input,textarea' ? field : selector === '[data-confirm]' ? confirmRow : null };
