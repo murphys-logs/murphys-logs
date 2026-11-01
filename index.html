@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.5.4">
+<html lang="en-GB" data-version="3.5.5">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -544,7 +544,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.5.4';
+const APP_VERSION = '3.5.5';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -1025,7 +1025,7 @@ function applyOperation(op){
     const r=op.recover;
     if(r.kind==='stool'){
       // An Undo adds only the missing record; newer same-ID entries always win.
-      if(!Object.values(S.days).some(d=>(d.stools||[]).some(s=>s.id===r.record.id))){
+      if(recoveryMissing(r)){
         S.days={...S.days,[r.date]:{...S.days[r.date],...stoolRecoveryPatch(r,S.days[r.date])}};
       }
     }else if(r.kind==='change'&&!S.changes.some(c=>c.id===r.record.id)){
@@ -1360,8 +1360,11 @@ async function undoRemoval(){
   S.undoBusy=false;
   if(restored&&r.kind==='stool'&&renderPending)refreshStoolLog(r.date);else render();
   const targets=restored?r.kind==='stool'?[`stool-actions-${r.date}-${r.record.id}`,'add-stool-'+r.date,'dismiss-notice']:['dismiss-notice']:['undo-removal'];
-  const target=targets.map(id=>document.getElementById(id)).find(Boolean);
-  if(target){target.focus({preventScroll:true});target.scrollIntoView({block:'nearest',behavior:'instant'});}
+  for(const id of targets){
+    const target=document.getElementById(id);if(!target)continue;
+    target.focus({preventScroll:true});
+    if(document.activeElement===target){target.scrollIntoView({block:'nearest',behavior:'instant'});break;}
+  }
 }
 
 function subscribe(){
@@ -1652,7 +1655,7 @@ function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
   const b=S.banner,u=S.undo,app=window.AppShell?.state;
   let html=b?`<div class="note ${esc(b.kind)}" ${b.kind==='bad'?'role="alert"':''}><b>${esc(b.title)}</b>${esc(b.text)}<div class="feedback-actions">${b.retry?'<button id="retry-sync" class="link" data-act="retrysync">Retry sync</button>':''}<button id="dismiss-notice" class="link" data-act="dismiss-banner">Dismiss</button></div></div>`:'';
-  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
+  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
   if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
   if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
 }
@@ -2789,8 +2792,9 @@ document.addEventListener('click', async (ev)=>{
     el.disabled=true;
     const removed=await removeWithUndo({kind:'stool',date:iso,record,index:d.stools.indexOf(record),label:`Stool removed · ${fmtShort(iso)} at ${record.time||'time not recorded'}`},
       {col:'days',id:iso,patch:{date:iso,updatedAt:new Date().toISOString()},stools:{put:[],drop:[record.id]}});
-    if(removed)refocus('undo-removal');
-    el.disabled=false;return;
+    el.disabled=false;
+    if(removed)refocus('undo-removal');else el.focus({preventScroll:true});
+    return;
   }
 
 

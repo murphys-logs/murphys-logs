@@ -50,14 +50,17 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
   const serverWrites = [], transactions = [], failures = new Set();
   let held = true;
   const waitingLocks = [];
-  const controls = { beforeTransaction: null, beforeSet: null, afterRead: null, beforeCommit: null, afterTransaction: null, retryTransaction: null, beforeRemoveItem: null, beforeSetItem: null, absentIds: new Set() };
+  const controls = { beforeTransaction: null, beforeSet: null, afterRead: null, beforeCommit: null, afterTransaction: null, retryTransaction: null, beforeRemoveItem: null, beforeSetItem: null, absentIds: new Set(), unfocusableIds: new Set(), focusAttempts: [] };
   const element = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
       id: selector.startsWith('#') ? selector.slice(1) : '',
       value: '', textContent: '', innerHTML: '', content: '', dataset: {},
       style: { setProperty() {} }, classList: { add() {}, remove() {}, toggle() {} },
       addEventListener() {}, setAttribute() {}, removeAttribute() {},
-      focus() { document.activeElement = this; },
+      focus() {
+        controls.focusAttempts.push(this.id);
+        if (!this.disabled && !controls.unfocusableIds.has(this.id)) document.activeElement = this;
+      },
       scrollIntoView(options) { this.scrolled = copy(options); },
       getBoundingClientRect: () => ({ height: 0 }),
       querySelector: element, querySelectorAll: () => [], contains: () => false,
@@ -228,7 +231,15 @@ function makeHarness({ server = empty(), storage: restoredStorage, sortSnapshotF
     for (const callback of listeners) callback(event);
   };
   const click = async (act, data = {}) => {
-    const target = { dataset: { act, ...data }, disabled: false, closest: () => target };
+    let disabled = false;
+    const target = { dataset: { act, ...data }, focusCalls: 0, closest: () => target,
+      focus() { this.focusCalls++; if (!disabled) document.activeElement = this; },
+      get disabled() { return disabled; },
+      set disabled(value) {
+        disabled = value;
+        if (value && document.activeElement === this) document.activeElement = element('body');
+      },
+    };
     document.activeElement = target;
     for (const callback of documentListeners.get('click') || []) await callback({ target });
     return target;
@@ -1230,6 +1241,7 @@ test('CC4: failed Delete keeps its control usable and does not focus a previous 
   const clicked = await h.ui.click('delstool', { date, id: undoStool.id });
   assert.equal(clicked.disabled, false);
   assert.equal(h.ui.document.activeElement, clicked);
+  assert.equal(clicked.focusCalls, 1, 'reenabling a blurred button must explicitly restore its focus');
   assert.equal(h.api.S.undo, previous);
   assert.equal(h.api.S.banner.kind, 'bad');
   assert.equal(h.api.queuedWrites().length, 0);
@@ -1285,3 +1297,49 @@ for (const kind of ['good', 'warn', 'bad']) {
     assert.equal(h.api.S.undo.record.id, undoStool.id);
   });
 }
+
+test('CC4-08: the Undo dismissal has a distinct contextual name and escapes stored labels', () => {
+  const h = makeHarness();
+  h.start();
+  h.api.S.banner = { kind: 'warn', title: 'Sync pending', text: 'Try again when connected' };
+  h.api.S.undo = { ...savedUndo(), label: 'Stool "<SCRIPT>" & removed' };
+  h.ui.renderFeedback();
+  const feedback = h.ui.element('#feedback').innerHTML;
+  assert.match(feedback, /id="dismiss-notice"[^>]*>Dismiss<\/button>/);
+  assert.match(feedback, /data-act="dismiss-undo" aria-label="Dismiss Undo: Stool &quot;&lt;SCRIPT&gt;&quot; &amp; removed"[^>]*>Dismiss<\/button>/);
+  assert.doesNotMatch(feedback, /<script\b/i);
+});
+
+for (const refusedCount of [0, 1, 2]) {
+  test(`CC4-09: Undo tries focus candidates until one accepts focus (${refusedCount} refused)`, async () => {
+    const h = makeHarness({ server: undoState(deletedUndoDay()), storage: undoStorage(), now: time(11) });
+    h.start(undoState(deletedUndoDay()));
+    const targets = [`stool-actions-${date}-${undoStool.id}`, 'add-stool-' + date, 'dismiss-notice'];
+    for (const id of targets.slice(0, refusedCount)) h.controls.unfocusableIds.add(id);
+    await h.ui.click('undo', { date });
+    assert.equal(h.ui.document.activeElement.id, targets[refusedCount]);
+    assert.deepEqual(h.controls.focusAttempts, targets.slice(0, refusedCount + 1), 'stop only after focus lands');
+    for (const [index, id] of targets.entries()) {
+      assert.deepEqual(h.ui.element('#' + id).scrolled, index === refusedCount ? { block: 'nearest', behavior: 'instant' } : undefined,
+        'scroll only the successful focus target');
+    }
+    assert.deepEqual(copy(h.api.S.days[date].stools), [undoStool, otherStool]);
+  });
+}
+
+test('AV4-02: a failed Undo-copy save returns focus to Delete without changing the previous recovery', async () => {
+  const h = makeHarness({ server: undoState(undoDay), now: time(10) });
+  h.start(undoState(undoDay));
+  const previous = { kind: 'change', id: 'previous-undo', record: change('previous-change', 1) };
+  h.api.S.undo = previous;
+  h.controls.beforeSetItem = key => { if (key.endsWith(':undo')) throw Error('Synthetic device storage failure'); };
+  const clicked = await h.ui.click('delstool', { date, id: undoStool.id });
+  assert.equal(clicked.disabled, false);
+  assert.equal(clicked.focusCalls, 1);
+  assert.equal(h.ui.document.activeElement, clicked);
+  assert.equal(h.api.S.undo, previous);
+  assert.equal(h.api.S.banner.kind, 'bad');
+  assert.equal(h.api.queuedWrites().length, 0);
+  assert.equal(h.serverWrites.length, 0);
+  assert.deepEqual(copy(h.api.S.days[date].stools), [undoStool, otherStool]);
+});
