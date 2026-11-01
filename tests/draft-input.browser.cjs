@@ -16,7 +16,8 @@ const html = original.replace(/<script>[\s\S]*?<\/script>/, `<script>
   const RealDate=Date;window.__now=Number(localStorage.getItem('test-clock'))||${start};
   window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[window.__now]));}static now(){return window.__now;}};
   Object.defineProperty(navigator,'locks',{value:{request:()=>new Promise(()=>{})}});
-</script>`).replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
+</script>`).replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/g, '')
+  .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
   .replace(/(<script type="module">[\s\S]*?)(<\/script>)/, (_, body, end) => body + `
     window.testApp={S,persistDrafts,captureDrafts,refreshLocalDay,londonNow,
       queuedWrites,open:tab=>navigateTo(tab),draftKey};
