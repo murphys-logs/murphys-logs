@@ -197,7 +197,7 @@ test('healthy import queues one complete operation and preserves original IDs an
   assert.equal(h.storageWrites.length, 1, 'one durable aggregate operation');
   assert.equal(h.storage.size, 1);
   const [key, serialized] = [...h.storage][0];
-  assert.match(key, /^murphy-outbox:local-test-only:/);
+  assert.match(key, /^murphy-outbox-v2:local-test-only:/);
   const operation = JSON.parse(serialized);
   assert.equal(operation.items.length, 4, 'two days, one change and missing settings');
   assert.ok(operation.items.every(item => item.restore === true));

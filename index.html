@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.5.2">
+<html lang="en-GB" data-version="3.5.5">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -544,7 +544,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.5.2';
+const APP_VERSION = '3.5.5';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -920,6 +920,10 @@ const queuePrefix=()=>`murphy-outbox:${S.user.uid}:`;
 // An older open app can drain ordinary writes, but cannot interpret the new
 // guarded restoration commands. Keep those commands outside its queue prefix.
 const guardedQueuePrefix=()=>`murphy-outbox-guarded:${S.user.uid}:`;
+// Older tabs omit Undo freshness. Keep all new writes together so they cannot
+// consume an Undo incorrectly, or process a later edit ahead of that Undo.
+const currentQueuePrefix=()=>`murphy-outbox-v2:${S.user.uid}:`;
+const queuePrefixes=()=>[queuePrefix(),guardedQueuePrefix(),currentQueuePrefix()];
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 function mergeData(base, patch){
   const out={...base};
@@ -946,12 +950,20 @@ function cleanDay(patch, remove=[], path=[], base={}){
   }
   return out;
 }
+function timedRecovery(op,clock){
+  if(op.recover?.kind!=='stool'||Number.isFinite(Date.parse(op.recover.updatedAt)))return op;
+  return {...op,recover:{...op.recover,updatedAt:new Date(clock).toISOString()}};
+}
 function queuedWrites(){
   if(!S.user) return [];
-  const prefixes=[queuePrefix(),guardedQueuePrefix()], entries=[];
+  const prefixes=queuePrefixes(), entries=[];
   for(let i=0;i<localStorage.length;i++){
     const key=localStorage.key(i);
-    if(prefixes.some(prefix=>key.startsWith(prefix)))entries.push([key,JSON.parse(localStorage.getItem(key))]);
+    if(prefixes.some(prefix=>key.startsWith(prefix))){
+      // Older queued Undos have no timestamp; their durable key supplies it.
+      const clock=Number(key.slice(key.lastIndexOf(':')+1).split('-')[0]);
+      entries.push([key,timedRecovery(JSON.parse(localStorage.getItem(key)),clock)]);
+    }
   }
   return entries.sort(([a],[b])=>a.slice(a.lastIndexOf(':')+1).localeCompare(b.slice(b.lastIndexOf(':')+1)));
 }
@@ -1000,15 +1012,21 @@ function stoolMovePatches(move, source={}, target={}){
     {date:move.to,updatedAt:move.updatedAt,stools:[...(target.stools||[]),{...existing,...move.patch}]}
   ];
 }
+function stoolRecoveryPatch(r,current={}){
+  if((current.stools||[]).some(s=>s.id===r.record.id))return null;
+  const stools=[...(current.stools||[])];
+  stools.splice(Math.min(r.index??stools.length,stools.length),0,r.record);
+  // A recovery is a new edit even if the saved day is ahead of this device's clock.
+  const updatedAt=new Date(Math.max(Date.parse(r.updatedAt),(Date.parse(current.updatedAt)||0)+1)).toISOString();
+  return {date:r.date,updatedAt,stools};
+}
 function applyOperation(op){
   if(op.recover){
     const r=op.recover;
     if(r.kind==='stool'){
       // An Undo adds only the missing record; newer same-ID entries always win.
-      if(!Object.values(S.days).some(d=>(d.stools||[]).some(s=>s.id===r.record.id))){
-        const d=S.days[r.date]||{}, stools=[...(d.stools||[])];
-        stools.splice(Math.min(r.index??stools.length,stools.length),0,r.record);
-        S.days={...S.days,[r.date]:{...d,date:r.date,stools}};
+      if(recoveryMissing(r)){
+        S.days={...S.days,[r.date]:{...S.days[r.date],...stoolRecoveryPatch(r,S.days[r.date])}};
       }
     }else if(r.kind==='change'&&!S.changes.some(c=>c.id===r.record.id)){
       S.changes=[...S.changes,r.record].sort((a,b)=>toDay(a.date)-toDay(b.date));
@@ -1065,8 +1083,10 @@ async function write(op){
   try{
     if(!S.user) throw Error('Sign in before saving');
     writeClock=Math.max(Date.now(),writeClock+1);
-    const prefix=op.recover||op.regime?guardedQueuePrefix():queuePrefix();
-    localStorage.setItem(prefix+writeClock+'-'+crypto.randomUUID(),JSON.stringify(op));
+    op=timedRecovery(op,writeClock);
+    // Validate the successor timestamp before persisting; an out-of-range date must keep Undo usable.
+    if(op.recover?.kind==='stool'&&recoveryMissing(op.recover))stoolRecoveryPatch(op.recover,S.days[op.recover.date]);
+    localStorage.setItem(currentQueuePrefix()+writeClock+'-'+crypto.randomUUID(),JSON.stringify(op));
   }catch(e){storeError(e,writeScope(op));return false;}
   if(S.localSaveError===writeScope(op)){
     S.localSaveError=null;
@@ -1133,11 +1153,9 @@ async function sendOperation(op,committed=()=>{},prior=savedRecord){
       let data=current;
       if(r.kind==='change'){
         if(!snap.exists()){data=r.record;tx.set(ref,data);}
-      }else if(!(current.stools||[]).some(s=>s.id===r.record.id)){
-        const stools=[...(current.stools||[])];
-        stools.splice(Math.min(r.index??stools.length,stools.length),0,r.record);
-        tx.set(ref,{date:r.date,stools},{merge:true});
-        data={...current,date:r.date,stools};
+      }else{
+        const patch=stoolRecoveryPatch(r,current);
+        if(patch){tx.set(ref,patch,{merge:true});data={...current,...patch};}
       }
       return [{col,id,data,version}];
     });
@@ -1318,10 +1336,12 @@ async function removeWithUndo(recovery,operation){
     S.undo=previous;render();return false;
   }
   r.state='removed';S.undo=r;
+  if(S.banner?.kind==='good')S.banner=null;
   // If this small final write fails, the prepared copy remains recoverable after
   // the durable removal is replayed on reopening.
   try{localStorage.setItem(deviceKey('undo'),JSON.stringify(r));}catch{}
-  render();return true;
+  if(r.kind==='stool'&&renderPending)refreshStoolLog(r.date);else render();
+  return true;
 }
 async function undoRemoval(){
   const r=S.undo;if(!r||S.undoBusy)return;
@@ -1331,12 +1351,20 @@ async function undoRemoval(){
   }
   S.undoBusy=true;renderFeedback();
   const op=r.kind==='regime'?{regime:{date:r.date,count:r.count||1,indices:r.indices}}:{recover:r};
-  if(await write(op)){
+  const restored=await write(op);
+  if(restored){
     try{localStorage.removeItem(deviceKey('undo'));}catch{}
     S.undo=null;
     S.banner={kind:'good',title:'Restored on this device',text:'The removed item has been restored. Other saved entries are kept.'};
   }
-  S.undoBusy=false;render();
+  S.undoBusy=false;
+  if(restored&&r.kind==='stool'&&renderPending)refreshStoolLog(r.date);else render();
+  const targets=restored?r.kind==='stool'?[`stool-actions-${r.date}-${r.record.id}`,'add-stool-'+r.date,'dismiss-notice']:['dismiss-notice']:['undo-removal'];
+  for(const id of targets){
+    const target=document.getElementById(id);if(!target)continue;
+    target.focus({preventScroll:true});
+    if(document.activeElement===target){target.scrollIntoView({block:'nearest',behavior:'instant'});break;}
+  }
 }
 
 function subscribe(){
@@ -1398,7 +1426,7 @@ function subscribe(){
 }
 window.addEventListener('storage',e=>{
   if(S.user&&e.key?.startsWith(`murphy-device:${S.user.uid}:`)){loadDeviceState();render();}
-  if(S.user&&[queuePrefix(),guardedQueuePrefix()].some(prefix=>e.key?.startsWith(prefix))){
+  if(S.user&&queuePrefixes().some(prefix=>e.key?.startsWith(prefix))){
     try{replayQueuedWrites();render();void flushWrites();}catch(error){storeError(error);}
   }
 });
@@ -1627,7 +1655,7 @@ function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
   const b=S.banner,u=S.undo,app=window.AppShell?.state;
   let html=b?`<div class="note ${esc(b.kind)}" ${b.kind==='bad'?'role="alert"':''}><b>${esc(b.title)}</b>${esc(b.text)}<div class="feedback-actions">${b.retry?'<button id="retry-sync" class="link" data-act="retrysync">Retry sync</button>':''}<button id="dismiss-notice" class="link" data-act="dismiss-banner">Dismiss</button></div></div>`:'';
-  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
+  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
   if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
   if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
 }
@@ -1864,7 +1892,7 @@ function stoolsCard(iso,previousMeal=false){
     const b=BRISTOL[s.bristol]||{word:'?',band:'a'};
     const attr=meal?`Last night's meal: ${RECIPES.find(x=>x.id===meal.recipe)?.short||meal.recipe}`:"Last night's meal not recorded as fed";
     return `<div class="stool"><span class="dot ${b.band}"></span><div class="body"><span class="t">${esc(s.time)} · Bristol ${esc(s.bristol)}, ${b.word}${s.mucus?' · mucus':''}${s.blood?' · blood':''}</span><span class="attr">${esc(attr)}</span>
-      <details id="stool-${esc(s.id)}"><summary class="link" aria-label="Stool actions at ${esc(s.time)}">Actions</summary><div class="chips">
+      <details id="stool-${esc(s.id)}"><summary id="stool-actions-${iso}-${esc(s.id)}" class="link" aria-label="Stool actions at ${esc(s.time)}">Actions</summary><div class="chips">
       <button class="link" data-act="editstool" data-date="${iso}" data-id="${esc(s.id)}">Edit</button>
       <button class="link" data-act="delstool" data-date="${iso}" data-id="${esc(s.id)}" aria-label="Delete stool at ${esc(s.time)}">Delete</button></div></details></div></div>`;
   }).join('');
@@ -1884,8 +1912,16 @@ function refreshStoolLog(iso){
   // including the previous-meal editor nested beside this log.
   const log=document.querySelector(`[data-stool-log="${iso}"]`);
   if(log){
+    const expanded=Array.from(log.querySelectorAll('details[id]'),el=>[el.id,el.open]), focus=document.activeElement?.id;
     const template=document.createElement('template');template.innerHTML=stoolsCard(iso);
-    log.replaceWith(template.content.querySelector('[data-stool-log]'));
+    const next=template.content.querySelector('[data-stool-log]'), draft=log.querySelector('[data-stool]'), nextDraft=next.querySelector('[data-stool]');
+    if(draft&&nextDraft){
+      // Keep the live draft connected: date/time values and iPhone picker state belong to its inputs.
+      for(const node of Array.from(log.childNodes))if(node!==draft)node.remove();
+      for(const node of Array.from(next.childNodes))if(node!==nextDraft)draft.before(node);
+    }else log.replaceWith(next);
+    for(const [id,open] of expanded){const el=document.getElementById(id);if(el)el.open=open;}
+    if(focus&&document.activeElement?.id!==focus)refocus(focus);
   }
   render();
 }
@@ -2754,9 +2790,11 @@ document.addEventListener('click', async (ev)=>{
   if(a==='delstool'){
     const record=(d.stools||[]).find(x=>x.id===el.dataset.id);if(!record)return;
     el.disabled=true;
-    await removeWithUndo({kind:'stool',date:iso,record,index:d.stools.indexOf(record),label:`Stool removed · ${fmtShort(iso)} at ${record.time||'time not recorded'}`},
+    const removed=await removeWithUndo({kind:'stool',date:iso,record,index:d.stools.indexOf(record),label:`Stool removed · ${fmtShort(iso)} at ${record.time||'time not recorded'}`},
       {col:'days',id:iso,patch:{date:iso,updatedAt:new Date().toISOString()},stools:{put:[],drop:[record.id]}});
-    el.disabled=false;return;
+    el.disabled=false;
+    if(removed)refocus('undo-removal');else el.focus({preventScroll:true});
+    return;
   }
 
 
@@ -2858,7 +2896,7 @@ document.addEventListener('click', async (ev)=>{
     eraseBlocksChanges();setStatus('Erasing log data…');
     try{
       await flushWrites();
-      // Both queue types must finish first: a later replay must not recreate a
+      // All queue types must finish first: a later replay must not recreate a
       // record the user has just explicitly erased.
       if(queuedWrites().length){
         S.banner={kind:'warn',source:'sync',retry:true,title:'Sync before erasing',text:'Some confirmed entries are still waiting to sync. Nothing has been erased. Connect and retry sync before erasing the log.'};
