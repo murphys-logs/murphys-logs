@@ -24,7 +24,7 @@ const html = original.replace(shellScript, `<script>
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
   .replace(/(<script type="module">[\s\S]*?)(<\/script>)/i, (_, body, end) => body + `
     window.testApp={S,persistDrafts,captureDrafts,refreshLocalDay,londonNow,
-      queuedWrites,open:tab=>navigateTo(tab),draftKey};
+      queuedWrites,setStatus,storeError,renderFeedback,open:tab=>navigateTo(tab),draftKey};
   ` + end);
 const stub = `
   const today='2026-11-01',yesterday='2026-10-31';
@@ -68,6 +68,143 @@ async function main() {
     const savedDraft = () => page.evaluate(() => JSON.parse(localStorage.getItem(testApp.draftKey())));
     const reload = async () => { await page.reload(); await page.waitForFunction(() => window.testApp?.S.ready); };
     const flush = () => page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+    await field('weight').fill('18.75');
+    await page.evaluate(() => {
+      window.realSetItem=Storage.prototype.setItem;
+      Storage.prototype.setItem=function(key,value){
+        if(key.startsWith('murphy-outbox'))throw Error('Synthetic storage failure');
+        return window.realSetItem.call(this,key,value);
+      };
+    });
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await field('weight').inputValue(),'18.75');
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight),18.7);
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    await page.evaluate(() => { Storage.prototype.setItem=window.realSetItem; });
+    await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
+    await page.evaluate(() => {
+      testApp.S.banner={source:'sync',kind:'warn',retry:true,title:'Sync pending',text:'Synthetic sync failure'};
+      testApp.setStatus('Saved locally; retry sync','warn');
+    });
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+    assert.equal(await page.locator('#feedback').textContent(),'Sync pendingRetry sync');
+    await page.evaluate(() => {
+      testApp.S.banner={kind:'plain',title:'Notice',text:'Ordinary notice'};
+      testApp.setStatus('Synced');
+    });
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Synced');
+    passed++; console.log('PASS Dismiss preserves failed-save truth, sync Retry and a genuinely synced status');
+
+    const blockWrites=()=>page.evaluate(() => {
+      window.realSetItem=Storage.prototype.setItem;
+      Storage.prototype.setItem=function(key,value){
+        if(key.startsWith('murphy-outbox'))throw Error('Synthetic storage failure');
+        return window.realSetItem.call(this,key,value);
+      };
+    });
+    const allowWrites=()=>page.evaluate(() => {Storage.prototype.setItem=window.realSetItem;});
+    for(const status of ['Synced','Saved locally; retry sync']){
+      await page.evaluate(status=>testApp.setStatus(status,status.includes('retry')?'warn':''),status);
+      await blockWrites();
+      await page.locator('#weight-missed-2026-11-01').click();
+      assert.equal(await page.locator('#state').textContent(),'Not saved');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+      assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight),18.7);
+      await page.locator('[data-act="dismiss-banner"]').click();
+      assert.equal(await page.locator('#state').textContent(),status);
+      assert.equal(await page.evaluate(() => testApp.S.localSaveError),null);
+      assert.equal(await page.locator('#weight-missed-2026-11-01').getAttribute('aria-checked'),'false');
+      if(status.includes('retry'))assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+      await allowWrites();
+      await page.evaluate(() => testApp.storeError(Error('Synthetic unscoped validation failure')));
+      await page.locator('[data-act="dismiss-banner"]').click();
+      assert.equal(await page.locator('#state').textContent(),status);
+    }
+    passed++;console.log('PASS failed instant actions and unscoped errors dismiss to the real synced or pending status');
+
+    await blockWrites();
+    await field('notes').fill('Keep the failed draft');
+    await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
+    await page.locator('[data-act="bcs"][data-v="3"]').first().click();
+    await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await field('notes').inputValue(),'Keep the failed draft');
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].bcs),5);
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+    await allowWrites();
+    await page.evaluate(() => testApp.setStatus('Synced'));
+    passed++;console.log('PASS dismissing a failed chip action cannot clear an unrelated failed draft');
+
+    await blockWrites();
+    await field('weight').fill('18.75');
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    await field('notes').fill('Unsaved note');
+    await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
+    await page.locator('[data-act="dismiss-banner"]').click();
+    await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await field('weight').inputValue(),'18.75');
+    await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Synced');
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    await allowWrites();
+    passed++;console.log('PASS cancelling one of two failed entries preserves the other failure and then restores Synced');
+
+    await page.evaluate(() => testApp.setStatus('Saved locally; retry sync','warn'));
+    await blockWrites();
+    await page.locator('[data-act="openstool"][data-b="4"]').first().click();
+    await page.locator('[data-act="savestool"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1,'sync retry survives a separate local-save error');
+    await page.locator('[data-act="dismiss-banner"]').click();
+    await page.locator('[data-act="cancelstool"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+    await page.locator('.previous-meal summary').first().click();
+    await page.locator('#fed-time-2026-10-31').fill('19:45');
+    await page.locator('[data-act="savefeedingtime"]').first().click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    await page.locator('[data-act="cancelfeedingtime"]').first().click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
+    assert.equal(await page.locator('#fed-time-2026-10-31').inputValue(),'18:00');
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),0);
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-10-31'].meal.fedAt),'18:00');
+    await allowWrites();
+    passed++;console.log('PASS stool and feeding-time cancellation clear only their failure and retain pending-sync Retry');
+
+    await blockWrites();
+    await field('weight').fill('18.75');
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    await allowWrites();
+    await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Saved locally; syncing');
+    assert.equal(await page.evaluate(() => testApp.S.localSaveError),null);
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight),18.75);
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),1);
+    await page.locator('#recipe-2026-11-01').selectOption('fish');
+    await page.locator('[data-live-feeding="2026-11-01"] [data-act="fed"]').click();
+    assert.equal(await page.evaluate(() => !!testApp.S.days['2026-11-01'].meal.fedAt),true);
+    const beforeUndoFed=await page.evaluate(() => testApp.queuedWrites().length);
+    await page.locator('[data-live-feeding="2026-11-01"] [data-act="unfeed"]').click();
+    assert.equal(await page.evaluate(() => !!testApp.S.days['2026-11-01'].meal.fedAt),false);
+    assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.recipe),'fish');
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length),beforeUndoFed+1);
+    assert.equal(await page.locator('[data-live-feeding="2026-11-01"] [data-act="fed"]').count(),1);
+    assert.deepEqual(errors,[],'live Today Undo Fed has no explicit feeding-time form');
+    passed++;console.log('PASS live Today Fed and Undo Fed preserve the plan without a feeding-form error');
+    // Start the remaining existing scenarios with the original synthetic baseline.
+    await page.evaluate(() => {for(const key of Object.keys(localStorage))if(key.startsWith('murphy-outbox'))localStorage.removeItem(key);});
+    await reload();
+    passed++;console.log('PASS successful retry clears only the resolved error and retains normal queued-save semantics');
+
     await field('notes').fill('Unfinished notes\nSecond line');
     await field('activeMin').fill('87');
     await flush();
