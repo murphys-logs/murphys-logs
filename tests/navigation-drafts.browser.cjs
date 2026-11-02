@@ -13,6 +13,21 @@ const legacyDraft = (value, date = TODAY) => ({
   fields: [{ id: 'in-notes-' + date, date, key: 'notes', value }]
 });
 
+// Today folds optional sections. Before typing or tapping, open any closed section
+// around the control by its summary, as a person would; reads pass straight through.
+const revealing = (page, locator) => new Proxy(locator, { get(target, prop) {
+  if (['fill', 'click', 'press', 'type', 'pressSequentially'].includes(prop)) return async (...args) => {
+    for (;;) {
+      const id = await target.evaluate(el => { let outer = null; for (let p = el.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS' && !p.open) outer = p; return outer?.id || ''; });
+      if (!id) break;
+      await page.locator(`#${id} > summary`).click();
+    }
+    return target[prop](...args);
+  };
+  const value = target[prop];
+  return typeof value === 'function' ? value.bind(target) : value;
+} });
+
 async function main() {
   const browser = await chromium.launch({ headless: true,
     ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
@@ -50,7 +65,7 @@ async function main() {
       }
       const page = await context.newPage();
       await boot(page);
-      const field = (key, date) => page.locator(`[data-form][data-key="${key}"]${date ? `[data-date="${date}"]` : ''} input,[data-form][data-key="${key}"]${date ? `[data-date="${date}"]` : ''} textarea`).first();
+      const field = (key, date) => revealing(page, page.locator(`[data-form][data-key="${key}"]${date ? `[data-date="${date}"]` : ''} input,[data-form][data-key="${key}"]${date ? `[data-date="${date}"]` : ''} textarea`).first());
       const tab = async name => {
         await page.locator(`#tabbar [data-tab="${name}"]`).click();
         await page.waitForFunction(name => testApp.S.tab === name, name);
@@ -332,7 +347,8 @@ async function main() {
       await page.locator(`[data-form][data-key="mealamount"][data-setting="oilMl"][data-date="${TODAY}"] [data-act="saveinput"]`).click();
       assert.equal(await page.locator('#state').textContent(), 'Not saved');
       await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
-      await page.locator(`#meal-fed-action-${TODAY}`).click();
+      // Undo Fed is under Edit meal; it hides the unfinished supplement correction.
+      await revealing(page, page.locator(`#meal-unfeed-${TODAY}`)).click();
       await tab('day');
       await page.locator(`[data-act="resumedraft"][data-date="${TODAY}"]`).first().click();
       assert.equal(await page.locator(`#meal-amount-${TODAY}-oilMl`).count(), 0);
@@ -704,7 +720,7 @@ async function main() {
       const raw = await page.evaluate(key => localStorage.getItem(key), key);
       const second = await context.newPage(); await boot(second);
       assert.notEqual(await second.evaluate(() => testApp.draftKey()), key);
-      await second.locator('[data-key="notes"] textarea').fill('Second tab draft');
+      await revealing(second, second.locator('[data-key="notes"] textarea')).fill('Second tab draft');
       await second.evaluate(() => testApp.persistDrafts());
       assert.equal(await page.evaluate(key => localStorage.getItem(key), key), raw);
       await second.evaluate(() => localStorage.setItem('test-user', 'different-navigation-account'));
