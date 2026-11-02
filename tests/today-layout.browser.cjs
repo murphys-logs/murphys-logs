@@ -98,6 +98,84 @@ async function main() {
     passed++; console.log('PASS amounts and Mark as fed share one screen without sideways scrolling at 390, 375 and 320px');
 
     {
+      // CC-01: the deferred Weight missed refresh must keep Today's combined card.
+      const { context, page } = await open({ width: 390, height: 844 });
+      const card = page.locator(`#weight-${TODAY}`), condition = page.locator(`#condition-${TODAY}`);
+      const missed = page.locator(`#weight-missed-${TODAY}`), note = page.locator(`#in-notes-${TODAY}`);
+      const assertCard = async () => {
+        assert.equal(await card.count(), 1, 'Today keeps its combined weight and condition card');
+        assert.equal(await card.locator('h3').textContent(), 'Weigh-in & condition');
+        assert.equal(await card.locator(`#condition-${TODAY} [data-act="bcs"]`).count(), 7);
+        assert.equal(await card.locator('[data-weight-hint][data-brief]').count(), 1, 'Today keeps its brief hint');
+      };
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await note.fill('Unfinished CC-01 note');
+      const noteNode = await note.elementHandle();
+      const storedDrafts = () => page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('murphy-draft-v2:'))
+        .flatMap(k => JSON.parse(localStorage.getItem(k)).fields));
+      await page.waitForFunction(() => Object.keys(localStorage).filter(k => k.startsWith('murphy-draft-v2:'))
+        .some(k => JSON.parse(localStorage.getItem(k)).fields.some(field => field.key === 'notes')));
+      const draftsBefore = await storedDrafts();
+      assert.equal(draftsBefore.length, 1);
+      for (const checked of [true, false]) {
+        await missed.click();
+        await page.waitForFunction(([date, value]) => testApp.S.days[date].weightMissed === value, [TODAY, checked]);
+        await assertCard();
+        assert.equal(await missed.getAttribute('aria-checked'), String(checked));
+        assert.equal(await page.locator(`#in-weight-${TODAY}`).isDisabled(), checked);
+        assert.equal(await page.evaluate(() => document.activeElement.id), `weight-missed-${TODAY}`);
+        assert.equal(await noteNode.evaluate(el => el.isConnected), true, 'the unfinished note is not replaced');
+        assert.equal(await note.inputValue(), 'Unfinished CC-01 note');
+        assert.equal(await page.locator('[data-form][data-key="notes"][data-dirty]').count(), 1);
+        assert.deepEqual(await storedDrafts(), draftsBefore, 'Weight missed preserves the persisted note draft');
+      }
+      await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+      await assertCard(); // The on/off sequence returns to unchanged markup when Cancel renders.
+      assert.equal(await note.inputValue(), '');
+      assert.deepEqual(await storedDrafts(), []);
+      assert.equal(await page.locator('[data-form][data-key="notes"][data-dirty]').count(), 0);
+      await page.locator(`#todo-${TODAY} [data-act="jump"][data-k="bcs"]`).click();
+      assert.equal(await page.evaluate(() => document.activeElement.id), `condition-${TODAY}`);
+      assert.equal(await condition.isVisible(), true);
+      const writes = await page.evaluate(() => testApp.queuedWrites());
+      assert.equal(writes.length, 2, 'only the two Weight missed actions queue writes');
+      assert.deepEqual(writes.map(([, write]) => [write.col, write.id, write.patch.weightMissed]),
+        [['days', TODAY, true], ['days', TODAY, false]]);
+      assert.equal(writes.some(([, write]) => Object.hasOwn(write.patch, 'notes')), false, 'the draft is never saved');
+      await context.close();
+    }
+    passed++; console.log('PASS Weight missed keeps Today condition controls, draft, hint and focus through on, off and Cancel (CC-01)');
+
+    {
+      // History can show the same date as Today, but must retain its separate cards.
+      const { context, page } = await open({ width: 390, height: 844 });
+      await page.locator('#tabbar [data-tab="day"]').click();
+      await page.locator('#history-date').fill(TODAY);
+      await page.waitForFunction(today => testApp.S.tab === 'day' && testApp.S.cursor === today, TODAY);
+      await page.locator(`#in-notes-${TODAY}`).fill('History draft');
+      const conditionNode = await page.locator(`#condition-${TODAY}`).elementHandle();
+      for (const checked of [true, false]) {
+        await page.locator(`#weight-missed-${TODAY}`).click();
+        await page.waitForFunction(([date, value]) => testApp.S.days[date].weightMissed === value, [TODAY, checked]);
+        const weight = page.locator(`#weight-missed-${TODAY}`).locator('xpath=ancestor::section[1]');
+        assert.equal(await weight.locator('h3').textContent(), 'Weight');
+        assert.equal(await weight.locator('[data-act="bcs"]').count(), 0);
+        assert.equal(await weight.locator('[data-weight-hint]:not([data-brief])').count(), 1);
+        assert.equal(await page.locator(`#condition-${TODAY} [data-act="bcs"]`).count(), 7);
+        assert.equal(await conditionNode.evaluate(el => el.isConnected), true, 'History condition card is untouched');
+        assert.equal(await page.locator(`#in-weight-${TODAY}`).isDisabled(), checked);
+        assert.equal(await page.evaluate(() => document.activeElement.id), `weight-missed-${TODAY}`);
+        assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'History draft');
+      }
+      await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+      assert.equal(await page.locator(`#weight-${TODAY}`).count(), 0, 'History does not acquire Today layout');
+      assert.equal(await page.locator(`#condition-${TODAY} [data-act="bcs"]`).count(), 7);
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
+      await context.close();
+    }
+    passed++; console.log('PASS Weight missed keeps History separate Weight and Condition cards while a note is unfinished');
+
+    {
       const { context, page } = await open({ width: 390, height: 844 });
       // The Still to log shortcut lands on the card so its amounts show above the button.
       await page.locator(`[data-act="jump"][data-k="meal"][data-date="${TODAY}"]`).click();
