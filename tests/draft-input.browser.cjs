@@ -43,6 +43,21 @@ const stub = `
     deleteDoc=forbidden,deleteField=forbidden,runTransaction=forbidden;
 `;
 
+// Today folds optional sections. Before typing or tapping, open any closed section
+// around the control by its summary, as a person would; reads pass straight through.
+const revealing = (page, locator) => new Proxy(locator, { get(target, prop) {
+  if (['fill', 'click', 'press', 'type', 'pressSequentially'].includes(prop)) return async (...args) => {
+    for (;;) {
+      const id = await target.evaluate(el => { let outer = null; for (let p = el.parentElement; p; p = p.parentElement) if (p.tagName === 'DETAILS' && !p.open) outer = p; return outer?.id || ''; });
+      if (!id) break;
+      await page.locator(`#${id} > summary`).click();
+    }
+    return target[prop](...args);
+  };
+  const value = target[prop];
+  return typeof value === 'function' ? value.bind(target) : value;
+} });
+
 async function main() {
   const browser = await chromium.launch({ headless: true,
     ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
@@ -64,7 +79,7 @@ async function main() {
     }
     const page = await context.newPage();
     await boot(page);
-    const field = key => page.locator(`[data-form][data-key="${key}"] input,[data-form][data-key="${key}"] textarea`).first();
+    const field = key => revealing(page, page.locator(`[data-form][data-key="${key}"] input,[data-form][data-key="${key}"] textarea`).first());
     const savedDraft = () => page.evaluate(() => JSON.parse(localStorage.getItem(testApp.draftKey())));
     const reload = async () => { await page.reload(); await page.waitForFunction(() => window.testApp?.S.ready); };
     const flush = () => page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -192,12 +207,15 @@ async function main() {
     await page.locator('#recipe-2026-11-01').selectOption('fish');
     await page.locator('[data-live-feeding="2026-11-01"] [data-act="fed"]').click();
     assert.equal(await page.evaluate(() => !!testApp.S.days['2026-11-01'].meal.fedAt),true);
+    assert.equal(await page.evaluate(() => document.activeElement.id),'meal-fed-status-2026-11-01','focus moves to the fed time that replaces Mark as fed');
     const beforeUndoFed=await page.evaluate(() => testApp.queuedWrites().length);
-    await page.locator('[data-live-feeding="2026-11-01"] [data-act="unfeed"]').click();
+    // Undo Fed sits under Edit meal with the other corrections.
+    await revealing(page,page.locator('#meal-unfeed-2026-11-01')).click();
     assert.equal(await page.evaluate(() => !!testApp.S.days['2026-11-01'].meal.fedAt),false);
     assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.recipe),'fish');
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length),beforeUndoFed+1);
     assert.equal(await page.locator('[data-live-feeding="2026-11-01"] [data-act="fed"]').count(),1);
+    assert.equal(await page.evaluate(() => document.activeElement.id),'meal-fed-action-2026-11-01','focus returns to Mark as fed');
     assert.deepEqual(errors,[],'live Today Undo Fed has no explicit feeding-time form');
     passed++;console.log('PASS live Today Fed and Undo Fed preserve the plan without a feeding-form error');
     // Start the remaining existing scenarios with the original synthetic baseline.
@@ -297,7 +315,7 @@ async function main() {
     const ownRaw=await page.evaluate(key=>localStorage.getItem(key),ownKey);
     const second=await context.newPage();await boot(second);
     assert.notEqual(await second.evaluate(() => testApp.draftKey()),ownKey);
-    await second.locator('[data-key="notes"] textarea').fill('Another tab');
+    await revealing(second,second.locator('[data-key="notes"] textarea')).fill('Another tab');
     await second.evaluate(() => testApp.persistDrafts());
     assert.equal(await page.evaluate(key=>localStorage.getItem(key),ownKey),ownRaw);
     await second.close();

@@ -71,7 +71,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
     renderFeedback = () => {};
     globalThis.testDownloads = [];
     download = (...args) => globalThis.testDownloads.push(args);
-    globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
+    globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
       exportMonthCsv, exportMonthMd, previousMonth, downloads: globalThis.testDownloads,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
@@ -293,6 +293,107 @@ test('Today leads with logging and folds the read-only assessment', () => {
   assert.ok(todo > 0 && todo < fold && fold < page.indexOf(`data-stool-log="${TODAY}"`));
   assert.match(page, new RegExp(`data-weight-strip data-date="${TODAY}">18\\.60 kg · Within range · yesterday<br>BCS 5\\.0 · yesterday`));
   assert.match(page, new RegExp(`data-weight-summary="body" data-date="${TODAY}"`), 'the full assessment is one tap away');
+});
+
+// The meal card is the slice of Today between its section and the first optional fold.
+const mealCardOf = page => page.slice(page.indexOf(`id="meal-section-${TODAY}"`), page.indexOf(`id="activity-${TODAY}"`));
+
+test('Today orders logging, weigh-in with condition, tonight’s meal, then closed optional sections', () => {
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'fish' } }, [YESTERDAY]: { meal: fedMeal } } });
+  const page = h.api.viewToday();
+  const order = [`id="todo-${TODAY}"`, `id="assessment-${TODAY}"`, `data-stool-log="${TODAY}"`, `id="in-weight-${TODAY}"`,
+    `id="condition-${TODAY}"`, `id="meal-section-${TODAY}"`, `id="activity-${TODAY}"`, `id="treats-${TODAY}"`, `id="events-${TODAY}"`, `id="notes-${TODAY}"`];
+  const at = order.map(text => page.indexOf(text));
+  assert.ok(at.every(i => i > 0), 'every Today section is present');
+  assert.deepEqual([...at].sort((a, b) => a - b), at, 'sections appear in the documented order');
+  for (const kind of ['activity', 'treats', 'events', 'notes'])
+    assert.match(page, new RegExp(`<details class="card today-fold" id="${kind}-${TODAY}"><summary`), `${kind} starts closed`);
+  assert.match(page, /data-act="event" data-id="vomited"/, 'observations stay one tap from their summary');
+  assert.match(page, new RegExp(`data-form data-date="${YESTERDAY}" data-key="activeMin"`), 'Tractive minutes remain saved against yesterday');
+});
+
+test('a planned meal shows its amounts directly above Mark as fed; switches wait under Change meal', () => {
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'fish' } } } });
+  const card = mealCardOf(h.api.viewToday());
+  const at = text => card.indexOf(text);
+  assert.ok(at('Fish · DARF Active') > 0 && at('Fish · DARF Active') < at('Bella &amp; Duke'));
+  assert.ok(at('Bella &amp; Duke') < at('Salmon oil') && at('Salmon oil') < at('Pro-Fibre'));
+  assert.ok(at('Pro-Fibre') < at(`id="meal-fed-action-${TODAY}"`), 'amounts precede the button');
+  assert.match(card, />Mark as fed<\/button>/);
+  assert.ok(at(`id="meal-fed-action-${TODAY}"`) < at(`id="meal-change-${TODAY}"`));
+  assert.ok(at(`id="meal-change-${TODAY}"`) < at(`id="recipe-${TODAY}"`) && at(`id="recipe-${TODAY}"`) < at('data-act="extra"'),
+    'recipe and ingredient switches are inside Change meal');
+  assert.match(card, new RegExp(`<details class="meal-disclosure meal-change" id="meal-change-${TODAY}" ><summary>Change meal</summary>`), 'closed once a recipe is chosen');
+  assert.doesNotMatch(card, /data-act="bowl"|data-act="unfeed"|data-key="darfFed"/, 'bowl and corrections wait until fed');
+});
+
+test('without a recipe, Change meal starts open and Mark as fed is withheld', () => {
+  const card = mealCardOf(makeHarness().api.viewToday());
+  assert.match(card, new RegExp(`id="meal-change-${TODAY}" open><summary>Change meal</summary>`));
+  assert.doesNotMatch(card, /data-act="fed"/);
+  assert.match(card, /Choose a recipe under Change meal/);
+});
+
+test('after feeding, Today shows the fed time, saved amounts and bowl; Undo Fed and grams sit under Edit meal', () => {
+  const meal = { recipe: 'fish', fedAt: '18:20', darfFed: 165, darfPlanned: 160, oilMl: 4, fibreG: 2.5, oilGiven: true, fibreGiven: true, egg: false, broth: false };
+  const card = mealCardOf(makeHarness({ days: { [TODAY]: { meal } } }).api.viewToday());
+  const at = text => card.indexOf(text);
+  assert.match(card, /Fish · DARF fed<\/span><strong>165 g<\/strong>/);
+  assert.match(card, /<dt>DARF planned<\/dt><dd>160 g<\/dd>/, 'a differing plan stays visible');
+  assert.match(card, /<dt>Salmon oil<\/dt><dd>4 ml<\/dd>.*<dt>Pro-Fibre<\/dt><dd>2\.5 g<\/dd>/s);
+  assert.match(card, new RegExp(`id="meal-fed-status-${TODAY}" tabindex="-1">Fed at 18:20<`));
+  assert.ok(at(`id="bowl-${TODAY}-cleared"`) > 0 && at(`id="bowl-${TODAY}-cleared"`) < at(`id="meal-change-${TODAY}"`));
+  assert.match(card, /<summary>Edit meal<\/summary>/);
+  for (const control of [`id="meal-unfeed-${TODAY}"`, `id="in-darfFed-${TODAY}"`, `id="meal-correction-${TODAY}"`])
+    assert.ok(at(control) > at(`id="meal-change-${TODAY}"`), control + ' is under Edit meal');
+  assert.doesNotMatch(card, /id="meal-fed-action-/);
+});
+
+test('Mark as fed records the time now and the shown DARF amount through the outbox', async () => {
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'fish' } } } });
+  const shown = Number(mealCardOf(h.api.viewToday()).match(/DARF Active<\/span><strong>(\d+) g/)[1]);
+  await h.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
+  assert.equal(h.api.S.days[TODAY].meal.fedAt, '10:00');
+  assert.equal(h.api.S.days[TODAY].meal.darfFed, shown);
+  assert.equal([...h.storage.keys()].filter(key => key.startsWith('murphy-outbox-v2:ui-test-only:')).length, 1);
+});
+
+test('closed sections summarise what is recorded, with yesterday’s Tractive date and escaped notes', () => {
+  const h = makeHarness({ days: {
+    [TODAY]: { walkMin: 40, walkKm: 3.2, treats: 2, events: ['vomited', 'lethargic'], notes: '<b>Ate grass</b>\nsecond line' },
+    [YESTERDAY]: { activeMin: 55 } } });
+  assert.equal(h.api.foldSummary('activity', TODAY), 'Walked 40 min · 3.2 km · Tractive 27 Oct: 55 min');
+  assert.equal(h.api.foldSummary('treats', TODAY), 'Dried necks and feet: 2');
+  assert.equal(h.api.foldSummary('events', TODAY), 'Vomited · Lethargic');
+  assert.equal(h.api.foldSummary('notes', TODAY), '&lt;b&gt;Ate grass&lt;/b&gt;');
+  const empty = makeHarness();
+  assert.deepEqual(['activity', 'treats', 'events', 'notes'].map(kind => empty.api.foldSummary(kind, TODAY)),
+    ['Not recorded', 'Not recorded', 'None recorded · Add observation', 'No notes']);
+  assert.equal(makeHarness({ days: { [TODAY]: { treats: 0 } } }).api.foldSummary('treats', TODAY), 'Dried necks and feet: 0', 'zero is a recorded value');
+});
+
+test('Still to log includes tonight’s meal until it is marked as fed', async () => {
+  const chip = /data-act="jump" data-k="meal" data-date="2026-10-28">([^<]+)</;
+  assert.equal(makeHarness().api.todoCard(TODAY).match(chip)[1], 'tonight’s recipe not chosen');
+  assert.equal(makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb' } } } }).api.todoCard(TODAY).match(chip)[1], 'tonight’s meal not fed yet');
+  const complete = makeHarness({ days: { [TODAY]: { stools: [stool], weight: 18.7, bcs: 5, meal: fedMeal } } }).api.todoCard(TODAY);
+  assert.doesNotMatch(complete, chip);
+  assert.match(complete, /Core observations recorded<\/b>Stools, weight and condition are recorded, and tonight’s meal is marked as fed\./);
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb' } } } });
+  await h.click('jump', { k: 'meal', date: TODAY });
+  assert.equal(h.document.activeElement.selector, `#meal-section-${TODAY}`, 'the shortcut lands on the card, amounts first');
+});
+
+test('History keeps its complete day editor and states precisely what is recorded', () => {
+  const h = makeHarness({ days: { [YESTERDAY]: { stools: [stool], weight: 18.7, bcs: 5 } } });
+  h.api.S.cursor = YESTERDAY;
+  const page = h.api.viewDay();
+  assert.doesNotMatch(page, /today-fold|data-meal-brief|meal-change/);
+  assert.match(page, new RegExp(`<section class="card sec" id="activity-${YESTERDAY}" tabindex="-1"`));
+  assert.match(page, /<h3 class="lab">Evening Meal<\/h3>/);
+  assert.match(page, /<b>Core observations recorded<\/b>Stools, weight and condition are recorded\./);
+  h.api.S.cursor = TODAY;
+  assert.match(h.api.viewDay(), /<b>Not yet recorded<\/b>no stool logged, no weight, no condition score/);
 });
 
 test('History chooses a date inline with the existing bounds and no dialog', () => {
