@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.8.0">
+<html lang="en-GB" data-version="3.9.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -564,7 +564,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
     }
     state.busy=true;state.message='';requestedReload=true;emit();
     const result=await message(registration.waiting,'MURPHY_ACTIVATE');
-    if(!result?.offlineReady){requestedReload=false;state.busy=false;state.message='The update files are not ready. Use Check app files in Settings when connected.';emit();}
+    if(!result?.offlineReady){requestedReload=false;state.busy=false;state.message='The update files are not ready. Use Check offline access in Settings when connected.';emit();}
   }
   window.AppShell={state,check,update,ready(){
     started=true;clearTimeout(deadline);document.getElementById('boot-retry').classList.add('hide');
@@ -602,7 +602,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.8.0';
+const APP_VERSION = '3.9.0';
 
 /* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
    Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'
@@ -953,6 +953,7 @@ function vetItems(days, todayIso, weights, s){
 const S = {
   user:null, days:{}, changes:[], settings:{...DEFAULTS},
   ready:false, tab:'today', cursor:null, adding:null,
+  exportMonth:null, exportFormat:'csv',
   status:'Connecting', banner:null, testOut:null, subscribed:false,
   undo:null, undoBusy:false, erasing:false, fibreSnooze:null, fibreSnoozedUntil:null, localSaveError:null
 };
@@ -1714,7 +1715,7 @@ function bandOfBristol(n){ return (BRISTOL[n]||{}).band||'a'; }
 const refocus=id=>document.getElementById(id)?.focus({preventScroll:true});
 function replaceRenderedHtml(target,html,outer=false){
   const active=document.activeElement;
-  const recipe=active?.matches('select[data-act="recipe"]')&&target.contains(active)?active:null;
+  const recipe=active?.matches('select[data-act="recipe"],select[data-act="exportmonthselect"]')&&target.contains(active)?active:null;
   const replace=()=>{if(outer)target.outerHTML=html;else target.innerHTML=html;};
   if(!recipe){replace();return;}
   const template=document.createElement('template');template.innerHTML=html;
@@ -1774,11 +1775,12 @@ function navigateTo(rawTab,{date,target,stoolId}={}){
   if(tab==='day')announceHistoryDate();
 }
 function refreshSelectionStates(){
-  for(const button of $$('#main [data-act="event"],#main [data-act="bowl"],#main [data-act="theme"]')){
-    const d=S.days[button.dataset.date]||{};
-    const on=button.dataset.act==='event'?(d.events||[]).includes(button.dataset.id):button.dataset.act==='bowl'?d.meal?.bowl===button.dataset.k:(S.settings.theme||'system')===button.dataset.t;
+  for(const button of $$('#main [data-act="event"],#main [data-act="bowl"],#main [data-act="theme"],#main [data-act="exportfmt"]')){
+    const d=S.days[button.dataset.date]||{}, act=button.dataset.act;
+    const on=act==='event'?(d.events||[]).includes(button.dataset.id):act==='bowl'?d.meal?.bowl===button.dataset.k:act==='exportfmt'?(S.exportFormat==='md'?'md':'csv')===button.dataset.fmt:(S.settings.theme||'system')===button.dataset.t;
     button.classList.toggle('on',on);button.setAttribute('aria-pressed',String(on));
   }
+  refreshExportControls();
   refreshFoldSummaries();
   syncBcsGuidance();
 }
@@ -2596,66 +2598,150 @@ function foodTable(isos,extras){
 }
 
 /* SETTINGS */
-function appReadinessPanel(){
+const validYm=ym=>typeof ym==='string'&&/^\d{4}-(0[1-9]|1[0-2])$/.test(ym);
+const exportOutputNote=(ym,fmt)=>fmt==='md'?`Markdown downloads Murphy_Log_${ym}.md.`:`CSV downloads two files: Murphy_Log_${ym}.csv (daily records) and Murphy_Log_${ym}_stools.csv (stools).`;
+function exportMonthOptions(){
+  const cur=localToday().slice(0,7), prev=previousMonth(), months=new Set([cur,prev]);
+  for(const d of Object.keys(S.days))if(validDate(d))months.add(d.slice(0,7));
+  for(const c of S.changes)if(validDate(c?.date))months.add(c.date.slice(0,7));
+  const candidates=[...months];
+  if(validDate(S.settings?.startDate)&&S.settings.startDate.slice(0,7)<=cur)candidates.push(S.settings.startDate.slice(0,7));
+  const [cy,cm]=cur.split('-').map(Number);
+  const minFill=`${String(cy-10).padStart(4,'0')}-${String(cm).padStart(2,'0')}`;
+  const past=candidates.filter(ym=>ym<=cur&&ym>=minFill).sort()[0];
+  if(past){
+    let [y,m]=past.split('-').map(Number);
+    while(y<cy||(y===cy&&m<=cm)){
+      months.add(`${String(y).padStart(4,'0')}-${String(m).padStart(2,'0')}`);
+      if(++m>12){m=1;y++;}
+    }
+  }
+  return [...months].sort((a,b)=>b.localeCompare(a)).map(ym=>({
+    ym,
+    label:`${MON[Number(ym.slice(5,7))-1]} ${ym.slice(0,4)}${ym===cur?' (this month)':ym===prev?' (last month)':''}`
+  }));
+}
+function selectedExportMonth(options=exportMonthOptions()){
+  return S.exportMonth&&options.some(o=>o.ym===S.exportMonth)?S.exportMonth:localToday().slice(0,7);
+}
+function refreshExportControls(){
+  const select=$('#export-month');if(!select)return;
+  const options=exportMonthOptions(), ym=selectedExportMonth(options), fmt=S.exportFormat==='md'?'md':'csv';
+  if(select.options&&typeof select.replaceChildren==='function'){
+    const currentShape=Array.from(select.options,o=>[o.value,o.text]);
+    const nextShape=options.map(o=>[o.ym,o.label]);
+    if(JSON.stringify(currentShape)!==JSON.stringify(nextShape)){
+      select.replaceChildren(...options.map(o=>{const el=document.createElement('option');el.value=o.ym;el.textContent=o.label;return el;}));
+    }
+  }
+  if(select.value!==ym)select.value=ym;
+  const note=$('#export-output-note');
+  if(note)note.textContent=exportOutputNote(ym,fmt);
+}
+function appReadinessSection(){
   const app=window.AppShell?.state||{},ready=app.offlineReady===true;
   const text=!app.available?'Offline opening is not supported in this browser.':ready?'App files are ready for offline opening.':app.offlineReady===false?'App files are not yet ready for offline opening.':'Offline opening has not been confirmed yet.';
-  return panel('App updates and offline access',`<p class="chart-summary" role="status">${text}</p><p class="sub">Keep signed in to use records already available on this device. Record syncing is shown separately at the top of the screen.</p>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}<div class="btnrow">${app.updateReady?`<button class="btn sm" data-shell-act="update" ${app.busy?'disabled':''}>Update app</button>`:''}<button class="btn ghost sm" data-shell-act="check" ${!app.available||app.busy?'disabled':''}>${app.busy?'Checking app files…':'Check app files'}</button></div>`);
+  return `<div class="review-subsec"><h4 class="lab">App updates &amp; offline access</h4><p class="chart-summary" role="status">${text}</p><p class="sub">Keep signed in to use records already available on this device. Record syncing is shown separately at the top of the screen.</p>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}<div class="btnrow">${app.updateReady?`<button class="btn sm" id="settings-update-app" data-shell-act="update" ${app.busy?'disabled':''}>Update app</button>`:''}<button class="btn ghost sm" id="settings-check-offline" data-shell-act="check" ${!app.available||app.busy?'disabled':''}>${app.busy?'Checking offline access…':'Check offline access'}</button></div></div>`;
 }
 function viewSettings(){
-  const s=S.settings;
-  const oil=(s.oilSchedule||[]).map(e=>row(fmtShort(e.from),e.ml+' ml')).join('');
-  const fib=(s.fibreSchedule||[]).map(e=>row(fmtShort(e.from),e.g+' g')).join('');
+  const s=S.settings, today=localToday();
+  const oil=(s.oilSchedule||[]).map(e=>row(fmtShortYear(e.from),e.ml+' ml')).join('')||'<p class="muted">None recorded.</p>';
+  const fib=(s.fibreSchedule||[]).map(e=>row(fmtShortYear(e.from),e.g+' g')).join('')||'<p class="muted">None recorded.</p>';
   const reg=(s.regimeChanges||[]).length
-    ? s.regimeChanges.map(d=>row(fmtShort(d),`<button class="link" data-act="delregime" data-d="${d}">remove</button>`)).join('')
+    ? s.regimeChanges.map((d,i)=>row(fmtShortYear(d),`<button class="link" id="del-regime-${d}-${i}" data-act="delregime" data-d="${d}" aria-label="Remove diet or routine change on ${fmtShortYear(d)}">remove</button>`)).join('')
     : '<p class="muted">None recorded.</p>';
   const chg=S.changes.length
-    ? S.changes.slice().reverse().map(c=>row(`${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}${c.refused?' (refused)':''}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g <button class="link" data-act="delchange" data-id="${esc(c.id)}">remove</button>`)).join('')
+    ? S.changes.slice().reverse().map((c,i)=>row(`${fmtShortYear(c.date)} &middot; ${esc(c.source||'manual')}${c.refused?' (refused)':''}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g <button class="link" id="del-change-${i}" data-act="delchange" data-id="${esc(c.id)}" aria-label="Remove ration adjustment on ${fmtShortYear(c.date)}">remove</button>`)).join('')
     : '<p class="muted">None.</p>';
-  const num=k=>inputField(localToday(),'setnum',k);
+  const num=k=>inputField(today,'setnum',k);
+  const months=exportMonthOptions(), ym=selectedExportMonth(months), fmt=S.exportFormat==='md'?'md':'csv';
 
-  return '<h2 class="screen">Settings</h2>'+panel('Account',`
-    ${row(esc(S.user?.email||''),'<button class="link" data-act="signout">Sign out</button>')}
-    <p class="sub">Version ${APP_VERSION}</p>
-    <h3 class="lab">Appearance</h3><div class="seg">${['system','light','dark'].map(t=>`<button id="theme-${t}" ${choice((s.theme||'system')===t)} data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`)+appReadinessPanel()+
-    panel('Ration and supplements',`<div class="stack">
-      ${num('targetKcal')}
-      ${num('bdGrams')}
-      ${num('kcalPerGDarf')}
-      ${num('kcalPerMlOil')}
-      ${num('darfMinG')}
-    </div><h3 class="lab">Oil schedule</h3>${oil}
-      <p class="sub">Changes recalculate the base ration from that date, keeping calories level without changing the cumulative offset.</p>
-    <h3 class="lab">Pro-Fibre schedule</h3>${fib}
-      <div class="chips">${[2.5,5,7.5,10].map(g=>`<button class="chip" data-act="setfibre" data-g="${g}">Set ${g} g today</button>`).join('')}</div>
-      <p class="sub">Manual doses up to ${s.fibreCapG} g are available here. Above ${s.fibreRestG} g is never advised: persistent soft stool needs vet review.</p>`)+
-    panel('Weekly rule and adjustments',`<div class="stack">
-      ${num('deadbandPct')}
-      ${num('damping')}
-      ${num('maxStepG')}
-      ${num('maxCumulativeG')}
-      ${num('minWeighIns')}
-      ${num('kcalPerKgTissue')}
-      ${num('bcsHoldAtOrBelow')}
-    </div><h3 class="lab">Regime changes</h3>${reg}
-      <button class="link" data-act="addregime">+ Mark today as a regime change</button>
-      <p class="sub">Record a changed target, portion, sustained treats or illness. A change in either comparison week suppresses advice.</p>
-    <h3 class="lab">Adjustment log</h3>${chg}`)+
-    panel('Backup and export',`<div class="stack">
-        <button class="btn ghost sm" data-act="exportmonth">Export this month as CSV</button>
-        <button class="btn ghost sm" data-act="exportmd">Export this month as Markdown</button>
-        <button class="btn ghost sm" data-act="exportmonth" data-month="previous">Export last month as CSV</button>
-        <button class="btn ghost sm" data-act="exportmd" data-month="previous">Export last month as Markdown</button>
-        <button class="btn ghost sm" data-act="exportall">Export everything as JSON</button>
-        <label class="inline-lab" for="backup-file">Import JSON</label><input id="backup-file" class="tin" type="file" accept="application/json,.json" data-act="import">
+  return '<h2 class="screen">Settings</h2>'+
+    panel('Account',`
+      ${row(esc(S.user?.email||''),'<button class="link" id="signout-btn" data-act="signout">Sign out</button>')}
+      <p class="sub">Version ${APP_VERSION}</p>
+      ${appReadinessSection()}`,'settings-account')+
+    panel('Appearance',`
+      <div class="seg" role="group" aria-label="Appearance">${['system','light','dark'].map(t=>`<button id="theme-${t}" ${choice((s.theme||'system')===t)} data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`,'settings-appearance')+
+    panel('Feeding plan',`
+      <div class="stack">
+        ${num('targetKcal')}
+        ${num('bdGrams')}
       </div>
-      <p class="sub">${Object.keys(S.days).length} days, ${S.changes.length} changes. File the month in the project on the 1st.</p>
-    <h3 class="lab">Checks</h3>
-      <button class="btn ghost sm" data-act="selftest">Run self-tests</button>
-      ${S.testOut?`<pre class="pre">${esc(S.testOut)}</pre>`:''}
-    <h3 class="lab">When to call the vet</h3><p class="muted">Call for repeated monthly upset; blood, marked lethargy or inappetence; soft stool despite ${s.fibreRestG} g Pro-Fibre; further vacant episodes (video these); or weight loss with normal appetite.<br><br><b style="color:var(--alert)">Emergency: unproductive retching with a distended or tense abdomen after a meal needs a same-hour vet call.</b></p>
-    <h3 class="lab">Erase log data</h3>
-      <button class="btn danger sm" data-act="erase" ${S.erasing?'disabled':''}>${S.erasing?'Erasing log data…':'Erase all log data'}</button>
-      <p class="sub">Deletes days and changes; keeps settings. Export first.</p>`);
+      <div class="review-subsec">
+        <h4 class="lab">Supplements</h4>
+        ${row('Salmon oil today',oilMlOn(today,s)+' ml')}
+        ${row('Pro-Fibre today',fibreGOn(today,s)+' g')}
+        <div class="chips">${[2.5,5,7.5,10].map(g=>`<button class="chip" id="set-fibre-${String(g).replace('.','-')}" data-act="setfibre" data-g="${g}">Set ${g} g today</button>`).join('')}</div>
+        <p class="sub">Manual doses up to ${s.fibreCapG} g are available here. Above ${s.fibreRestG} g is never advised: persistent soft stool needs vet review.</p>
+        <details class="review-disclosure" id="settings-schedules"><summary>Supplement schedule history</summary>
+          <h5 class="lab">Oil schedule</h5>${oil}
+          <p class="sub">Changes recalculate the base ration from that date, keeping calories level without changing the cumulative adjustment.</p>
+          <div class="review-subsec"><h5 class="lab">Pro-Fibre schedule</h5>${fib}</div>
+        </details>
+      </div>
+      <div class="review-subsec">
+        <h4 class="lab">Diet or routine changes</h4>
+        ${reg}
+        <button class="link" id="add-regime" data-act="addregime">+ Record diet or routine change today</button>
+        <p class="sub">Record a changed target, portion, sustained treats or illness. A change in either comparison week suppresses advice.</p>
+      </div>`,'settings-feeding-plan')+
+    panel('Backup &amp; export',`
+      <label class="inline-lab" for="export-month">Month</label>
+      <select class="tin" id="export-month" data-act="exportmonthselect">${months.map(o=>`<option value="${o.ym}" ${o.ym===ym?'selected':''}>${esc(o.label)}</option>`).join('')}</select>
+      <div class="seg" role="group" aria-label="Export format">
+        <button id="export-fmt-csv" ${choice(fmt==='csv')} data-act="exportfmt" data-fmt="csv">CSV</button>
+        <button id="export-fmt-md" ${choice(fmt==='md')} data-act="exportfmt" data-fmt="md">Markdown</button>
+      </div>
+      <button class="btn sm" id="export-run" data-act="exportrun" aria-describedby="export-output-note">Export</button>
+      <p class="sub" id="export-output-note">${esc(exportOutputNote(ym,fmt))}</p>
+      <div class="review-subsec">
+        <h4 class="lab">Full backup &amp; restore</h4>
+        <button class="btn ghost sm" id="export-all" data-act="exportall">Full backup (JSON)</button>
+        <p class="sub">${Object.keys(S.days).length} days, ${S.changes.length} changes. File the month in the project on the 1st.</p>
+        <div class="review-subsec">
+          <label class="inline-lab" for="backup-file">Import JSON</label>
+          <input id="backup-file" class="tin" type="file" accept="application/json,.json" data-act="import">
+          <p class="sub">Merges newer days, unseen changes and unset settings; keeps newer existing records.</p>
+        </div>
+      </div>`,'settings-backup-export')+
+    fold('Advanced <span class="fold-strip">Rule constants, adjustment log, diagnostics &amp; erase</span>',`
+      <h3 class="lab">Food &amp; portion constants</h3>
+      <div class="stack">
+        ${num('kcalPerGDarf')}
+        ${num('kcalPerMlOil')}
+        ${num('darfMinG')}
+      </div>
+      <div class="review-subsec">
+        <h3 class="lab">Weekly ration rule</h3>
+        <div class="stack">
+          ${num('deadbandPct')}
+          ${num('damping')}
+          ${num('maxStepG')}
+          ${num('maxCumulativeG')}
+          ${num('minWeighIns')}
+          ${num('kcalPerKgTissue')}
+          ${num('bcsHoldAtOrBelow')}
+        </div>
+      </div>
+      <div class="review-subsec">
+        <h3 class="lab">Adjustment log</h3>
+        ${chg}
+      </div>
+      <div class="review-subsec">
+        <h3 class="lab">When to call the vet</h3>
+        <p class="muted">Call for repeated monthly upset; blood, marked lethargy or inappetence; soft stool despite ${s.fibreRestG} g Pro-Fibre; further vacant episodes (video these); or weight loss with normal appetite.<br><br><b style="color:var(--alert)">Emergency: unproductive retching with a distended or tense abdomen after a meal needs a same-hour vet call.</b></p>
+      </div>
+      <div class="review-subsec">
+        <h3 class="lab">Diagnostics</h3>
+        <button class="btn ghost sm" id="run-selftest" data-act="selftest">Run self-tests</button>
+        ${S.testOut?`<pre class="pre" id="selftest-out">${esc(S.testOut)}</pre>`:''}
+      </div>
+      <div class="review-subsec">
+        <h3 class="lab">Erase log data</h3>
+        <button class="btn danger sm" id="erase-log" data-act="erase" ${S.erasing?'disabled':''}>${S.erasing?'Erasing log data…':'Erase all log data'}</button>
+        <p class="sub">Deletes days and changes; keeps settings. Export first.</p>
+      </div>`,'settings-advanced');
 }
 const viewMore=viewSettings;
 
@@ -2924,7 +3010,13 @@ function selfTest(){
   ok('half points average', +bcsMean(bd,'2026-09-14',7).mean.toFixed(3), 4.214);
 
   S.testOut = `${p} passed, ${f} failed\n\n` + L.join('\n');
+  rendered='';
   render();
+  if(renderPending){
+    const pre=$('#selftest-out'), btn=$('#run-selftest');
+    if(pre&&pre.id==='selftest-out')pre.textContent=S.testOut;
+    else if(btn&&typeof btn.insertAdjacentHTML==='function')btn.insertAdjacentHTML('afterend',`<pre class="pre" id="selftest-out">${esc(S.testOut)}</pre>`);
+  }
 }
 
 /* EVENTS */
@@ -3508,17 +3600,21 @@ document.addEventListener('click', async (ev)=>{
   if(a==='addregime'){await write({regime:{date:localToday(),count:1}});return;}
   if(a==='delregime'){
     const date=el.dataset.d,count=(S.settings.regimeChanges||[]).filter(x=>x===date).length;if(!count)return;
-    if(!confirm(`Remove the regime change on ${fmtDate(date)}? This can allow ration advice to resume for weeks containing this date. Undo will be available.`))return;
+    if(!confirm(`Remove the diet or routine change on ${fmtShortYear(date)}? This can allow ration advice to resume for weeks containing this date. Undo will be available.`))return;
     const indices=(S.settings.regimeChanges||[]).flatMap((d,i)=>d===date?[i]:[]);
-    el.disabled=true;await removeWithUndo({kind:'regime',date,count,indices,label:`Regime change removed · ${fmtShort(date)}`},{regime:{date,drop:true}});el.disabled=false;return;
+    el.disabled=true;const removed=await removeWithUndo({kind:'regime',date,count,indices,label:`Diet or routine change removed · ${fmtShortYear(date)}`},{regime:{date,drop:true}});el.disabled=false;
+    if(removed)refocus('undo-removal');else el.focus({preventScroll:true});return;
   }
   if(a==='delchange'){
     const record=S.changes.find(c=>c.id===el.dataset.id);if(!record)return;
     const effect=record.refused?'This lets the weekly rule consider advice again.':`This removes its ${record.deltaG>=0?'+':''}${record.deltaG} g adjustment from plans from that date onwards. Saved historical meals keep their recorded amounts.`;
-    if(!confirm(`Remove the ration entry on ${fmtDate(record.date)}? ${effect} Undo will be available.`))return;
-    el.disabled=true;await removeWithUndo({kind:'change',record,label:`Ration adjustment removed · ${fmtShort(record.date)}`},{col:'changes',id:record.id,erase:true});el.disabled=false;return;
+    if(!confirm(`Remove the ration entry on ${fmtShortYear(record.date)}? ${effect} Undo will be available.`))return;
+    el.disabled=true;const removed=await removeWithUndo({kind:'change',record,label:`Ration adjustment removed · ${fmtShortYear(record.date)}`},{col:'changes',id:record.id,erase:true});el.disabled=false;
+    if(removed)refocus('undo-removal');else el.focus({preventScroll:true});return;
   }
 
+  if (a==='exportfmt'){ S.exportFormat=el.dataset.fmt==='md'?'md':'csv'; rendered=''; refreshSelectionStates(); return; }
+  if (a==='exportrun'){ const ym=selectedExportMonth(); if(S.exportFormat==='md')exportMonthMd(ym);else exportMonthCsv(ym); return; }
   if (a==='exportmonth'){ exportMonthCsv(el.dataset.month==='previous'?previousMonth():undefined); return; }
   if (a==='exportmd'){ exportMonthMd(el.dataset.month==='previous'?previousMonth():undefined); return; }
   if (a==='exportall'){ exportAll(); return; }
@@ -3591,6 +3687,10 @@ document.addEventListener('change', async (ev)=>{
   if(el&&el.dataset.act==='import'&&el.files&&el.files[0]){
     if(eraseBlocksChanges())return;
     importJson(el.files[0]);
+  }
+  if(el?.dataset.act==='exportmonthselect'){
+    if(validYm(el.value)){S.exportMonth=el.value;rendered='';refreshExportControls();}
+    return;
   }
   if(el?.dataset.act==='historydate'&&!historyDateTyped)chooseHistoryDate(el);
   if(el?.dataset.act==='recipe'){
