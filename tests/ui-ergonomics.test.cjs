@@ -71,7 +71,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
     renderFeedback = () => {};
     globalThis.testDownloads = [];
     download = (...args) => globalThis.testDownloads.push(args);
-    globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
+    globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, viewHistory, viewReview, viewSettings, navigateTo, normalizeTab, navDestination, formatAlertDates, formatVetAlertHeadline, rationAlertDateText, weeklyAdvice, insights, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
       exportMonthCsv, exportMonthMd, previousMonth, downloads: globalThis.testDownloads,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
@@ -564,4 +564,163 @@ test('last-month CSV and Markdown export only the completed month, retaining thi
   assert.equal(h.api.downloads[3][0],'Murphy_Log_2026-10.csv');
   await h.click('exportmd');
   assert.equal(h.api.downloads[4][0],'Murphy_Log_2026-10.md');
+});
+
+test('tab bar exposes the four primary destinations and normalizes legacy routes', () => {
+  const tabMatches = [...html.matchAll(/<nav[^>]*id="tabbar"[\s\S]*?<\/nav>/g)][0][0];
+  const tabs = [...tabMatches.matchAll(/data-tab="([^"]+)"/g)].map(m => m[1]);
+  assert.deepEqual(tabs, ['today', 'history', 'review', 'settings']);
+  const h = makeHarness();
+  assert.equal(h.api.normalizeTab('today'), 'today');
+  assert.equal(h.api.normalizeTab('history'), 'history');
+  assert.equal(h.api.normalizeTab('day'), 'day');
+  assert.equal(h.api.normalizeTab('status'), 'review');
+  assert.equal(h.api.normalizeTab('review'), 'review');
+  assert.equal(h.api.normalizeTab('more'), 'settings');
+  assert.equal(h.api.normalizeTab('settings'), 'settings');
+  assert.equal(h.api.normalizeTab('unknown'), 'today');
+  assert.equal(h.api.navDestination('day'), 'history');
+  assert.equal(h.api.navDestination('history'), 'history');
+});
+
+test('History renders stacked daily summaries with preceding confirmed meals, tomorrow preview and All-range future records', async () => {
+  const h = makeHarness({
+    days: {
+      '2026-10-26': { meal: { recipe: 'beef', fedAt: '18:10', darfFed: 145, darfPlanned: 145, bowl: 'cleared' } },
+      [YESTERDAY]: {
+        stools: [
+          { id: 's1', time: '07:20', bristol: 3, mucus: false, blood: false },
+          { id: 's2', time: '14:40', bristol: 6, mucus: true, blood: true },
+        ],
+        weight: 19.1,
+        bcs: 5.5,
+        events: ['vomited'],
+        meal: { recipe: 'chicken', darfPlanned: 150 }, // unfed plan must not appear as Today's confirmed meal
+      },
+      [TODAY]: {
+        weightMissed: true,
+        meal: { recipe: 'lamb', fedAt: '18:45', darfFed: 140, darfPlanned: 140, bowl: 'left' },
+      },
+      '2026-12-05': { notes: 'Imported future date mistake' },
+    },
+  });
+  assert.doesNotMatch(html, /class="log-table"/);
+  const list14 = h.api.viewHistory();
+  assert.match(list14, /id="open-day-2026-10-27"/);
+  assert.match(list14, /2 stools · Types 3–6/);
+  assert.match(list14, /<strong class="flag-blood">Blood<\/strong> · <strong class="flag-mucus">Mucus<\/strong>/);
+  assert.match(list14, /19\.10 kg/);
+  assert.match(list14, /BCS 5\.5/);
+  assert.match(list14, /Observations: <strong class="watch-text">Vomited<\/strong>/);
+  assert.match(list14, /Preceding meal · 26 Oct 2026 at 18:10/);
+  assert.match(list14, /Beef · 145 g DARF · Bowl: Cleared/);
+  // Today's preceding meal was unfed on 27 Oct, so Today shows Not recorded as fed.
+  assert.match(list14, /Preceding meal \(27 Oct 2026\): Not recorded as fed/);
+  // Today's meal IS fed, so 29 Oct appears as non-opening tomorrow preview.
+  assert.match(list14, /Tomorrow’s tracking/);
+  assert.doesNotMatch(list14, /id="open-day-2026-10-29"/);
+  assert.doesNotMatch(list14, /id="open-day-2026-12-05"/);
+
+  h.api.S.range = 9999;
+  const listAll = h.api.viewHistory();
+  assert.match(listAll, /id="open-day-2026-12-05"/);
+
+  h.api.S.cursor = YESTERDAY;
+  h.api.S.tab = 'day';
+  const dayHtml = h.api.viewDay();
+  assert.match(dayHtml, /id="history-back" data-act="historylist">← All days<\/button>/);
+  await h.click('historylist');
+  assert.equal(h.api.S.tab, 'history');
+  assert.equal(h.document.activeElement.selector, `#open-day-${YESTERDAY}`);
+  // Returning from day editor via tabbar navigation (no explicit target) restores the same card (CC-D2)
+  h.api.S.tab = 'day';
+  h.api.navigateTo('history');
+  assert.equal(h.api.S.tab, 'history');
+  assert.equal(h.document.activeElement.selector, `#open-day-${YESTERDAY}`);
+  // Navigating to History from Today starts at the screen heading rather than jumping to a stale cursor
+  h.api.S.tab = 'today';
+  h.api.navigateTo('history');
+  assert.equal(h.document.activeElement.selector, '#main h2.screen');
+  assert.equal(h.storage.size, 0, 'opening and returning from day editor creates no writes');
+});
+
+test('Review leads with actionable advice, shows years on all alerts and preserves accessible chart tables', () => {
+  const days = {
+    '2025-12-30': { stools: [{ id: 'old1', time: '08:00', bristol: 7, mucus: false, blood: true }], weight: 18.4, bcs: 5 },
+    '2026-01-02': { stools: [{ id: 'jan1', time: '08:30', bristol: 7, mucus: true, blood: true }], weight: 19.2, bcs: 5 },
+  };
+  for (let d = 12; d <= 18; d++) days[`2026-10-${d}`] = { weight: 18.6, bcs: 5.5, stools: [{ id: 'a' + d, time: '08:00', bristol: 4, mucus: false, blood: false }], meal: { ...fedMeal, bowl: 'cleared' } };
+  for (let d = 19; d <= 25; d++) days[`2026-10-${d}`] = { weight: 19.1, bcs: 5.5, stools: [{ id: 'b' + d, time: '08:00', bristol: 6, mucus: true, blood: false }], meal: { ...fedMeal, bowl: 'cleared' } };
+  for (let d = 26; d <= 28; d++) days[`2026-10-${d}`] = { weight: 19.1, bcs: 5.5, stools: [{ id: 'c' + d, time: '08:00', bristol: 6, mucus: true, blood: d === 28 }], meal: { ...fedMeal, bowl: 'cleared' } };
+  const h = makeHarness({ days });
+
+  assert.equal(h.api.formatAlertDates(['2025-12-30', '2026-01-02'], TODAY), 'Historical · 30 Dec 2025, 2 Jan 2026');
+  assert.equal(h.api.formatAlertDates(['2025-12-30', '2026-10-28'], TODAY), '30 Dec 2025, 28 Oct 2026');
+  const todayHtml = h.api.viewToday();
+  assert.match(todayHtml, /data-act="go" data-tab="review">Open Review<\/button>/);
+  assert.match(todayHtml, /Blood recorded \(latest 28 Oct 2026 · 3 dates\)/);
+
+  const reviewHtml = h.api.viewReview();
+  const applyIdx = reviewHtml.indexOf('data-act="applyadv"');
+  const detailsIdx = reviewHtml.indexOf('id="review-ration-details"');
+  const trendsIdx = reviewHtml.indexOf('id="review-trends"');
+  const compIdx = reviewHtml.indexOf('id="review-comparisons"');
+  assert.ok(applyIdx > 0 && applyIdx < detailsIdx, 'actionable ration Apply button precedes explanation disclosure');
+  assert.ok(detailsIdx < trendsIdx && trendsIdx < compIdx, 'advice precedes optional trends and comparisons disclosures');
+  assert.match(reviewHtml, /30 Dec 2025, 2 Jan 2026, 28 Oct 2026/);
+  assert.match(reviewHtml, /data-act="refuseadv">Keep current ration this week<\/button>/);
+  assert.match(reviewHtml, /Current DARF adjustment/);
+  assert.match(reviewHtml, /Oil changes adjust the base ration, not this adjustment\./);
+  assert.match(reviewHtml, /id="trend-range-note">Applies to History and Review\.<\/p>/);
+  assert.match(reviewHtml, /id="comp-range-note">Applies to History and Review\.<\/p>/);
+  assert.equal(
+    h.api.rationAlertDateText(h.api.weeklyAdvice(), ['2026-10-20']),
+    'Diet or routine changed 20 Oct 2026 · windows 12 Oct 2026 to 25 Oct 2026'
+  );
+  assert.match(reviewHtml, /19 Oct 2026 to 25 Oct 2026/);
+  assert.match(reviewHtml, /12 Oct 2026 to 18 Oct 2026/);
+  for (const tableId of [
+    'chart-values-weight',
+    'chart-values-weight-weekly-average',
+    'chart-values-condition',
+    'chart-values-condition-weekly-average',
+    'chart-values-stool',
+  ]) {
+    assert.match(reviewHtml, new RegExp(`id="${tableId}"`), `preserves accessible chart table #${tableId}`);
+  }
+  assert.equal(h.storage.size, 0, 'rendering Review creates no writes');
+});
+
+test('Today alert banners use actual current date on recovered drafts and keep multi-date blood summaries compact (CX-D1, CC-D1, CC-D3)', () => {
+  const days = {
+    // 30 July 2026 is 94 days before 1 Nov 2026 (> vetWindowDays=90 -> Historical),
+    // whereas against 20 Oct 2026 it would be 82 days (within 90 days -> current).
+    '2026-07-30': { stools: [{ id: 'b-jul30', time: '08:00', bristol: 4, mucus: false, blood: true }] },
+  };
+  for (let d = 17; d <= 31; d++) {
+    const iso = `2026-10-${d}`;
+    days[iso] = { stools: [{ id: 'clean-' + d, time: '08:00', bristol: 4, mucus: false, blood: false }] };
+  }
+  const h = makeHarness({ now: '2026-11-01T12:00:00Z', days });
+  h.api.S.settings = { ...h.api.S.settings, fibreSchedule: [{ from: '2026-10-16', g: 2.5 }] };
+  h.api.setDraftToday('2026-10-20');
+
+  const todayHtml = h.api.viewToday();
+  // Draft date is preserved for screen heading and logging controls:
+  assert.match(todayHtml, /<span class="moment">Unfinished entries<\/span><h2 class="screen">Tue 20 Oct<\/h2>/);
+  assert.match(todayHtml, /data-todo="2026-10-20"/);
+  // Current advice & vet historical classification use localToday() (1 Nov 2026), not 20 Oct 2026, with clean punctuation:
+  assert.match(todayHtml, /<b>Pro-Fibre · 1 Nov 2026 · dose since 16 Oct 2026<\/b>15 clean days\. Step Pro-Fibre from 2\.5 g to 5 g\. <button/);
+  assert.doesNotMatch(todayHtml, /Pro-Fibre · 20 Oct 2026|\.\s*\(dose since/);
+  assert.match(todayHtml, /Blood recorded \(Historical · 30 July 2026\)/);
+
+  // 10 historical blood dates summarize to latest + count on Today while Review keeps all 10 dates:
+  const blood10 = ['2025-11-01', '2025-12-01', '2025-12-31', '2026-01-30', '2026-03-01', '2026-03-31', '2026-04-30', '2026-05-30', '2026-06-29', '2026-07-29'];
+  assert.equal(
+    h.api.formatVetAlertHeadline({ title: 'Blood recorded', dates: blood10 }, '2026-11-01'),
+    'Blood recorded (Historical · latest 29 July 2026 · 10 dates)'
+  );
+  const fullReviewDates = h.api.formatAlertDates(blood10, '2026-11-01');
+  assert.match(fullReviewDates, /^Historical · 1 Nov 2025, 1 Dec 2025, .*29 July 2026$/);
+  assert.equal(fullReviewDates.split(', ').length, 10);
 });

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.7.0">
+<html lang="en-GB" data-version="3.8.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -116,7 +116,7 @@ main{flex:1;padding:var(--s5) var(--sr) calc(var(--tabh) + var(--s4)) var(--sl);
 
 .tabbar{
   position:fixed;left:0;right:0;bottom:0;z-index:20;
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(max(20%,8ch),1fr));font:.75rem/1.5 var(--sans);
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(max(25%,8ch),1fr));font:.75rem/1.5 var(--sans);
   background:var(--surface);border-top:1px solid var(--rule-2);
   padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
@@ -166,7 +166,7 @@ details.card>summary{padding:var(--s4);margin:0;outline-offset:-4px}
 .weight-hint>.sub:first-child{margin-top:0}
 .chart-point.weight-outside{width:.625rem;height:.625rem;border:2px solid var(--watch);border-radius:0;background:var(--surface)}
 .weight-target-band{fill:var(--accent);fill-opacity:.08;stroke:var(--rule-2);stroke-width:1;stroke-dasharray:2 3;vector-effect:non-scaling-stroke}
-.table-flags[data-weight-status="above"],.table-flags[data-weight-status="below"]{color:var(--watch);font-weight:650}
+.diary-flags[data-weight-status="above"],.diary-flags[data-weight-status="below"]{color:var(--watch);font-weight:650}
 
 /* buttons */
 .btn{display:block;width:100%;text-align:center;background:var(--accent);color:var(--on-accent);font-weight:600;font-size:1rem;padding:var(--s3) var(--s4);border-radius:10px;min-height:48px}
@@ -320,23 +320,14 @@ table{border-collapse:collapse;width:100%;font-size:.875rem}
 th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--rule);white-space:nowrap}
 thead th{font-size:.8125rem;font-weight:600;color:var(--ink-3);background:var(--surface-2)}
 td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
-.table-intro{padding:20px;border-bottom:1px solid var(--rule)}
-.table-intro .lab{margin-bottom:4px}
-.table-guide{font-size:.875rem;line-height:1.5;margin:8px 0 0;color:var(--ink-2)}
-.log-table{font-size:.9375rem;--date-width:clamp(88px,26vw,112px)}
-.log-table th{padding:12px;font-size:.8125rem}
-.log-table td{padding:12px;vertical-align:top}
-.log-table .date-column{position:sticky;left:0;z-index:2;min-width:var(--date-width);width:var(--date-width);max-width:var(--date-width);white-space:normal;overflow-wrap:anywhere;background:var(--surface);border-right:1px solid var(--rule-2)}
-.log-table th.date-column{background:var(--surface-2);z-index:3}
-.log-table .date-column .link{display:block;font-size:.9375rem;white-space:normal;line-height:1.4}
-.log-table .meal-column{min-width:16rem;width:20rem;white-space:normal;overflow-wrap:anywhere;font-size:1rem;line-height:1.5;-webkit-text-size-adjust:100%;text-size-adjust:100%}
-.meal-title{display:block;font-size:1rem;padding-top:0;min-height:44px;line-height:1.4}
-.meal-meta{font-size:.875rem;line-height:1.5;color:var(--ink-3);margin:0 0 8px}
-.meal-detail{font-size:1rem;line-height:1.5;color:var(--ink-2);margin:0}
 .meal-disclosure{margin-top:4px}
-.meal-disclosure>summary{display:flex;align-items:center;gap:8px;font-size:.875rem;color:var(--accent-ink)}
-.meal-disclosure>summary::before{content:"+"}
-.meal-disclosure[open]>summary::before{content:"−"}
+.meal-disclosure>summary,.review-disclosure>summary{display:flex;align-items:center;gap:8px;font-size:.875rem;color:var(--accent-ink)}
+.meal-disclosure>summary::before,.review-disclosure>summary::before{content:"+"}
+.meal-disclosure[open]>summary::before,.review-disclosure[open]>summary::before{content:"−"}
+.review-disclosure{margin-top:var(--s4);padding-top:var(--s2);border-top:1px solid var(--rule)}
+.review-subsec{border-top:1px solid var(--rule);margin-top:var(--s4);padding-top:var(--s4)}
+.alert-dates{display:block;font-size:.875rem;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.alert-detail{margin:6px 0 0;font-size:.9375rem}
 .meal-facts{margin:0;display:grid;gap:8px}
 .meal-facts>div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
 .meal-facts dt{color:var(--ink-3);font-size:.875rem}
@@ -357,12 +348,42 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 .meal-change>summary{font-size:.9375rem}
 .meal-change>[data-live-unfeed]:not(:empty){margin-top:var(--s4)}
 .watch-text{color:var(--watch)}
-.table-flags{display:block;white-space:normal;font-size:.8125rem;margin-top:6px;max-width:12rem;color:var(--ink-2)}
-.log-table .table-reading{display:block;min-height:44px;padding-top:8px}
-.data-range{margin-bottom:20px}
+.data-range{margin-bottom:0}
+.range-note{margin:6px 0 18px}
+/* diary list */
+.history-top,.history-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--s2) var(--s3);margin-bottom:var(--s4)}
+.history-top .screen{margin:0}
+.history-back{width:auto;padding-inline:var(--s4);min-height:44px}
+.history-toolbar .chips{margin:0}
+.date-jump{position:relative;display:inline-flex;align-items:center;min-height:44px;padding:var(--s2) var(--s3);border:1px solid var(--rule-2);border-radius:9px;font-size:.9375rem;font-weight:600;color:var(--accent-ink);background:var(--surface)}
+.date-jump:has(.date-overlay:focus-visible){outline:3px solid var(--accent);outline-offset:2px}
+.diary-intro{margin:0 0 var(--s3)}
+.diary-list{display:grid;gap:var(--s4)}
+.diary-card{margin-bottom:0}
+.diary-open{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px var(--s3);width:100%;min-height:52px;padding:14px 20px;border-bottom:1px solid var(--rule);background:var(--surface-2);font-weight:650;outline-offset:-3px}
+.diary-date{font-size:1.0625rem;font-variant-numeric:tabular-nums}
+.diary-tag{display:inline-block;font-size:.8125rem;font-weight:600;color:var(--ink-2);padding:1px 7px;border:1px solid var(--rule-2);border-radius:999px;margin-left:4px;vertical-align:1px}
+.diary-draft{display:inline-block;font-size:.8125rem;font-weight:650;color:var(--watch);margin-left:4px}
+.diary-action{font-size:.9375rem;color:var(--accent-ink)}
+.diary-muted{font-size:.875rem;font-weight:500;color:var(--ink-3)}
+.diary-body{padding:16px 20px}
+.diary-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr));gap:12px 16px;margin:0}
+.diary-metrics>div{min-width:0}
+.diary-metrics dt{font-size:.8125rem;color:var(--ink-3);margin:0}
+.diary-metrics dd{margin:2px 0 0;font-size:1rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.diary-val{display:inline-flex;align-items:center;gap:6px;font-weight:650;color:var(--ink)}
+.diary-val .dot{margin-top:0}
+.diary-empty{color:var(--ink-3)}
+.diary-flags{display:block;font-size:.8125rem;margin-top:2px;color:var(--ink-2)}
+.flag-blood{color:var(--alert);font-weight:650}
+.flag-mucus{color:var(--watch);font-weight:650}
+.diary-events{margin:12px 0 0;font-size:.875rem;color:var(--ink-2)}
+.diary-events strong{font-weight:650}
+.diary-meal{border-top:1px solid var(--rule);margin-top:14px;padding-top:12px}
+.diary-meal-k{display:block;font-size:.8125rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.diary-meal-v{display:block;font-size:.9375rem;font-weight:600;color:var(--ink-2);margin-top:2px;overflow-wrap:anywhere}
+.diary-meal-empty{margin:0;font-size:.875rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
 @media(max-width:600px){
-  .log-table .meal-column{min-width:calc(100vw - var(--sl) - var(--sr) - var(--date-width) - 2px);width:calc(100vw - var(--sl) - var(--sr) - var(--date-width) - 2px);max-width:calc(100vw - var(--sl) - var(--sr) - var(--date-width) - 2px)}
-  .log-table td{padding:12px 10px}
   .meal-facts>div{grid-template-columns:1fr}
   .meal-facts dd{margin-top:-5px}
 }
@@ -387,7 +408,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 .previous-meal{margin-top:var(--s4)}
 .previous-meal>.card{margin:0}
 .pre{font-family:var(--mono);font-size:.75rem;white-space:pre-wrap;word-break:break-word;background:var(--surface-2);border-radius:6px;padding:10px;color:var(--ink-2);max-height:320px;overflow:auto}
-@media(max-width:360px){:root{--sl:max(12px,env(safe-area-inset-left));--sr:max(12px,env(safe-area-inset-right))}.sec{padding:16px}.switch-row{gap:8px}}
+@media(max-width:360px){:root{--sl:max(12px,env(safe-area-inset-left));--sr:max(12px,env(safe-area-inset-right))}.sec,.diary-body{padding:16px}.diary-open{padding:12px 16px}.switch-row{gap:8px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 @media(forced-colors:active){
   .switch-track{forced-color-adjust:none;background:Canvas;border:1px solid ButtonText}
@@ -405,6 +426,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   .daily{--steps:7;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--s4);margin-bottom:var(--s4)}
   .daily>.card{margin:0}
   .daily>.card:last-child,.daily>[id^="meal-section-"]{grid-column:1/-1}
+  .diary-list{grid-template-columns:repeat(2,minmax(0,1fr))}
   .tabbar{max-width:42rem;margin:auto;border:1px solid var(--rule);border-radius:12px 12px 0 0}
   .topbar{padding-inline:max(var(--sl),calc((100vw - 65.5rem)/2)) max(var(--sr),calc((100vw - 65.5rem)/2))}
   .chart-plot{height:14rem}
@@ -412,7 +434,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 /* iPhone shell: keep the desktop shell unchanged, including touch-screen PCs. */
 @supports(-webkit-touch-callout:none){
   @media(hover:none) and (pointer:coarse) and (max-width:600px), (hover:none) and (pointer:coarse) and (orientation:landscape) and (max-width:1023px) and (max-height:600px){
-    .tabbar{grid-template-columns:repeat(5,minmax(0,1fr));padding-inline:0;max-width:none;margin:0;border-inline:0;border-bottom:0;border-radius:0}
+    .tabbar{grid-template-columns:repeat(4,minmax(0,1fr));padding-inline:0;max-width:none;margin:0;border-inline:0;border-bottom:0;border-radius:0}
     .tabbar button{border-radius:0}
   }
   @media(hover:none) and (pointer:coarse) and (max-width:600px) and (orientation:portrait){
@@ -460,10 +482,9 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   <div id="history-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <nav class="tabbar" id="tabbar" aria-label="Primary navigation">
     <button data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></svg>Today</button>
-    <button data-tab="day"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
-    <button data-tab="status"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Status<span class="dotmark hide" aria-hidden="true"></span><span class="sr-only hide" id="status-attention">, needs attention</span></button>
-    <button data-tab="history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3v18h17M8 17v-5m5 5V7m5 10V3"/></svg>Data</button>
-    <button data-tab="more"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m4 0h7M4 17h9m4 0h3M9 4v6m4 4v6"/></svg>Settings</button>
+    <button data-tab="history"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
+    <button data-tab="review"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Review<span class="dotmark hide" aria-hidden="true"></span><span class="sr-only hide" id="review-attention">, needs attention</span></button>
+    <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m4 0h7M4 17h9m4 0h3M9 4v6m4 4v6"/></svg>Settings</button>
   </nav>
 </div>
 <script>
@@ -581,7 +602,16 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.7.0';
+const APP_VERSION = '3.8.0';
+
+/* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
+   Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'
+   Sub-route inside History:     'day' (single-day editor for S.cursor; keeps History active in #tabbar)
+   Legacy route aliases:         'status' -> 'review', 'more' -> 'settings'
+   Legacy draft 'history':       v3.7.0 Data ('history') held Daily records, now on 'history' (History diary list). */
+const VALID_TABS = ['today','history','day','review','settings','status','more'];
+const normalizeTab = tab => tab==='status'?'review':tab==='more'?'settings':['today','history','day','review','settings'].includes(tab)?tab:'today';
+const navDestination = tab => tab==='day'?'history':normalizeTab(tab);
 
 const firebaseConfig = {
   apiKey: "AIzaSyC-_At19q0VrY7u8HaYmTozUjBEQ6yTT6k",
@@ -949,6 +979,25 @@ function fmtDate(iso){
   return `${DOW[d.getUTCDay()]} ${d.getUTCDate()} ${MON[d.getUTCMonth()]}`;
 }
 function fmtShort(iso){ const d=new Date(toDay(iso)*DAY_MS); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; }
+const fmtShortYear = iso => validDate(iso) ? `${fmtShort(iso)} ${iso.slice(0,4)}` : '';
+function formatAlertDates(dates, fallbackIso, vetWindowDays = S.settings.vetWindowDays){
+  if (!dates?.length) return fallbackIso ? `as of ${fmtShortYear(fallbackIso)}` : '';
+  const list = dates.map(fmtShortYear).join(', ');
+  const historical = fallbackIso && Number.isFinite(vetWindowDays) && dates.every(d => toDay(d) <= toDay(fallbackIso) - vetWindowDays);
+  return historical ? `Historical · ${list}` : list;
+}
+function formatVetAlertHeadline(v, today, vetWindowDays = S.settings.vetWindowDays){
+  if (!v.dates?.length || v.dates.length === 1) return `${v.title} (${formatAlertDates(v.dates, today, vetWindowDays)})`;
+  const sorted = [...v.dates].sort(), latest = fmtShortYear(sorted.at(-1));
+  const historical = today && Number.isFinite(vetWindowDays) && sorted.every(d => toDay(d) <= toDay(today) - vetWindowDays);
+  return `${v.title} (${historical ? 'Historical · ' : ''}latest ${latest} · ${sorted.length} dates)`;
+}
+function rationAlertDateText(adv, regimeChanges = S.settings.regimeChanges || []){
+  const lo = toDay(adv.previousWindow[0]), hi = toDay(adv.currentWindow[1]);
+  const hit = regimeChanges.find(d => { const n = toDay(d); return n >= lo && n <= hi; });
+  if (hit) return `Diet or routine changed ${fmtShortYear(hit)} · windows ${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}`;
+  return `Week of ${fmtShortYear(adv.weekStart)} (${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])})`;
+}
 
 // Feedback only: unfinished entries can fail independently while other writes sync.
 const localSaveErrors=new Set();
@@ -1612,12 +1661,12 @@ function refreshWeightConditionViews(){
   for(const el of $$('[data-weight-hint]')){
     const html=weightHintContent(el.dataset.date,el.hasAttribute('data-brief'));if(el.innerHTML!==html)el.innerHTML=html;
   }
-  const announcement=$('#weight-announcement');
-  const iso=S.tab==='day'?(S.cursor||shiftDate(localToday(),-1)):$('#main [data-weight-summary]')?.dataset.date||localToday();
-  const latest=['today','status'].includes(S.tab)?weightOverview(iso).latest:null;
-  const kg=S.tab==='day'?recordedWeight(S.days[iso]):latest?.kg;
-  const text=['today','day','status'].includes(S.tab)?
-    `${recordedWeight(S.days[iso])===null?(S.days[iso]?.weightMissed===true?'Weight missed. ':'No weight recorded for this date. '):''}${validWeight(kg)?`${S.tab==='day'?'Weight':'Latest weight'}, ${readingDate(latest?.date||iso,iso)}: ${weightNumber(kg)} kg. ${weightAssessment(kg).label}. ${weightDeviation(kg)}.`:'No measurement available.'}`:'';
+  const announcement=$('#weight-announcement'), tab=normalizeTab(S.tab);
+  const iso=tab==='day'?(S.cursor||shiftDate(localToday(),-1)):$('#main [data-weight-summary]')?.dataset.date||localToday();
+  const latest=['today','review'].includes(tab)?weightOverview(iso).latest:null;
+  const kg=tab==='day'?recordedWeight(S.days[iso]):latest?.kg;
+  const text=['today','day','review'].includes(tab)?
+    `${recordedWeight(S.days[iso])===null?(S.days[iso]?.weightMissed===true?'Weight missed. ':'No weight recorded for this date. '):''}${validWeight(kg)?`${tab==='day'?'Weight':'Latest weight'}, ${readingDate(latest?.date||iso,iso)}: ${weightNumber(kg)} kg. ${weightAssessment(kg).label}. ${weightDeviation(kg)}.`:'No measurement available.'}`:'';
   if(announcement.textContent!==text)announcement.textContent=text;
 }
 function mealsList(){
@@ -1705,21 +1754,23 @@ function replaceRenderedHtml(target,html,outer=false){
   if(JSON.stringify(optionShape(recipe))!==JSON.stringify(optionShape(replacement)))recipe.replaceChildren(...replacement.childNodes);
   if(recipe.value!==value)recipe.value=value;
 }
-function focusAfterRender(selector){
-  const target=$(selector); if(!target)return;
+function focusAfterRender(selector,fallback='#main h2.screen'){
+  const target=$(selector)||(fallback&&$(fallback)); if(!target)return;
   for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
   if(!target.matches('input,select,textarea,button,a,summary,[tabindex]'))target.tabIndex=-1;
   target.focus({preventScroll:true});
   target.scrollIntoView({block:'start',behavior:'instant'});
 }
-function navigateTo(tab,{date,target,stoolId}={}){
+function navigateTo(rawTab,{date,target,stoolId}={}){
+  const tab=normalizeTab(rawTab), fromDay=S.tab==='day'&&tab==='history'&&!target;
+  historyDateTyped=false;
   persistDrafts();
   if(tab==='day'&&!date&&!S.cursor)date=shiftDate(localToday(),-1);
   S.tab=tab;if(tab==='day'&&date)S.cursor=date;
   draftToday=null;draftResume=null;
   activateDraftView(stoolId);
   render(true);persistDrafts();
-  focusAfterRender(target||(tab==='day'?'#history-heading':'#main h2.screen'));
+  focusAfterRender(target||(fromDay&&(S.cursor?'#open-day-'+S.cursor:'#history-list-heading'))||(tab==='day'?'#history-heading':'#main h2.screen'));
   if(tab==='day')announceHistoryDate();
 }
 function refreshSelectionStates(){
@@ -1756,19 +1807,23 @@ function render(force=false){
   const overview=weightOverview(localToday()),outside=kg=>['above','below'].includes(weightAssessment(kg).status);
   const needs=outside(overview.latest?.kg)||outside(overview.mean.mean)||insights().vet.length||weeklyAdvice().applied||fibreAdviceVisible(insights().fib);
   $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
-  $('#status-attention')?.classList.toggle('hide',!needs);
+  $('#review-attention')?.classList.toggle('hide',!needs);
   syncBcsGuidance();
   if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshTodoCard();refreshMealPlans();refreshSelectionStates();restoreDraftInputs();renderFeedback();return;}
   renderPending=false;
-  // The cursor belongs to History; other tabs leave its selection untouched.
+  S.tab=normalizeTab(S.tab);
+  // The cursor belongs to History's day editor; other screens leave its selection untouched.
   if(S.tab==='day'&&!S.cursor)S.cursor=shiftDate(localToday(),-1);
+  const dest=navDestination(S.tab);
   $$('#tabbar button').forEach(b=>{
-    const active=b.dataset.tab===S.tab;
+    const active=b.dataset.tab===dest;
     b.classList.toggle('on',active);
-    if (active) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');
+    if (b.dataset.tab===S.tab) b.setAttribute('aria-current','page');
+    else if (active) b.setAttribute('aria-current','true');
+    else b.removeAttribute('aria-current');
   });
-  $('#main').className=['today','day','history'].includes(S.tab)?'wide':'';
-  const html=S.tab==='today'?viewToday():S.tab==='day'?viewDay():S.tab==='status'?viewStatus():S.tab==='history'?viewHistory():viewMore();
+  $('#main').className=['today','day','history','review'].includes(S.tab)?'wide':'';
+  const html=S.tab==='today'?viewToday():S.tab==='day'?viewDay():S.tab==='review'?viewReview():S.tab==='history'?viewHistory():viewSettings();
   // Unchanged markup skips replacement, but a handler may just have cleared a draft (CX-05).
   if(!force&&html===rendered){syncDraftMarkers();return;}
   rendered=html;
@@ -1797,15 +1852,15 @@ function leaveDraft(){
 
 /* TODAY */
 function viewToday(){
-  const today=draftToday||localToday();
+  const actualToday=localToday(), today=draftToday||actualToday;
   const adv=weeklyAdvice(), {fib,vet}=insights();
   let head='';
-  if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>v.title).join('. '))}. <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
-  if (adv.applied) head += `<div class="note warn"><b>This week's ration advice is waiting</b>${esc(adv.reason)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
-  else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="status">Open Status</button></div>`;
+  if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>formatVetAlertHeadline(v,actualToday)).join('. '))}. <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
+  if (adv.applied) head += `<div class="note warn"><b>This week’s ration advice is waiting · ${fmtShortYear(adv.weekStart)}</b>${esc(`${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g (${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}).`)} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
+  else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre · ${fmtShortYear(actualToday)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
 
   // Actionable logging leads; the read-only assessment folds to one line.
-  return `<span class="moment">${today===localToday()?'Today':'Unfinished entries'}</span><h2 class="screen">${fmtDate(today)}</h2>`+head+todoCard(today)+weightConditionFold(today)+
+  return `<span class="moment">${today===actualToday?'Today':'Unfinished entries'}</span><h2 class="screen">${fmtDate(today)}</h2>`+head+todoCard(today)+weightConditionFold(today)+
     dailyFields(today,{activityDate:shiftDate(today,-1),live:true});
 }
 const BOWLS=['cleared','left','refused'];
@@ -2252,16 +2307,17 @@ let historyDateTyped=false;
 function chooseHistoryDate(input,target='#history-date-label'){
   historyDateTyped=false;
   const next=input.value, error=$('#history-date-error');
-  if(!next||next===S.cursor)return;
+  if(!next||(S.tab==='day'&&next===S.cursor))return;
   if(!permittedHistoryDate(next)){
     input.setAttribute('aria-invalid','true');
     error.textContent='Choose today or an earlier date within the range, or a future date already saved in History.';error.classList.remove('hide');return;
   }
-  navigateTo('day',{date:next,target});
+  const nextTarget=target==='#history-list-date'?'#history-date':target;
+  navigateTo('day',{date:next,target:nextTarget});
 }
 function viewDay(){
   const iso=S.cursor, miss=missingFor(iso);
-  return `<h2 class="screen" id="history-heading">History</h2><div class="history-navigation"><div class="datebar">
+  return `<div class="history-top"><h2 class="screen" id="history-heading">History</h2><button class="btn ghost sm history-back" id="history-back" data-act="historylist">← All days</button></div><div class="history-navigation"><div class="datebar">
     <button id="history-previous" data-act="dayshift" data-n="-1" ${permittedHistoryDate(shiftDate(iso,-1))?'':'disabled'} aria-label="Previous day">‹</button>
     <div class="d date-choice"><span id="history-date-label" tabindex="-1">${historyDateLabel(iso)}</span><span class="date-hint" aria-hidden="true">Tap to choose a date</span>
       <input class="date-overlay" id="history-date" type="date" data-act="historydate" required min="${historyMinimumDate()}" max="${latestHistoryDate()}" value="${iso}" aria-label="Choose date. Showing ${historyDateLabel(iso)}" aria-describedby="history-date-error"></div>
@@ -2270,76 +2326,94 @@ function viewDay(){
     <div class="note ${miss.length?'plain':'good'}"><b>${miss.length?'Not yet recorded':'Core observations recorded'}</b>${miss.length?esc(miss.map(x=>x.t).join(', ')):'Stools, weight and condition are recorded.'}</div>`+dailyFields(iso);
 }
 
-/* STATUS */
+/* REVIEW */
 function meanRows(today,weight,periods=[7,14,28]){
   return periods.map(n=>{
     const m=weight?windowMean(weightsList(),toDay(today),n):bcsMean(S.days,today,n);
     return m.mean===null?'':row(n+'-day mean',(weight?weightNumber(m.mean):m.mean.toFixed(1))+(weight?' kg':'')+' · '+m.n+' readings');
   }).join('');
 }
-function viewStatus(){
+function rangeDates(today,range=S.range||14){
+  const from=range===9999?toDay(earliestHistoryDate()):Math.max(toDay(S.settings.startDate),toDay(today)-range+1);
+  const isos=[];for(let d=from;d<=toDay(today);d++)isos.push(toIso(d));
+  return {range,from,isos,chartRange:[from,toDay(today)]};
+}
+function rangeChips(range,prefix='range'){
+  return [14,28,56,9999].map(r=>`<button id="${prefix}-${r}" ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r+' days'}</button>`).join('');
+}
+function viewReview(){
   const today=localToday(), s=S.settings;
   const {vet,fib}=insights(), adv=weeklyAdvice();
   const off=offsetNow();
+  const {range,isos,chartRange}=rangeDates(today);
 
   const vetHtml = vet.length
-    ? vet.map(v=>`<div class="note ${v.sev==='r'?'bad':'warn'}"><b>${esc(v.title)}</b>${v.dates.length?esc(v.dates.map(fmtShort).join(', ')):''}${v.text?'<br>'+esc(v.text):''}</div>`).join('')
-    : '<p class="muted">None.</p>';
+    ? vet.map(v=>`<div class="note ${v.sev==='r'?'bad':'warn'}"><b>${esc(v.title)}</b> <span class="alert-dates">${esc(formatAlertDates(v.dates,today))}</span>${v.text?`<p class="alert-detail">${esc(v.text)}</p>`:''}</div>`).join('')
+    : `<p class="muted">None flagged as of ${fmtShortYear(today)}.</p>`;
 
-  let advHtml;
+  const rationDateInfo = rationAlertDateText(adv, s.regimeChanges||[]);
+  let advResult;
   if (adv.applied){
-    advHtml = `<div class="note warn"><b>${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g on every recipe</b>${esc(adv.reason)}</div>
+    advResult = `<div class="note warn"><b>${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g on every recipe</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${adv.percentChange>=0?'+':''}${adv.percentChange.toFixed(2)}% weekly weight change (${adv.currentMean.toFixed(2)} kg vs ${adv.previousMean.toFixed(2)} kg).</p></div>
       <div class="btnrow"><button class="btn sm" data-act="applyadv">Apply</button>
-      <button class="btn ghost sm" data-act="refuseadv">Refuse</button></div>`;
+      <button class="btn ghost sm" data-act="refuseadv">Keep current ration this week</button></div>`;
   } else if (adv.held){
-    advHtml = `<div class="note hold"><b>Ration reduction held</b>${esc(adv.reason)}</div>`;
+    advResult = `<div class="note hold"><b>Ration reduction held</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${esc(adv.reason)}</p></div>`;
   } else {
-    advHtml = `<div class="note plain"><b>No ration change</b>${esc(adv.reason||'Not enough data yet.')}</div>`;
+    advResult = `<div class="note plain"><b>No ration change</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${esc(adv.reason||'Not enough data yet.')}</p></div>`;
   }
   const windows = (adv.currentMean!=null&&adv.previousMean!=null) ? `
-    ${row(`${fmtShort(adv.currentWindow[0])} to ${fmtShort(adv.currentWindow[1])}`,`${adv.currentMean.toFixed(2)} kg`)}
-    ${row(`${fmtShort(adv.previousWindow[0])} to ${fmtShort(adv.previousWindow[1])}`,`${adv.previousMean.toFixed(2)} kg`)}
+    ${row(`${fmtShortYear(adv.currentWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}`,`${adv.currentMean.toFixed(2)} kg`)}
+    ${row(`${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.previousWindow[1])}`,`${adv.previousMean.toFixed(2)} kg`)}
     <p class="sub">Weekly weight change: ${adv.percentChange==null?'unavailable':(adv.percentChange>=0?'+':'')+adv.percentChange.toFixed(2)+'%'} &middot; ${adv.previousN} and ${adv.currentN} weigh-ins${adv.fullCorrectionG!=null?` &middot; full correction ${Math.abs(adv.fullCorrectionG).toFixed(0)} g, damped to ${Math.abs(Math.round(adv.rawStepG))} g`:''}</p>` : '';
+  const pct=Math.min(Math.abs(off)/s.maxCumulativeG,1)*50;
+  const gauge=`<div class="gauge"><div class="mid"></div><div class="fill" style="${off>=0?`left:50%;width:${pct}%`:`right:50%;width:${pct}%`}"></div></div>`;
+  const rationExplain = `<details class="review-disclosure" id="review-ration-details"><summary>How this ration result was calculated (${off>=0?'+':'−'}${Math.abs(off)} g current adjustment)</summary>
+    <p class="sub">${esc(adv.reason||'Not enough data yet.')}</p>${windows}
+    <div class="review-subsec"><p class="lab">Current DARF adjustment</p>${gauge}
+      <p class="sub">${off>=0?'+':'&minus;'}${Math.abs(off)} g of the plus or minus ${s.maxCumulativeG} g cap</p>
+      ${S.changes.length?S.changes.slice(-4).reverse().map(c=>`${row(`${fmtShortYear(c.date)} &middot; ${esc(c.source||'manual')}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g`)}`).join(''):'<p class="muted">No changes recorded.</p>'}
+      <p class="sub">Oil changes adjust the base ration, not this adjustment.</p></div></details>`;
 
-  const chips = fib.chips.length ? `<div class="streak">${
+  const streakChips = fib.chips.length ? `<div class="streak">${
     Array.from({length:s.fibreStreakDays},(_,i)=>{
       const c=fib.chips[i];
       if (!c) return '<span></span>';
-      return `<span class="${c.verdict}" title="${fmtShort(c.date)}">${c.verdict==='clean'?'&check;':c.verdict==='broken'?'&times;':'&ndash;'}</span>`;
+      return `<span class="${c.verdict}" title="${fmtShortYear(c.date)}">${c.verdict==='clean'?'&check;':c.verdict==='broken'?'&times;':'&ndash;'}</span>`;
     }).join('')}</div>` : '';
 
-  let fibHtml = row('Current dose',fib.dose+' g')+chips;
-  if (fib.dose < s.fibreRestG) fibHtml += `<p class="sub">${fib.streak} of ${s.fibreStreakDays} clean days since ${fmtShort(fib.since)}. A day with no stool pauses rather than resets.</p>`;
-  if (fibreAdviceVisible(fib)) fibHtml += `<div class="note warn" style="margin-top:9px"><b>${fib.advice.kind==='up'?'Step up':'Step back'}</b>${esc(fib.advice.text)}</div>
+  let fibResult = row('Current dose',`${fib.dose} g${fib.since?` · since ${fmtShortYear(fib.since)}`:''}`);
+  if (fibreAdviceVisible(fib)) fibResult += `<div class="note warn" style="margin-top:9px"><b>${fib.advice.kind==='up'?'Step up':'Step back'}</b> <span class="alert-dates">${fmtShortYear(today)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</span><p class="alert-detail">${esc(fib.advice.text)}</p></div>
     <div class="btnrow"><button class="btn sm" data-act="applyfibre" data-g="${fib.advice.toG}">Apply</button>
     <button class="btn ghost sm" data-act="dismissfibre">Not now</button></div>`;
-  else if(fib.advice)fibHtml+=`<p class="sub">Advice postponed until tomorrow. The current dose is unchanged.</p>`;
-  if (fib.review) fibHtml += `<div class="note bad" style="margin-top:9px"><b>Review with the vet</b>${esc(fib.note)}</div>`;
-  else if (fib.note && !fib.advice) fibHtml += `<p class="sub">${esc(fib.note)}</p>`;
+  else if(fib.advice)fibResult+=`<p class="sub">Advice postponed until ${fmtShortYear(S.fibreSnoozedUntil||shiftDate(today,1))}. The current dose is unchanged.</p>`;
+  if (fib.review) fibResult += `<div class="note bad" style="margin-top:9px"><b>Review with the vet</b> <span class="alert-dates">${fmtShortYear(today)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</span><p class="alert-detail">${esc(fib.note)}</p></div>`;
+  const fibExplain = `<details class="review-disclosure" id="review-fibre-details"><summary>Clean-day streak and Pro-Fibre rules</summary>
+    ${streakChips}
+    ${fib.dose < s.fibreRestG && fib.since ? `<p class="sub">${fib.streak} of ${s.fibreStreakDays} clean days since ${fmtShortYear(fib.since)}. A day with no stool pauses rather than resets.</p>` : ''}
+    ${fib.note && !fib.advice && !fib.review ? `<p class="sub">${esc(fib.note)}</p>` : ''}
+    ${!fib.since ? '<p class="muted">No Pro-Fibre schedule recorded.</p>' : ''}</details>`;
 
-  const pct=Math.min(Math.abs(off)/s.maxCumulativeG,1)*50;
-  const gauge=`<div class="gauge"><div class="mid"></div><div class="fill" style="${off>=0?`left:50%;width:${pct}%`:`right:50%;width:${pct}%`}"></div></div>`;
-
+  // Keep observations before the displayed interval available for the first
+  // partial calendar week's mean. No future measurements enter either graph.
+  const W=weightsList().filter(w=>validDate(w.date)&&w.date<=today);
+  const B=Object.entries(S.days).filter(([date,d])=>validDate(date)&&date<=today&&Number.isFinite(d.bcs)&&d.bcs>=1&&d.bcs<=9)
+    .map(([date,d])=>({date,v:d.bcs})).sort((a,b)=>a.date.localeCompare(b.date));
   const ctx=weekContext(today);
   const tonight=RECIPES.map(r=>{const b=bowlFor(today,r.id,s,S.changes,mealDefaults(S.days[today]?.meal));
     return row(r.short,b.darfG+' g');}).join('');
+  const rangeLabel=range===9999?'All recorded days':`Last ${range} days`;
 
-  return '<h2 class="screen">Status</h2>'+weightConditionSummary(today)+panel('Vet items',vetHtml)+
-    panel("This week's ration",advHtml+windows)+panel('Pro-Fibre',fibHtml)+`<div class="card">
-    <div class="sec"><p class="lab">Weight averages</p>
-      ${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}
-    </div>
-    <div class="sec"><p class="lab">Condition averages</p>
-      ${meanRows(today,false,[14,28])}
-      <p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body condition is subjective. Scores in this range do not alone call for a ration change. Weight-trend reductions retain the configured hold at or below ${s.bcsHoldAtOrBelow}.</p>
-    </div>
-    <div class="sec"><p class="lab">Corrective offset</p>${gauge}
-      <p class="sub">${off>=0?'+':'&minus;'}${Math.abs(off)} g of the plus or minus ${s.maxCumulativeG} g cap</p>
-      ${S.changes.length?S.changes.slice(-4).reverse().map(c=>`${row(`${fmtShort(c.date)} &middot; ${esc(c.source||'manual')}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g`)}`).join(''):'<p class="muted">No changes recorded.</p>'}
-      <p class="sub">Oil changes adjust the base ration, not this offset.</p>
-    </div>
-  </div>`+panel('This week against last',ctx)+panel('Tonight by recipe',tonight);
+  return '<h2 class="screen">Review</h2>'+
+    panel('Vet items',vetHtml)+
+    panel("This week’s ration",advResult+rationExplain)+
+    panel('Pro-Fibre',fibResult+fibExplain)+
+    `<details class="card weight-condition" id="review-weight-condition"><summary class="sec">Weight &amp; condition <span class="assessment-strip" data-weight-strip data-date="${today}">${weightConditionStrip(today)}</span></summary><div class="sec"><div data-weight-summary="body" data-date="${today}">${weightConditionContent(today,false)}</div><div class="review-subsec"><p class="lab">Weight averages</p>${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}</div><div class="review-subsec"><p class="lab">Condition averages</p>${meanRows(today,false,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}<p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body condition is subjective. Scores in this range do not alone call for a ration change. Weight-trend reductions retain the configured hold at or below ${s.bcsHoldAtOrBelow}.</p></div></div></details>`+
+    `<details class="card" id="review-week-context"><summary class="sec">This week against last <span class="fold-strip">Walks, bowl, treats and extras</span></summary><div class="sec">${ctx}</div></details>`+
+    `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range" aria-describedby="trend-range-note">${rangeChips(range,'range')}</div><p class="sub range-note" id="trend-range-note">Applies to History and Review.</p><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
+    `<details class="card" id="review-comparisons"><summary class="sec">Food &amp; recipe comparisons <span class="fold-strip">${rangeLabel} · by recipe, extra and tonight’s DARF</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Comparison range" aria-describedby="comp-range-note">${rangeChips(range,'comp-range')}</div><p class="sub range-note" id="comp-range-note">Applies to History and Review.</p><p class="lab">By recipe</p>${foodTable(isos,false)}</div><div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></details>`;
 }
+const viewStatus=viewReview;
 
 function weekContext(today){
   const end=toDay(today);
@@ -2371,12 +2445,14 @@ function weekContext(today){
 }
 
 /* HISTORY */
+function dateHasHiddenDraft(iso){
+  if(!S.user||draftUser!==S.user.uid)return false;
+  return draftFields.some(f=>f.key!=='setnum'&&f.date===iso)||draftStools.some(s=>s.date===iso);
+}
 function viewHistory(){
-  const today=localToday(), s=S.settings;
-  const range=S.range||14;
-  const from=range===9999?toDay(earliestHistoryDate()):Math.max(toDay(s.startDate), toDay(today)-range+1);
-  const isos=[]; for (let d=from;d<=toDay(today);d++) isos.push(toIso(d));
-  const displayIsos=isos.slice(), tomorrow=shiftDate(today,1);
+  const today=localToday(), yesterday=shiftDate(today,-1), tomorrow=shiftDate(today,1);
+  const {range,isos}=rangeDates(today);
+  const displayIsos=isos.slice();
   // Today's confirmed meal belongs to tomorrow's tracking group. This is only
   // a display row; it must not create or open a future daily record.
   if(trackingMeal(tomorrow)) displayIsos.push(tomorrow);
@@ -2387,46 +2463,43 @@ function viewHistory(){
     displayIsos.push(...dates.filter(validDate),...dates.filter(i=>isFedMeal(S.days[i].meal)).map(i=>shiftDate(i,1)));
   }
 
-  const chips=[14,28,56,9999].map(r=>`<button id="range-${r}" ${choice(r===range,'chip')} data-act="range" data-r="${r}">${r===9999?'All':r+' days'}</button>`).join('');
-  // Keep observations before the displayed interval available for the first
-  // partial calendar week's mean. No future measurements enter either graph.
-  const W=weightsList().filter(w=>validDate(w.date)&&w.date<=today);
-  const B=Object.entries(S.days).filter(([date,d])=>validDate(date)&&date<=today&&Number.isFinite(d.bcs)&&d.bcs>=1&&d.bcs<=9)
-    .map(([date,d])=>({date,v:d.bcs})).sort((a,b)=>a.date.localeCompare(b.date));
-  const chartRange=[from,toDay(today)];
-
-  const rows=[...new Set(displayIsos)].sort().reverse().map(i=>{
+  const cards=[...new Set(displayIsos)].sort().reverse().map(i=>{
     const canOpen=i<=today||Object.hasOwn(S.days,i), d=S.days[i]||{}, st=(d.stools||[]);
     const scores=st.map(x=>x.bristol).filter(Number.isFinite),lo=scores.length?Math.min(...scores):null,hi=scores.length?Math.max(...scores):null;
-    const m=trackingMeal(i), r=m?RECIPES.find(x=>x.id===m.recipe):null;
+    const prevIso=shiftDate(i,-1), m=trackingMeal(i), r=m?RECIPES.find(x=>x.id===m.recipe):null;
     const blood=st.some(x=>x.blood),mucus=st.some(x=>x.mucus),band=blood||scores.some(n=>n===1||n===7)?'r':mucus||scores.some(n=>n<3||n>4)?'a':scores.length?'g':'';
-    const observed=lo===null?'—':lo===hi?String(lo):`${lo}–${hi}`;
-    const events=(d.events||[]).map(id=>EVENTS.find(e=>e.id===id)?.label||id).join(', ');
-    return `<tr data-date="${i}">
-      <td class="date-column">${canOpen?`<button class="link" data-act="openday" data-date="${i}" aria-label="Open log for ${fmtDate(i)}">${fmtShort(i)}</button>`:fmtShort(i)}</td>
-      <td class="meal-column" ${m?`data-meal-date="${m.date}"`:''}>${m?`<button class="meal-title link" data-act="openday" data-date="${m.date}" data-target="#meal-section-${m.date}" aria-label="Edit ${esc(r?.short||m.recipe)} meal fed on ${fmtDate(m.date)}">${esc(r?.short||m.recipe)}</button><p class="meal-meta">Fed ${fmtShort(m.date)} · ${esc(m.fedAt)}</p><p class="meal-detail">${m.darfFed!=null?`${esc(m.darfFed)} g DARF`:m.darfPlanned!=null?`${esc(m.darfPlanned)} g DARF planned`:'Amount not recorded'}</p><details class="meal-disclosure" id="meal-detail-${i}"><summary>Meal details</summary>${mealSummary(m)}</details>`:'<span class="meal-meta">Not recorded as fed</span>'}</td>
-      <td class="${band}" data-stool-summary><span class="table-reading">${observed}${st.length>1?' ('+st.length+')':''}</span>${blood||mucus?`<span class="table-flags">${[blood?'Blood':'',mucus?'Mucus':''].filter(Boolean).join(' · ')}</span>`:''}</td>
-      <td data-weight-reading><span class="table-reading">${d.weightMissed===true?'Missed':recordedWeight(d)!==null?weightNumber(d.weight):'—'}</span>${recordedWeight(d)!==null?`<span class="table-flags" data-weight-status="${weightAssessment(d.weight).status}">${weightAssessment(d.weight).label}</span>`:''}</td>
-      <td><span class="table-reading">${Number.isFinite(d.bcs)?d.bcs:'—'}</span></td>
-      <td><span class="table-reading">${m?.darfFed??m?.darfPlanned??'—'}</span></td>
-      <td><span class="table-reading">${esc(bowlLabel(m?.bowl)||'—')}</span></td>
-      <td><span class="table-flags">${esc(events||'None recorded')}</span></td></tr>`;
+    const stoolText=!st.length?'<span class="diary-empty">No stools logged</span>':
+      `<span class="diary-val"><span class="dot ${band}" aria-hidden="true"></span>${st.length} ${st.length===1?'stool':'stools'} · ${lo===null?'type not recorded':lo===hi?`Type ${lo}`:`Types ${lo}–${hi}`}</span>`;
+    const stoolFlags=blood||mucus?` <span class="diary-flags">${blood?'<strong class="flag-blood">Blood</strong>':''}${blood&&mucus?' · ':''}${mucus?'<strong class="flag-mucus">Mucus</strong>':''}</span>`:'';
+    const weightVal=d.weightMissed===true?'<span class="diary-val">Missed</span>':recordedWeight(d)!==null?
+      `<span class="diary-val">${weightNumber(d.weight)} kg</span> <span class="diary-flags" data-weight-status="${weightAssessment(d.weight).status}">${weightAssessment(d.weight).label}</span>`:'<span class="diary-empty">Not recorded</span>';
+    const bcsVal=Number.isFinite(d.bcs)?`<span class="diary-val">BCS ${d.bcs}</span>`:'<span class="diary-empty">Not recorded</span>';
+    const events=(d.events||[]).map(id=>EVENTS.find(e=>e.id===id)?.label||id).join(' · ');
+    const previewTag=i===tomorrow?'Tomorrow’s tracking':'Future tracking';
+    const previewMuted=i===tomorrow?'Opens tomorrow':'Future date';
+    const relTag=i===today?'Today':i===yesterday?'Yesterday':!canOpen?previewTag:'';
+    const draftBadge=canOpen&&dateHasHiddenDraft(i)?' <span class="diary-draft">Unsaved changes</span>':'';
+    const head=canOpen
+      ?`<button class="diary-open" id="open-day-${i}" data-act="openday" data-date="${i}" aria-label="Open log for ${historyDateLabel(i)}${draftBadge?', has unsaved changes':''}"><span class="diary-date">${historyDateLabel(i)}${relTag?` <span class="diary-tag">${relTag}</span>`:''}${draftBadge}</span> <span class="diary-action" aria-hidden="true">Open ›</span></button>`
+      :`<div class="diary-open"><span class="diary-date">${historyDateLabel(i)} <span class="diary-tag">${previewTag}</span></span> <span class="diary-muted">${previewMuted}</span></div>`;
+    const mealAmount=m?(m.darfFed!=null?`${esc(m.darfFed)} g DARF`:m.darfPlanned!=null?`${esc(m.darfPlanned)} g DARF planned`:'Amount not recorded'):'';
+    const bowlText=m?(m.bowl?`Bowl: ${esc(bowlLabel(m.bowl))}`:'Bowl not recorded'):'';
+    const mealBlock=m
+      ?`<div class="diary-meal" data-meal-date="${m.date}"><span class="diary-meal-k">Preceding meal · ${fmtShortYear(m.date)} at ${esc(m.fedAt)}</span> <span class="diary-meal-v">${esc(r?.short||m.recipe)} · ${mealAmount} · ${bowlText}</span><details class="meal-disclosure" id="meal-detail-${i}"><summary>Meal details</summary>${mealSummary(m)}<button class="link" data-act="openday" data-date="${m.date}" data-target="#meal-section-${m.date}" aria-label="Edit ${esc(r?.short||m.recipe)} meal fed on ${historyDateLabel(m.date)}">Edit ${fmtShortYear(m.date)} meal</button></details></div>`
+      :`<div class="diary-meal"><p class="diary-meal-empty">Preceding meal (${fmtShortYear(prevIso)}): Not recorded as fed</p></div>`;
+    return `<article class="card diary-card" data-date="${i}">${head}<div class="diary-body"><dl class="diary-metrics"><div data-stool-summary><dt>Stools</dt> <dd class="${band}">${stoolText}${stoolFlags}</dd></div><div data-weight-reading><dt>Weight</dt> <dd>${weightVal}</dd></div><div data-bcs-reading><dt>Condition</dt> <dd>${bcsVal}</dd></div></dl>${events?`<p class="diary-events">Observations: <strong class="watch-text">${esc(events)}</strong></p>`:''}${mealBlock}</div></article>`;
   }).join('');
 
-  return `
-  <h2 class="screen">Data</h2>
-  <div class="chips data-range" role="group" aria-label="Days to show">${chips}</div>
-  <div class="card"><div class="sec"><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div>
-    <div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div>
-    <div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></div>
-  <div class="card"><div class="sec"><p class="lab">By recipe</p>${foodTable(isos,false)}</div>
-    <div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div></div>
-  <div class="card"><div class="table-intro"><h3 class="lab" id="daily-records-title">Daily records</h3><p class="sub">Each date groups that day’s observations with the previous evening’s meal. Bristol shows the recorded range; brackets show the number of stools.</p><p class="table-guide" id="daily-records-help">Scroll sideways for stools, weight and bowl results. The date stays in view.</p></div><div class="tw" tabindex="0" role="region" aria-labelledby="daily-records-title" aria-describedby="daily-records-help"><table class="log-table"><thead><tr><th scope="col" class="date-column">Date</th><th scope="col" class="meal-heading">Last night’s meal</th><th scope="col">Bristol</th><th scope="col">Weight, kg</th><th scope="col">Condition</th><th scope="col">DARF, g</th><th scope="col">Bowl</th><th scope="col">Events</th></tr></thead>
-    <tbody>${rows}</tbody></table></div></div>`;
+  return `<h2 class="screen" id="history-list-heading">History</h2>
+    <p class="sub diary-intro">Each date groups that day’s observations with the previous evening’s confirmed meal.</p>
+    <div class="history-toolbar"><div class="chips" role="group" aria-label="Days to show">${rangeChips(range,'range')}</div>
+      <div class="date-jump"><span aria-hidden="true">Choose date…</span><input class="date-overlay" id="history-list-date" type="date" data-act="historydate" min="${historyMinimumDate()}" max="${latestHistoryDate()}" value="" aria-label="Choose a date to open in History" aria-describedby="history-date-error"></div></div>
+    <p class="field-error history-date-error hide" id="history-date-error" role="alert"></p>
+    <div class="diary-list">${cards}</div>`;
 }
 
 function chartFrame(yLabels, drawing, marks, dates, description){
-  return `<div class="chart-frame" role="img" aria-label="${esc(description)}"><div class="chart-axis" aria-hidden="true">${yLabels.map(({label,position})=>`<span style="top:${position}%">${esc(label)}</span>`).join('')}</div><div class="chart-plot" aria-hidden="true"><svg class="chart" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">${drawing}</svg>${marks}</div><div class="chart-dates" aria-hidden="true"><span>${fmtShort(dates[0])}</span><span>${fmtShort(dates[1])}</span></div></div>`;
+  return `<div class="chart-frame" role="img" aria-label="${esc(description)}"><div class="chart-axis" aria-hidden="true">${yLabels.map(({label,position})=>`<span style="top:${position}%">${esc(label)}</span>`).join('')}</div><div class="chart-plot" aria-hidden="true"><svg class="chart" viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">${drawing}</svg>${marks}</div><div class="chart-dates" aria-hidden="true"><span>${fmtShortYear(dates[0])}</span><span>${fmtShortYear(dates[1])}</span></div></div>`;
 }
 function chartValues(kind,headers,rows){
   const label=`View ${kind} values`,id=`chart-values-${kind.replace(/\s/g,'-')}`;
@@ -2453,7 +2526,7 @@ function lineChart(allPts,kind,forceRange,targetLine,dateRange){
   const pts=valid.filter(p=>p.x>=from&&p.x<=to);
   if(!pts.length)return '<p class="muted">No readings in this range.</p>';
   const name=weight?'weight':'condition',unit=weight?' kg':'',format=v=>weight?weightNumber(v):v.toFixed(1);
-  const values=chartValues(name,['Date',weight?'Weight, kg':'Condition',...(weight?['Target range']:[])],pts.map(p=>[fmtDate(toIso(p.x)),format(p.y),...(weight?[weightAssessment(p.y).label]:[])]));
+  const values=chartValues(name,['Date',weight?'Weight, kg':'Condition',...(weight?['Target range']:[])],pts.map(p=>[historyDateLabel(toIso(p.x)),format(p.y),...(weight?[weightAssessment(p.y).label]:[])]));
   const weeks=calendarWeekMeans(valid,from,to),ys=pts.map(p=>p.y),minimum=Math.min(...ys),maximum=Math.max(...ys);
   const plotted=[...ys,...weeks.map(w=>w.mean),...(weight?[WEIGHT_TARGET.lowerKg,WEIGHT_TARGET.upperKg]:[])],plotMin=Math.min(...plotted),plotMax=Math.max(...plotted);
   // Half-day bounds give every date its own width, even a single recorded day.
@@ -2468,13 +2541,13 @@ function lineChart(allPts,kind,forceRange,targetLine,dateRange){
   const changes=S.changes.filter(c=>toDay(c.date)>=x0&&toDay(c.date)<=x1).map(c=>`<line x1="${px(toDay(c.date))}" x2="${px(toDay(c.date))}" y1="0" y2="100" stroke="var(--watch)" stroke-width="1.5" stroke-dasharray="3 3"/>`).join('');
   const weekly=weeks.map(w=>`<line class="weekly-mean" x1="${px(Math.max(x0,w.start-.5))}" x2="${px(Math.min(x1,w.end+.5))}" y1="${py(w.mean)}" y2="${py(w.mean)}" stroke="var(--ink-3)" stroke-width="2" stroke-dasharray="7 4"/>`).join('');
   const path=pts.map((p,i)=>`${i?'L':'M'}${px(p.x).toFixed(3)},${py(p.y).toFixed(3)}`).join('');
-  const points=pts.map(p=>`<span class="chart-point${weight&&weightAssessment(p.y).status!=='within'?' weight-outside':''}" title="${esc(`${fmtDate(toIso(p.x))}: ${format(p.y)}${unit}${weight?' · '+weightAssessment(p.y).label:''}`)}" style="left:${px(p.x)}%;top:${py(p.y)}%"></span>`).join('');
-  const summary=pts.length===1?`${fmtDate(toIso(pts[0].x))}: ${format(pts[0].y)}${unit}. Add another reading to see a trend.`:`${pts.length} readings. ${format(pts[0].y)}${unit} on ${fmtShort(toIso(pts[0].x))}, ${format(pts.at(-1).y)}${unit} on ${fmtShort(toIso(pts.at(-1).x))}. Recorded range ${format(minimum)}–${format(maximum)}${unit}.`;
-  const weeklySummary=weeks.map(w=>`${fmtShort(toIso(w.start))}–${fmtShort(toIso(w.end))}: ${format(w.mean)}${unit} from ${w.n} reading${w.n===1?'':'s'}`).join('; ');
+  const points=pts.map(p=>`<span class="chart-point${weight&&weightAssessment(p.y).status!=='within'?' weight-outside':''}" title="${esc(`${historyDateLabel(toIso(p.x))}: ${format(p.y)}${unit}${weight?' · '+weightAssessment(p.y).label:''}`)}" style="left:${px(p.x)}%;top:${py(p.y)}%"></span>`).join('');
+  const summary=pts.length===1?`${historyDateLabel(toIso(pts[0].x))}: ${format(pts[0].y)}${unit}. Add another reading to see a trend.`:`${pts.length} readings. ${format(pts[0].y)}${unit} on ${fmtShortYear(toIso(pts[0].x))}, ${format(pts.at(-1).y)}${unit} on ${fmtShortYear(toIso(pts.at(-1).x))}. Recorded range ${format(minimum)}–${format(maximum)}${unit}.`;
+  const weeklySummary=weeks.map(w=>`${fmtShortYear(toIso(w.start))}–${fmtShortYear(toIso(w.end))}: ${format(w.mean)}${unit} from ${w.n} reading${w.n===1?'':'s'}`).join('; ');
   const targetDescription=weight?`Shaded band: ${WEIGHT_RANGE_TEXT}. Short horizontal dashes: ${WEIGHT_TARGET.kg.toFixed(2)} kg target. Square markers: outside range (${pts.filter(p=>weightAssessment(p.y).status!=='within').length} readings). `:targetLine!=null?'Short horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':'';
   return `<p class="chart-summary">${esc(summary)}</p>`+chartFrame(yLabels,band+grid+target+changes+`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`+weekly,points,[toIso(from),toIso(to)],`${weight?'Weight':'Body condition'} over time. ${summary} ${targetDescription}Monday–Sunday weekly means: ${weeklySummary}.`)+
     `<p class="legend"><span class="chart-key" aria-hidden="true"></span>Recorded · <span class="chart-key weekly" aria-hidden="true"></span>Weekly average (Mon–Sun). Uses recorded values for each calendar week, including days outside this view. ${targetDescription}Vertical dashes mark a recorded ration change.</p>`+values+
-    chartValues(name+' weekly average',['Week, Mon–Sun',weight?'Mean, kg':'Mean BCS','Readings',...(weight?['Target range']:[])],weeks.map(w=>[`${fmtShort(toIso(w.start))}–${fmtDate(toIso(w.end))}`,format(w.mean),w.n,...(weight?[weightAssessment(w.mean).label]:[])]));
+    chartValues(name+' weekly average',['Week, Mon–Sun',weight?'Mean, kg':'Mean BCS','Readings',...(weight?['Target range']:[])],weeks.map(w=>[`${fmtShortYear(toIso(w.start))}–${historyDateLabel(toIso(w.end))}`,format(w.mean),w.n,...(weight?[weightAssessment(w.mean).label]:[])]));
 }
 function stoolChart(isos){
   const all=[];
@@ -2489,7 +2562,7 @@ function stoolChart(isos){
   return `<p class="chart-summary">${esc(summary)}${dated.length<all.length?' Entries without a time appear in the values list.':''}</p>`+
     (dated.length?chartFrame(yLabels,grid,marks,[isos[0],isos.at(-1)],`Stools by date and time. ${summary}`):'')+
     `<p class="legend">● Types 3–4; ◆ types 2, 5 and 6; ■ types 1 and 7. Dashed ring: mucus. Solid ring: blood.</p>`+
-    chartValues('stool',['Date','Time','Bristol','Flags'],all.map(s=>[fmtDate(s.iso),s.time,s.b,[s.mucus?'Mucus':'',s.blood?'Blood':''].filter(Boolean).join(', ')||'None']));
+    chartValues('stool',['Date','Time','Bristol','Flags'],all.map(s=>[historyDateLabel(s.iso),s.time,s.b,[s.mucus?'Mucus':'',s.blood?'Blood':''].filter(Boolean).join(', ')||'None']));
 }
 function foodStats(isos){
   return cached('food-'+isos[0]+'-'+isos.at(-1),()=>{
@@ -2522,13 +2595,13 @@ function foodTable(isos,extras){
   return `<div class="tw" tabindex="0" role="region" aria-label="Stool observations by ${extras?'extra':'recipe'}"><table><thead><tr><th scope="col">${extras?'Extra':'Recipe'}</th><th scope="col">Nights</th><th scope="col">Mean stool</th><th scope="col">Types 5–7</th>${extras?'':'<th scope="col">Mucus</th><th scope="col">Observations</th>'}</tr></thead><tbody>${rows}</tbody></table></div><p class="legend">${extras?'Unknown historical flags are excluded. Neither requires a confirmed No for both egg and broth.':'Counts describe recorded observations; they do not establish that a recipe caused them.'}</p>`;
 }
 
-/* MORE */
+/* SETTINGS */
 function appReadinessPanel(){
   const app=window.AppShell?.state||{},ready=app.offlineReady===true;
   const text=!app.available?'Offline opening is not supported in this browser.':ready?'App files are ready for offline opening.':app.offlineReady===false?'App files are not yet ready for offline opening.':'Offline opening has not been confirmed yet.';
   return panel('App updates and offline access',`<p class="chart-summary" role="status">${text}</p><p class="sub">Keep signed in to use records already available on this device. Record syncing is shown separately at the top of the screen.</p>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}<div class="btnrow">${app.updateReady?`<button class="btn sm" data-shell-act="update" ${app.busy?'disabled':''}>Update app</button>`:''}<button class="btn ghost sm" data-shell-act="check" ${!app.available||app.busy?'disabled':''}>${app.busy?'Checking app files…':'Check app files'}</button></div>`);
 }
-function viewMore(){
+function viewSettings(){
   const s=S.settings;
   const oil=(s.oilSchedule||[]).map(e=>row(fmtShort(e.from),e.ml+' ml')).join('');
   const fib=(s.fibreSchedule||[]).map(e=>row(fmtShort(e.from),e.g+' g')).join('');
@@ -2584,6 +2657,7 @@ function viewMore(){
       <button class="btn danger sm" data-act="erase" ${S.erasing?'disabled':''}>${S.erasing?'Erasing log data…':'Erase all log data'}</button>
       <p class="sub">Deletes days and changes; keeps settings. Export first.</p>`);
 }
+const viewMore=viewSettings;
 
 /* EXPORT */
 function download(name, text, type){
@@ -2923,13 +2997,13 @@ function readDraft(raw){
     const data=JSON.parse(raw);
     const validStool=s=>validDate(s?.date)&&object(s.record)&&typeof s.record.id==='string'&&
       typeof s.time==='string'&&typeof s.selectedDate==='string'&&(!s.original||s.original.id===s.record.id);
-    if(!([1,2].includes(data?.version)&&Number.isFinite(data.savedAt)&&['today','day','status','history','more'].includes(data.tab)&&
+    if(!([1,2].includes(data?.version)&&Number.isFinite(data.savedAt)&&VALID_TABS.includes(data.tab)&&
       (data.cursor===null||validDate(data.cursor))&&Array.isArray(data.fields)&&
       data.fields.every(f=>typeof f.id==='string'&&validDate(f.date)&&typeof f.key==='string'&&typeof f.value==='string')&&
       (data.viewDate===null||validDate(data.viewDate))&&Array.isArray(data.expanded)&&data.expanded.every(id=>typeof id==='string')&&
       (!data.stool||validStool(data.stool))&&
       (data.version===1||Array.isArray(data.stools)&&data.stools.every(validStool))))return null;
-    return {...data,stools:data.version===1?(data.stool?[data.stool]:[]):data.stools};
+    return {...data,tab:normalizeTab(data.tab),stools:data.version===1?(data.stool?[data.stool]:[]):data.stools};
   }catch{return null;}
 }
 function activateDraftView(stoolId){
@@ -2949,8 +3023,8 @@ function stageDraft(data,merge=false){
   draftFields=merge?mergeDrafts(data.fields,draftFields,fieldDraftId):[...data.fields];
   draftStools=merge?mergeDrafts(data.stools,draftStools,stoolDraftId):[...data.stools];
   draftExpanded=[...new Set([...(merge?draftExpanded:[]),...data.expanded])];
-  S.tab=data.tab;S.cursor=data.cursor;
-  draftToday=data.tab==='today'?data.viewDate:null;
+  S.tab=normalizeTab(data.tab);S.cursor=data.cursor;
+  draftToday=S.tab==='today'?data.viewDate:null;
   activateDraftView(data.stool?.record.id);
 }
 function loadDrafts(){
@@ -2983,13 +3057,13 @@ function hiddenDrafts(){
 function hiddenDraftLinks(){
   const hidden=hiddenDrafts(),routes=new Map();
   for(const f of hidden.fields){
-    const tab=f.key==='setnum'?'more':'day',id=tab==='more'?'settings':f.date;
-    routes.set(id,{tab,date:f.date,label:tab==='more'?'Settings':fmtDate(f.date)+' '+f.date.slice(0,4)});
+    const tab=f.key==='setnum'?'settings':'day',id=tab==='settings'?'settings':f.date;
+    routes.set(id,{tab,date:f.date,label:tab==='settings'?'Settings':historyDateLabel(f.date)});
   }
   for(const s of hidden.stools){
     routes.set(stoolDraftId(s),{tab:'day',date:s.date,stoolId:s.record.id,label:`Stool · ${fmtDate(s.date)} ${s.date.slice(0,4)} · ${s.time}${BRISTOL[s.record.bristol]?` · Bristol ${s.record.bristol}`:''}`});
   }
-  const unavailable=draftResume?hidden.fields.filter(f=>draftResume.tab==='more'?f.key==='setnum':f.key!=='setnum'&&f.date===draftResume.date):[];
+  const unavailable=draftResume?hidden.fields.filter(f=>normalizeTab(draftResume.tab)==='settings'?f.key==='setnum':f.key!=='setnum'&&f.date===draftResume.date):[];
   const explanation=unavailable.length?'This entry is not available on this screen. '+
     (unavailable.some(f=>f.key==='mealamount'&&S.days[f.date]?.meal?.recipe&&isEditablePlan(f.date,S.days[f.date].meal))?
       'Supplement corrections are available once this meal is marked Fed. ':'')+
@@ -3015,6 +3089,7 @@ function discardHiddenDrafts(){
   draftResume=null;
   if(!persistDrafts())S.banner={kind:'warn',source:'draft',title:'Draft removal could not be stored',
     text:'The hidden entries are closed in this app, but a previous copy may reappear when you reopen it. Device storage is unavailable.'};
+  if(S.tab==='history')render(true);
   renderFeedback();focusAfterRender('#main h2.screen');
 }
 // A <details> holding an unfinished entry says so in its summary, open or
@@ -3158,13 +3233,19 @@ document.addEventListener('click', async (ev)=>{
     return;
   }
   if(a==='resumedraft'){
-    navigateTo(el.dataset.tab,{date:iso,stoolId:el.dataset.id});
-    if(!el.dataset.id){draftResume={tab:el.dataset.tab,date:iso};renderFeedback();}
+    const resumeTab=normalizeTab(el.dataset.tab);
+    navigateTo(resumeTab,{date:iso,stoolId:el.dataset.id});
+    if(!el.dataset.id){draftResume={tab:resumeTab,date:iso};renderFeedback();}
     return;
   }
   if(a==='discardhiddendrafts'){discardHiddenDrafts();return;}
   if (a==='signout'){ await signOut(auth); location.reload(); return; }
   if (a==='go'){ navigateTo(el.dataset.tab); return; }
+  if (a==='historylist'){
+    const prev=S.cursor;
+    navigateTo('history',{target:prev?'#open-day-'+prev:'#history-list-heading'});
+    return;
+  }
   if (a==='openday'){
     if(el.closest('#feedback'))S.banner=null;
     navigateTo('day',{date:iso,target:el.dataset.target||'#history-date-label'}); return;
@@ -3472,7 +3553,7 @@ document.addEventListener('click', async (ev)=>{
 
 document.addEventListener('input',ev=>{
   if(ev.target.matches('input,textarea')){delete ev.target.dataset.incompleteNumber;clearFieldError(ev.target);}
-  if(ev.target.id==='history-date')$('#history-date-error')?.classList.add('hide');
+  if(ev.target.dataset?.act==='historydate')$('#history-date-error')?.classList.add('hide');
   const form=ev.target.closest('[data-form]'), fresh=!!form&&!form.hasAttribute('data-dirty');
   markInputDirty(ev.target);
   // Only a newly typed entry scrolls; recovered drafts never move the page.
@@ -3497,12 +3578,12 @@ document.addEventListener('keydown',ev=>{
   if(form&&t.matches('input')){
     if(ev.key==='Escape'&&form.hasAttribute('data-dirty')){ev.preventDefault();finishInput(form);}
   }else if(ev.key==='Enter'&&t.matches('#st-t,#st-date')){ev.preventDefault();$('#main [data-act="savestool"]')?.click();}
-  else if(t.id==='history-date'){
-    if(ev.key==='Enter'){ev.preventDefault();chooseHistoryDate(t,'#history-date');}
+  else if(t.id==='history-date'||t.id==='history-list-date'){
+    if(ev.key==='Enter'){ev.preventDefault();chooseHistoryDate(t,'#'+t.id);}
     else if(ev.key.length===1||ev.key.startsWith('Arrow')||ev.key==='Backspace')historyDateTyped=true;
   }
 });
-document.addEventListener('focusout',ev=>{if(ev.target?.id==='history-date'&&historyDateTyped)chooseHistoryDate(ev.target);});
+document.addEventListener('focusout',ev=>{if((ev.target?.id==='history-date'||ev.target?.id==='history-list-date')&&historyDateTyped)chooseHistoryDate(ev.target);});
 
 
 document.addEventListener('change', async (ev)=>{
@@ -3586,7 +3667,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)persistDraf
 window.addEventListener('pagehide',persistDrafts);
 
 window.appCanUpdate=()=>!draftFields.length&&!draftStools.length&&!S.undoBusy&&!S.erasing&&!importing&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
-window.addEventListener('app-shell-status',()=>{renderFeedback();if(S.tab==='more')render()});
+window.addEventListener('app-shell-status',()=>{renderFeedback();if(normalizeTab(S.tab)==='settings')render()});
 for(const [selector,property]of [['.topbar','--headerh'],['#feedback','--feedbackh']]){
   new ResizeObserver(entries=>document.documentElement.style.setProperty(property,entries[0].target.getBoundingClientRect().height+'px')).observe($(selector));
 }

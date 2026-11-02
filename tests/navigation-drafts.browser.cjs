@@ -71,7 +71,17 @@ async function main() {
         await page.waitForFunction(name => testApp.S.tab === name, name);
       };
       const day = async date => {
-        if (await page.evaluate(() => testApp.S.tab) !== 'day') await tab('day');
+        if (await page.evaluate(() => testApp.S.tab) !== 'day') {
+          await tab('history');
+          const openBtn = page.locator(`#open-day-${date}`);
+          if (await openBtn.count()) {
+            await openBtn.click();
+          } else {
+            await page.locator('#history-list-date').fill(date);
+          }
+          await page.waitForFunction(date => testApp.S.tab === 'day' && testApp.S.cursor === date, date);
+          return;
+        }
         await page.locator('#history-date').fill(date);
         await page.waitForFunction(date => testApp.S.cursor === date, date);
       };
@@ -87,14 +97,14 @@ async function main() {
       } finally { await context.close(); }
     }
 
-    await scenario('notes, weight and a stool survive ordinary navigation without writes or discard prompts', async ({ page, field, tab, queued }) => {
+    await scenario('notes, weight and a stool survive ordinary navigation without writes or discard prompts', async ({ page, field, tab, day, queued }) => {
       await field('notes').fill('Keep this note\nSecond line');
       await field('weight').fill('18.75');
       await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="4"]`).click();
       await page.locator('#st-t').fill('22:17');
       await page.locator('[data-act="tog-mucus"]').click();
-      await tab('status');
-      await tab('day');
+      await tab('review');
+      await day(YESTERDAY);
       assert.equal(await field('notes').inputValue(), '', 'a Today note must not leak into yesterday');
       await tab('today');
       assert.equal(await field('notes').inputValue(), 'Keep this note\nSecond line');
@@ -178,15 +188,16 @@ async function main() {
 
     await scenario('resuming a hidden Settings draft leaves the selected History date unchanged', async ({ page, tab, day, queued }) => {
       const selectedDate = '2026-10-29';
-      await day(selectedDate); await tab('more');
+      await day(selectedDate); await tab('settings');
       await page.locator('#in-setnum-targetKcal').fill('1250');
-      await tab('status');
-      await page.locator('[data-act="resumedraft"][data-tab="more"]').click();
-      assert.equal(await page.evaluate(() => testApp.S.tab), 'more');
+      await tab('review');
+      await page.locator('[data-act="resumedraft"][data-tab="settings"]').click();
+      assert.equal(await page.evaluate(() => testApp.S.tab), 'settings');
       assert.equal(await page.locator('#in-setnum-targetKcal').inputValue(), '1250');
       assert.equal(await page.locator('#in-setnum-targetKcal').evaluate(el => el.closest('[data-form]').hasAttribute('data-dirty')), true);
       assert.equal(await page.evaluate(() => testApp.S.cursor), selectedDate);
-      await tab('day');
+      await tab('history');
+      await page.locator(`#open-day-${selectedDate}`).click();
       assert.equal(await page.locator('#history-date').inputValue(), selectedDate);
       assert.equal(await queued(), 0);
     });
@@ -205,7 +216,7 @@ async function main() {
       await page.locator('[data-act="tog-blood"]').click();
       await edit('nav-b'); await page.locator('#st-t').fill('12:55');
       await page.locator('[data-act="tog-mucus"]').click();
-      await tab('status'); await tab('today');
+      await tab('review'); await tab('today');
       await edit('nav-a');
       assert.equal(await page.locator('#st-t').inputValue(), '07:45');
       assert.equal(await page.locator('#st-date').inputValue(), YESTERDAY);
@@ -261,21 +272,21 @@ async function main() {
       const newerId = (await drafts()).stool.record.id;
       assert.notEqual(newerId, olderId);
 
-      await tab('status'); await tab('today');
+      await tab('review'); await tab('today');
       assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true', 'returning to Today must retain the just-used draft, not silently select the oldest');
       assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
       assert.equal(await page.locator('#st-t').inputValue(), '22:16');
       await day(TODAY);
       assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true', 'the same-day History route must resume the same most recently used draft');
 
-      await tab('status'); await reload();
-      assert.equal(await page.evaluate(() => testApp.S.tab), 'status');
-      assert.equal((await drafts()).stool, null, 'Status has no active stool but still retains the dated draft ledger');
+      await tab('review'); await reload();
+      assert.equal(await page.evaluate(() => testApp.S.tab), 'review');
+      assert.equal((await drafts()).stool, null, 'Review has no active stool but still retains the dated draft ledger');
       await tab('today');
-      assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true', 'reopening from Status must preserve the most recently used draft');
+      assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true', 'reopening from Review must preserve the most recently used draft');
       assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
 
-      await tab('status'); await page.setViewportSize({ width: 375, height: 667 });
+      await tab('review'); await page.setViewportSize({ width: 375, height: 667 });
       for (const [id, type] of [[olderId, 6], [newerId, 1]]) {
         const link = page.locator(`[data-act="resumedraft"][data-id="${id}"]`);
         assert.match(await link.textContent(), new RegExp(`Bristol\\s+${type}`));
@@ -289,7 +300,7 @@ async function main() {
       await page.locator(`[data-act="resumedraft"][data-id="${olderId}"]`).click();
       assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true');
       assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'false');
-      await tab('status'); await tab('today');
+      await tab('review'); await tab('today');
       assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true', 'explicitly resuming the older entry makes it the last-used entry');
       await day(TODAY); await flush();
       assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true');
@@ -316,7 +327,7 @@ async function main() {
       await page.locator(`[data-act="editstool"][data-date="${TODAY}"][data-id="recovery-a"]`).click();
       await page.locator('#st-t').fill('09:42');
       await page.locator('[data-act="tog-mucus"]').click();
-      await tab('status');
+      await tab('review');
       await page.locator('[data-act="recoverdraft"]').click(); await flush();
       const merged = (await drafts()).stools;
       const current = merged.find(s => s.record.id === 'recovery-a');
@@ -349,7 +360,7 @@ async function main() {
       await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
       // Undo Fed is under Edit meal; it hides the unfinished supplement correction.
       await revealing(page, page.locator(`#meal-unfeed-${TODAY}`)).click();
-      await tab('day');
+      await tab('history');
       await page.locator(`[data-act="resumedraft"][data-date="${TODAY}"]`).first().click();
       assert.equal(await page.locator(`#meal-amount-${TODAY}-oilMl`).count(), 0);
       assert.match(await page.locator('#feedback').textContent(), /Supplement corrections are available once this meal is marked Fed\./);
@@ -492,15 +503,15 @@ async function main() {
       assert.equal(await disclosure.evaluate(el => el.open), false);
       await disclosure.locator(':scope > summary').click();
       assert.equal(await disclosure.evaluate(el => el.open), true);
-      await tab('status'); await tab('today');
+      await tab('review'); await tab('today');
       assert.equal(await disclosure.evaluate(el => el.open), false, 'merely reading last night’s meal must not leave a persistent expanded draft view');
       await disclosure.locator(':scope > summary').click();
       await page.locator(`#fed-time-${YESTERDAY}`).fill('19:15');
-      await tab('status'); await tab('today');
+      await tab('review'); await tab('today');
       assert.equal(await disclosure.evaluate(el => el.open), true, 'the disclosure containing an unfinished entry is restored');
       assert.equal(await page.locator(`#fed-time-${YESTERDAY}`).inputValue(), '19:15');
       await page.locator(`[data-act="cancelfeedingtime"][data-date="${YESTERDAY}"]`).click();
-      await tab('status'); await tab('today'); await flush();
+      await tab('review'); await tab('today'); await flush();
       assert.equal(await disclosure.evaluate(el => el.open), false);
       assert.equal(await drafts(), null); assert.equal(await queued(), 0);
     });
@@ -533,7 +544,7 @@ async function main() {
         await page.locator('[data-act="savestool"]').click();
         assert.equal(await page.locator('#state').textContent(), 'Not saved');
 
-        await tab('status'); await day(first);
+        await tab('review'); await day(first);
         assert.equal(await page.locator('#st-t').inputValue(), '07:45');
         assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
         await day(second);
@@ -547,7 +558,7 @@ async function main() {
         await day(first);
         await page.locator('[data-act="cancelstool"]').click();
         assert.equal(await page.locator('#state').textContent(), 'Not saved', 'cancelling one date must retain the other date’s failure');
-        await tab('status');
+        await tab('review');
         assert.equal(await page.locator('#state').textContent(), 'Not saved');
         await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
         await day(second);
@@ -565,11 +576,11 @@ async function main() {
       });
     }
 
-    await scenario('reload while on Status keeps off-screen dates and exposes a resume route', async ({ page, field, day, tab, reload, queued }) => {
+    await scenario('reload while on Review keeps off-screen dates and exposes a resume route', async ({ page, field, day, tab, reload, queued }) => {
       await day('2026-10-30'); await field('notes').fill('Friday still unfinished');
       await day('2026-10-29'); await field('notes').fill('Thursday still unfinished');
-      await tab('status'); await reload();
-      assert.equal(await page.evaluate(() => testApp.S.tab), 'status');
+      await tab('review'); await reload();
+      assert.equal(await page.evaluate(() => testApp.S.tab), 'review');
       assert.ok(await page.locator('[data-act="resumedraft"]').count() > 0, 'off-screen drafts must remain discoverable');
       await page.locator('[data-act="resumedraft"][data-date="2026-10-30"]').first().click();
       assert.equal(await field('notes').inputValue(), 'Friday still unfinished');
@@ -616,7 +627,7 @@ async function main() {
         const persisted = await drafts();
         assert.equal(persisted.fields.find(f => f.date === destination && f.key === 'notes').value, 'Destination note must stay unfinished');
         assert.equal(persisted.stools.find(s => s.record.id === destinationDraftId).time, '08:15');
-        await tab('status'); await day(destination); await flush();
+        await tab('review'); await day(destination); await flush();
         assert.equal(await field('notes').inputValue(), 'Destination note must stay unfinished');
         assert.equal(await page.locator('#st-t').inputValue(), '08:15');
         assert.equal((await drafts()).stools.find(s => s.record.id === destinationDraftId).record.mucus, true);
@@ -627,7 +638,7 @@ async function main() {
     await scenario('an incomplete native number can never become a clearing write after navigation', async ({ page, field, tab, queued }) => {
       await field('weight').fill(''); await field('weight').press('e');
       assert.equal(await field('weight').evaluate(el => el.validity.badInput), true);
-      await page.locator('#tabbar [data-tab="status"]').click();
+      await page.locator('#tabbar [data-tab="review"]').click();
       // A narrow guard for unrepresentable native number text is also safe.
       if (await page.evaluate(() => testApp.S.tab) !== 'today') await tab('today');
       await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
@@ -649,7 +660,7 @@ async function main() {
           return window.navigationRealSetItem.call(this, key, value);
         };
       });
-      await flush(); await tab('status'); await tab('day'); await tab('today');
+      await flush(); await tab('review'); await tab('history'); await tab('today');
       assert.equal(await field('notes').inputValue(), 'Only in memory while storage fails');
       assert.match(await page.locator('#feedback').textContent(), /storage|only.*(?:app|session|memory)/i);
       assert.equal(await queued(), 0);
@@ -669,14 +680,14 @@ async function main() {
         };
       });
       await field('notes').fill('An update would lose this memory-only draft');
-      await flush(); await tab('status');
+      await flush(); await tab('review');
       assert.equal(await page.locator('#main [data-dirty],#main [data-stool]').count(), 0, 'the unfinished input is off screen');
       assert.equal(await page.evaluate(() => localStorage.getItem(testApp.draftKey())), null, 'there is no durable recovery copy');
       assert.equal(await page.evaluate(() => window.appCanUpdate()), false, 'hidden draft state must also block reloading into an update');
       await tab('today');
       assert.equal(await field('notes').inputValue(), 'An update would lose this memory-only draft');
       await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
-      await tab('status');
+      await tab('review');
       assert.equal(await page.evaluate(() => window.appCanUpdate()), true, 'deliberate cancellation releases the update block');
       assert.equal(await queued(), 0);
       await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
@@ -686,7 +697,7 @@ async function main() {
     await scenario('legacy v1 drafts migrate without writes or autofocus and remain usable across views', async ({ page, field, tab, flush, drafts, queued }) => {
       assert.equal(await field('notes').inputValue(), 'A legacy note');
       assert.equal(await page.evaluate(() => /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)), false);
-      await tab('status'); await tab('today'); await flush();
+      await tab('review'); await tab('today'); await flush();
       assert.equal(await field('notes').inputValue(), 'A legacy note');
       assert.equal((await drafts()).version, 2);
       assert.match(await page.evaluate(() => testApp.draftKey()), /^murphy-draft-v2:/);
@@ -737,7 +748,7 @@ async function main() {
       assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1);
       await day('2026-10-30');
       await field('notes').fill('Only the original account may resume this');
-      await tab('status'); await flush();
+      await tab('review'); await flush();
       assert.equal(await page.locator('[data-act="resumedraft"][data-date="2026-10-30"]').count(), 1);
       assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1);
       const ownKey = await page.evaluate(() => testApp.draftKey());
