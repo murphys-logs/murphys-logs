@@ -261,6 +261,8 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .assessment-strip,.fold-strip{display:block;font-size:.9375rem;font-weight:500;color:var(--ink-2);margin-top:2px}
 /* Weight as well as colour: forced colours replace the warning colour. */
 .fold-strip .watch-text{font-weight:650}
+/* A collapsed section still says it holds an unfinished entry. Bold survives forced colours. */
+.draft-mark{display:block;font-size:.875rem;font-weight:650;color:var(--watch);margin-top:2px}
 .condition-entry{margin-top:var(--s4);border-radius:8px;outline-offset:4px}
 .condition-entry .inline-lab{margin-bottom:0}
 .weight-hint:empty{display:none}
@@ -3012,10 +3014,22 @@ function discardHiddenDrafts(){
     text:'The hidden entries are closed in this app, but a previous copy may reappear when you reopen it. Device storage is unavailable.'};
   renderFeedback();focusAfterRender('#main h2.screen');
 }
+// A <details> holding an unfinished entry says so in its summary, open or
+// closed, so collapsing a section never hides a draft. The leading space keeps
+// the accessible name separated. Idempotent; runs wherever drafts change.
+function syncDraftMarkers(){
+  for(const details of $$('#main details')){
+    const summary=details.querySelector(':scope > summary');if(!summary)continue;
+    const dirty=!!details.querySelector('[data-dirty]'),mark=summary.querySelector(':scope > .draft-mark');
+    if(dirty&&!mark)summary.insertAdjacentHTML('beforeend','<span class="draft-mark"> Unsaved changes</span>');
+    else if(!dirty&&mark)mark.remove();
+  }
+}
 function markInputDirty(input){
   const form=input.closest('[data-form],[data-feeding]');
   if(!form||form.hasAttribute('data-dirty'))return;
   form.setAttribute('data-dirty','');
+  syncDraftMarkers();
   if(form.hasAttribute('data-feeding'))return;
   form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
   if(form.dataset.key==='weight'){
@@ -3040,6 +3054,7 @@ function restoreDraftInputs(){
     $('#st-t').value=data.stool.time;$('#st-date').value=data.stool.selectedDate;
   }
   for(const id of data.expanded||[]){const el=document.getElementById(id);if(el?.tagName==='DETAILS')el.open=true;}
+  syncDraftMarkers();
   // Never focus recovered native inputs: reopening must not launch a keyboard/picker.
   if(draftTransfer)persistDrafts();
 }
@@ -3069,6 +3084,7 @@ function finishInput(form,keep){
   clearSaveError('form:'+input.id);
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
   form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
+  syncDraftMarkers();
   persistDrafts();
   if(form.dataset.key==='weight'){
     const toggle=document.getElementById('weight-missed-'+form.dataset.date);

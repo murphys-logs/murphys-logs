@@ -233,6 +233,45 @@ async function main() {
     passed++; console.log('PASS restored drafts reopen their closed section after navigation, reload and History edits, without focus or writes');
 
     {
+      // A collapsed section must still say it holds an unfinished entry.
+      const { context, page } = await open({ width: 390, height: 844 });
+      const mark = id => page.locator(`#${id} > summary > .draft-mark`);
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await page.locator(`#in-notes-${TODAY}`).fill('Unsaved thought');
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      assert.equal(await page.locator(`#notes-${TODAY}`).evaluate(el => el.open), false);
+      assert.equal(await mark(`notes-${TODAY}`).isVisible(), true, 'the closed summary shows the unsaved entry');
+      assert.match(await page.locator(`#notes-${TODAY} > summary`).textContent(), /^Notes No notes Unsaved changes$/, 'separated for assistive technology');
+      assert.equal(await mark(`treats-${TODAY}`).count(), 0, 'sections without drafts are unmarked');
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
+      assert.equal(await mark(`notes-${TODAY}`).count(), 0, 'saving clears the marker');
+      assert.equal(await page.locator('[data-fold-summary="notes"]').textContent(), 'Unsaved thought');
+
+      // Edit meal and its nested supplement corrections, kept across navigation, cleared by Cancel.
+      await page.locator(`#meal-fed-action-${TODAY}`).click();
+      await page.locator(`#meal-change-${TODAY} > summary`).click();
+      await page.locator(`#in-darfFed-${TODAY}`).fill('175');
+      await page.locator(`#meal-correction-${TODAY} > summary`).click();
+      await page.locator(`#meal-amount-${TODAY}-oilMl`).fill('5');
+      await page.locator(`#meal-change-${TODAY} > summary`).click();
+      assert.equal(await mark(`meal-change-${TODAY}`).isVisible(), true, 'collapsed Edit meal says it holds an unsaved entry');
+      for (const tab of ['status', 'today']) {
+        await page.locator(`#tabbar [data-tab="${tab}"]`).click();
+        await page.waitForFunction(tab => testApp.S.tab === tab, tab);
+      }
+      assert.equal(await mark(`meal-change-${TODAY}`).count(), 1, 'restored drafts keep the marker');
+      assert.equal(await mark(`meal-correction-${TODAY}`).count(), 1);
+      await page.locator(`[data-form][data-key="mealamount"][data-setting="oilMl"] [data-act="cancelinput"]`).click();
+      assert.equal(await mark(`meal-correction-${TODAY}`).count(), 0, 'Cancel clears the nested marker');
+      assert.equal(await mark(`meal-change-${TODAY}`).count(), 1, 'the grams draft still marks Edit meal');
+      await page.locator(`[data-form][data-key="darfFed"] [data-act="cancelinput"]`).click();
+      assert.equal(await mark(`meal-change-${TODAY}`).count(), 0);
+      await context.close();
+    }
+    passed++; console.log('PASS a collapsed section says it holds an unsaved entry until that entry is saved or cancelled');
+
+    {
       const { context, page } = await open({ width: 390, height: 844 }, 'unplanned');
       assert.equal(await page.locator(`#meal-change-${TODAY}`).evaluate(el => el.open), true, 'Change meal starts open without a recipe');
       assert.equal(await page.locator(`#meal-fed-action-${TODAY}`).count(), 0);
