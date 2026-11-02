@@ -118,9 +118,12 @@ async function main() {
       assert.equal(await page.locator(`[data-fold-summary="events"]`).textContent(), 'Vomited');
       assert.equal(await page.locator(`[data-form][data-key="notes"][data-dirty]`).count(), 1);
 
+      const mealReminder = page.locator(`#todo-${TODAY} [data-act="jump"][data-k="meal"]`);
+      assert.equal(await mealReminder.textContent(), 'tonight’s meal not fed yet');
       const before = await page.evaluate(() => testApp.queuedWrites().length);
       await page.locator(`#meal-fed-action-${TODAY}`).click();
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.fedAt), '17:30');
+      assert.equal(await mealReminder.count(), 0, 'Still to log drops the meal while the note keeps full renders deferred (CX-03)');
       assert.equal(await page.evaluate(() => document.activeElement.id), `meal-fed-status-${TODAY}`);
       assert.equal(await page.locator(`#meal-fed-status-${TODAY}`).textContent(), 'Fed at 17:30');
       assert.equal(await page.locator(`#meal-change-${TODAY} > summary`).textContent(), 'Edit meal');
@@ -132,11 +135,76 @@ async function main() {
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.fedAt ?? null), null, 'Undo Fed removes the feeding time');
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.recipe), 'fish');
       assert.equal(await page.evaluate(() => document.activeElement.id), `meal-fed-action-${TODAY}`);
+      assert.equal(await mealReminder.textContent(), 'tonight’s meal not fed yet', 'Undo Fed restores the reminder');
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), before + 3, 'Fed, bowl and Undo Fed each queue one write');
       assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'Unfinished note', 'the unrelated note is untouched');
       await context.close();
     }
     passed++; console.log('PASS shortcut, summaries, Mark as fed, bowl and Undo Fed work while another entry is unfinished');
+
+    {
+      // CX-01: Fish → Mark as fed → Undo Fed → Lamb must not record a hidden amount.
+      const { context, page } = await open({ width: 390, height: 844 });
+      const hero = () => page.locator(`[data-meal-plan="${TODAY}"] .meal-hero strong`).textContent();
+      const fishGrams = Number.parseInt(await hero(), 10);
+      await page.locator(`#meal-fed-action-${TODAY}`).click();
+      await page.locator(`#meal-change-${TODAY} > summary`).click();
+      await page.locator(`#meal-unfeed-${TODAY}`).click();
+      const select = page.locator(`#recipe-${TODAY}`);
+      await select.focus(); await select.selectOption('lamb');
+      await page.waitForFunction(() => testApp.S.days['2026-11-01'].meal.recipe === 'lamb');
+      const lambGrams = Number.parseInt(await hero(), 10);
+      assert.notEqual(lambGrams, fishGrams);
+      const help = page.locator(`#meal-fed-help-${TODAY}`);
+      assert.match(await help.textContent(), new RegExp(`${fishGrams} g DARF actually fed, saved earlier for this meal\\. The plan is ${lambGrams} g\\.`));
+      assert.equal(await page.locator(`#meal-fed-action-${TODAY}`).getAttribute('aria-describedby'), `meal-fed-help-${TODAY}`);
+      await page.locator(`#meal-use-plan-${TODAY}`).click();
+      assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.darfFed ?? null), null);
+      assert.equal(await page.evaluate(() => document.activeElement.id), `meal-fed-action-${TODAY}`, 'focus returns to Mark as fed');
+      assert.equal(await help.textContent(), 'Records the time now and the amounts above.');
+      await page.locator(`#meal-fed-action-${TODAY}`).click();
+      assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.darfFed), lambGrams, 'the displayed amount is recorded');
+      await context.close();
+    }
+    passed++; console.log('PASS a retained DARF amount is stated beside Mark as fed and the displayed plan can be recorded instead');
+
+    {
+      // Restored drafts reopen their closed section without any help from the test.
+      const { context, page } = await open({ width: 390, height: 844 });
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await page.locator(`#in-notes-${TODAY}`).fill('Draft in a closed section');
+      for (const tab of ['status', 'today']) {
+        await page.locator(`#tabbar [data-tab="${tab}"]`).click();
+        await page.waitForFunction(tab => testApp.S.tab === tab, tab);
+      }
+      assert.equal(await page.locator(`#notes-${TODAY}`).evaluate(el => el.open), true, 'navigation reopens the section');
+      assert.equal(await page.locator(`#in-notes-${TODAY}`).isVisible(), true);
+      assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'Draft in a closed section');
+      assert.equal(await page.locator(`#activity-${TODAY}`).evaluate(el => el.open), false, 'sections without drafts stay closed');
+      await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+      await page.reload(); await page.waitForFunction(() => window.testApp?.S.ready);
+      assert.equal(await page.locator(`#notes-${TODAY}`).evaluate(el => el.open), true, 'reload recovery reopens the section');
+      assert.equal(await page.locator(`#in-notes-${TODAY}`).isVisible(), true);
+      assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'Draft in a closed section');
+      assert.notEqual(await page.evaluate(() => document.activeElement.id), `in-notes-${TODAY}`, 'recovery does not focus the field');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'restoring is not saving');
+      await page.locator(`[data-key="notes"] [data-act="cancelinput"]`).click();
+
+      // A draft typed in History, where nothing is folded, opens Today's closed section.
+      await page.locator(`#tabbar [data-tab="day"]`).click();
+      await page.locator('#history-date').fill(TODAY);
+      await page.waitForFunction(today => testApp.S.tab === 'day' && testApp.S.cursor === today, TODAY);
+      await page.locator(`#in-treats-${TODAY}`).fill('3');
+      await page.locator(`#tabbar [data-tab="today"]`).click();
+      await page.waitForFunction(() => testApp.S.tab === 'today');
+      assert.equal(await page.locator(`#treats-${TODAY}`).evaluate(el => el.open), true, 'the draft opens a section never opened on Today');
+      assert.equal(await page.locator(`#in-treats-${TODAY}`).isVisible(), true);
+      assert.equal(await page.locator(`#in-treats-${TODAY}`).inputValue(), '3');
+      assert.equal(await page.locator(`#notes-${TODAY}`).evaluate(el => el.open), false, 'without a draft, Notes is closed again (state is kept only while drafts exist)');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
+      await context.close();
+    }
+    passed++; console.log('PASS restored drafts reopen their closed section after navigation, reload and History edits, without focus or writes');
 
     {
       const { context, page } = await open({ width: 390, height: 844 }, 'unplanned');

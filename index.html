@@ -1754,7 +1754,7 @@ function render(force=false){
   $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
   $('#status-attention')?.classList.toggle('hide',!needs);
   syncBcsGuidance();
-  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshMealPlans();refreshSelectionStates();restoreDraftInputs();renderFeedback();return;}
+  if (!force && $('#main [data-dirty],#main [data-stool]')){renderPending=true;refreshTodoCard();refreshMealPlans();refreshSelectionStates();restoreDraftInputs();renderFeedback();return;}
   renderPending=false;
   // The cursor belongs to History; other tabs leave its selection untouched.
   if(S.tab==='day'&&!S.cursor)S.cursor=shiftDate(localToday(),-1);
@@ -1805,6 +1805,16 @@ function viewToday(){
 }
 const BOWLS=['cleared','left','refused'];
 const bowlLabel=k=>k==='left'?'Left some':k?k[0].toUpperCase()+k.slice(1):'';
+function refreshTodoCard(){
+  const current=S.tab==='today'&&$('#main [id^="todo-"]');
+  if(!current)return;
+  const template=document.createElement('template');template.innerHTML=todoCard(current.id.slice(5));
+  const next=template.content.firstElementChild;
+  if(next.isEqualNode(current))return;
+  const focus=current.contains(document.activeElement)?document.activeElement.id:null;
+  current.replaceWith(next);
+  if(focus)refocus(document.getElementById(focus)?focus:next.id);
+}
 function todoCard(today){
   const miss=missingFor(today), last=trackingMeal(today), meal=plannedMeal(today);
   // The evening meal's state belongs to this list too, but not to missingFor's
@@ -1972,7 +1982,14 @@ function mealAmountEditor(iso,m){
 // directly above it; after feeding, the fed time and bowl result take its place.
 function liveFeedingControls(iso,m){
   if(isFedMeal(m))return `<p class="fed-status" id="meal-fed-status-${iso}" tabindex="-1">Fed at ${esc(m.fedAt)}</p>`;
-  return m.recipe&&RECIPES.some(r=>r.id===m.recipe)?`<button id="meal-fed-action-${iso}" class="btn" data-act="fed" data-date="${iso}" aria-describedby="meal-fed-help-${iso}">Mark as fed</button><p class="sub" id="meal-fed-help-${iso}">Records the time now and the amounts above.</p>`:'';
+  const b=bowlFor(iso,m.recipe,S.settings,S.changes,m);
+  if(!b)return '';
+  // Mark as fed keeps an actual amount already saved for this meal (for example
+  // after Undo Fed) rather than overwriting it, so say so beside the action.
+  const kept=m.darfFed!=null&&m.darfFed!==b.darfG;
+  return `<button id="meal-fed-action-${iso}" class="btn" data-act="fed" data-date="${iso}" aria-describedby="meal-fed-help-${iso}">Mark as fed</button>`+
+    (kept?`<p class="sub watch-text" id="meal-fed-help-${iso}">Records the time now, the other amounts above and <b>${esc(m.darfFed)} g DARF</b> actually fed, saved earlier for this meal. The plan is ${b.darfG} g.</p><button class="link" id="meal-use-plan-${iso}" data-act="useplandarf" data-date="${iso}">Record the ${b.darfG} g plan instead</button>`:
+      `<p class="sub" id="meal-fed-help-${iso}">Records the time now and the amounts above.</p>`);
 }
 // Undo Fed lives under Edit meal, with the other corrections.
 const liveUnfeedControl=(iso,m)=>isFedMeal(m)?`<button id="meal-unfeed-${iso}" class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button><p class="sub">Returns this meal to tonight’s plan. The recipe and ingredient choices are kept.</p>`:'';
@@ -2005,11 +2022,16 @@ function todayMealAmounts(iso){
   }
   // Fed: the saved snapshot, never recalculated from current settings.
   const fedG=m.darfFed??m.darfPlanned;
-  const supplement=(flag,amount,unit)=>m[flag]===false?'Not given':Number(amount)>0?esc(amount)+' '+unit:amount===0?'None':m[flag]===true?'Given':'Not recorded';
+  const supplement=(flag,amount,unit)=>{
+    const quantity=amount!=null?`${esc(amount)} ${unit}`:null;
+    if(m[flag]===true)return quantity??'Included';
+    if(m[flag]===false)return Number(amount)>0?`Not given · ${quantity} originally recorded`:'Not given';
+    return quantity?`Inclusion not recorded · ${quantity} originally recorded`:'Inclusion not recorded';
+  };
   return `<p class="meal-hero tonight"><span>${name} · DARF fed</span><strong>${fedG!=null?esc(fedG)+' g':'Not recorded'}</strong></p><dl class="meal-amounts">`+
     (m.darfPlanned!=null&&m.darfFed!=null&&m.darfPlanned!==m.darfFed?item('DARF planned',esc(m.darfPlanned)+' g'):'')+
     item('Salmon oil',supplement('oilGiven',m.oilMl,'ml'))+item('Pro-Fibre',supplement('fibreGiven',m.fibreG,'g'))+
-    (m.egg===true?item('Egg','Given'):'')+(m.broth===true?item('Bone broth','Given'):'')+'</dl>';
+    (m.egg===true?item('Egg','Included'):'')+(m.broth===true?item('Bone broth','Included'):'')+'</dl>';
 }
 function todayMealContext(iso){
   const m=plannedMeal(iso), b=m.recipe&&isEditablePlan(iso,m)?bowlFor(iso,m.recipe,S.settings,S.changes,m):null;
@@ -3094,7 +3116,7 @@ document.addEventListener('click', async (ev)=>{
   if(['erase','signout'].includes(a)&&importing){
     S.banner={kind:'plain',source:'import',title:'Import in progress',text:a==='erase'?'Wait for the import to finish before erasing the log. Nothing has been erased.':'Wait for the import to finish before signing out. Your import stays in progress.'};renderFeedback();return;
   }
-  if(S.erasing&&['saveinput','bcs','event','missed','savestool','delstool','extra','fed','savefeedingtime','unfeed','bowl','applyadv','refuseadv','applyfibre','setfibre','addregime','delregime','delchange','undo','theme','signout'].includes(a)){
+  if(S.erasing&&['saveinput','bcs','event','missed','savestool','delstool','extra','fed','savefeedingtime','unfeed','useplandarf','bowl','applyadv','refuseadv','applyfibre','setfibre','addregime','delregime','delchange','undo','theme','signout'].includes(a)){
     eraseBlocksChanges();return;
   }
   // Routine navigation keeps drafts. Only deliberate destructive exits discard them.
@@ -3313,6 +3335,14 @@ document.addEventListener('click', async (ev)=>{
     if (!b) return;
     // Mark as fed gives way to the fed time; keep focus on that confirmation.
     if(await saveMeal(iso,{fedAt:nowHHMM(),darfFed:meal.darfFed??b.darfG})&&!document.getElementById(el.id))refocus('meal-fed-status-'+iso);
+    return;
+  }
+  if (a==='useplandarf'){
+    // Only an unfed plan's retained actual amount is removed; fed records keep theirs.
+    if(el.disabled||!isEditablePlan(iso,d.meal)||d.meal?.darfFed==null)return;
+    el.disabled=true;
+    if(await saveMeal(iso,{darfFed:null})&&!document.getElementById(el.id))refocus('meal-fed-action-'+iso);
+    else el.disabled=false;
     return;
   }
   if (a==='unfeed'){

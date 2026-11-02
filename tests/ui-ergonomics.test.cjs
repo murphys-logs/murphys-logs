@@ -358,6 +358,59 @@ test('Mark as fed records the time now and the shown DARF amount through the out
   assert.equal([...h.storage.keys()].filter(key => key.startsWith('murphy-outbox-v2:ui-test-only:')).length, 1);
 });
 
+test('Mark as fed saves exactly the amounts shown above it, including Bella & Duke, oil and fibre', async () => {
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'fish' } } } });
+  const card = mealCardOf(h.api.viewToday());
+  const shown = label => card.match(new RegExp(`<dt>${label}</dt><dd>([\\d.]+) (?:g|ml)</dd>`))[1];
+  assert.equal(shown('Bella &amp; Duke'), String(h.api.S.settings.bdGrams));
+  const darf = Number(card.match(/DARF Active<\/span><strong>(\d+) g/)[1]);
+  assert.doesNotMatch(card, /data-act="useplandarf"/, 'no retained amount, no notice');
+  await h.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
+  const saved = h.api.S.days[TODAY].meal;
+  assert.deepEqual([saved.darfFed, saved.darfPlanned, String(saved.oilMl), String(saved.fibreG)], [darf, darf, shown('Salmon oil'), shown('Pro-Fibre')]);
+});
+
+test('a retained DARF amount is shown beside Mark as fed, and the plan can be recorded instead (CX-01)', async () => {
+  // Fish fed at 160 g, Undo Fed, then Lamb chosen: the earlier actual amount is retained.
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb', darfFed: 160 } } } });
+  let card = mealCardOf(h.api.viewToday());
+  const planned = Number(card.match(/DARF Active<\/span><strong>(\d+) g/)[1]);
+  assert.notEqual(planned, 160);
+  const at = text => card.indexOf(text);
+  assert.ok(at(`id="meal-fed-action-${TODAY}"`) < at(`id="meal-fed-help-${TODAY}"`) && at(`id="meal-fed-help-${TODAY}"`) < at(`id="meal-change-${TODAY}"`), 'the notice sits beside the action');
+  assert.match(card, new RegExp(`id="meal-fed-help-${TODAY}">Records the time now, the other amounts above and <b>160 g DARF</b> actually fed, saved earlier for this meal\\. The plan is ${planned} g\\.`));
+  assert.match(card, new RegExp(`data-act="useplandarf" data-date="${TODAY}">Record the ${planned} g plan instead<`));
+  await h.click('useplandarf', { date: TODAY }, `meal-use-plan-${TODAY}`);
+  assert.equal(h.api.S.days[TODAY].meal.darfFed, undefined, 'only the retained amount is removed');
+  assert.equal(h.api.S.days[TODAY].meal.recipe, 'lamb');
+  card = mealCardOf(h.api.viewToday());
+  assert.doesNotMatch(card, /data-act="useplandarf"/);
+  await h.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
+  assert.equal(h.api.S.days[TODAY].meal.darfFed, planned, 'Mark as fed now records the displayed plan');
+  // Keeping the retained amount records exactly what the notice states.
+  const kept = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb', darfFed: 160 } } } });
+  await kept.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
+  assert.equal(kept.api.S.days[TODAY].meal.darfFed, 160);
+});
+
+test('fed supplements keep unknown inclusion visible for every amount (CX-02)', () => {
+  const expected = {
+    true: { 4: '4 ml', 0: '0 ml', null: 'Included' },
+    false: { 4: 'Not given · 4 ml originally recorded', 0: 'Not given', null: 'Not given' },
+    undefined: { 4: 'Inclusion not recorded · 4 ml originally recorded', 0: 'Inclusion not recorded · 0 ml originally recorded', null: 'Inclusion not recorded' },
+  };
+  for (const [flagKey, oilLabel, fibreFlag, fibreLabel] of [['oilGiven', 'Salmon oil', 'fibreGiven', 'Pro-Fibre']]) {
+    for (const inclusion of [true, false, undefined]) for (const amount of [4, 0, null]) {
+      const meal = { recipe: 'fish', fedAt: '18:20', darfFed: 160, darfPlanned: 160, oilMl: amount, fibreG: amount };
+      if (inclusion !== undefined) { meal[flagKey] = inclusion; meal[fibreFlag] = inclusion; }
+      const card = mealCardOf(makeHarness({ days: { [TODAY]: { meal } } }).api.viewToday());
+      const text = expected[String(inclusion)][String(amount)];
+      assert.match(card, new RegExp(`<dt>${oilLabel}</dt><dd>${text}</dd>`), `oil ${inclusion}/${amount}`);
+      assert.match(card, new RegExp(`<dt>${fibreLabel}</dt><dd>${text.replace(/ ml/g, ' g')}</dd>`), `fibre ${inclusion}/${amount}`);
+    }
+  }
+});
+
 test('closed sections summarise what is recorded, with yesterday’s Tractive date and escaped notes', () => {
   const h = makeHarness({ days: {
     [TODAY]: { walkMin: 40, walkKm: 3.2, treats: 2, events: ['vomited', 'lethargic'], notes: '<b>Ate grass</b>\nsecond line' },
