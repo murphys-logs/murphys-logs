@@ -3230,9 +3230,13 @@ document.addEventListener('click', async (ev)=>{
     if(await saveDay(iso,weightMissedPatch(d))){
       // Other forms may have drafts, so update this safe section immediately
       // even when a full page render is deferred to protect those drafts.
-      if(renderPending) document.getElementById(focus)?.closest('section').replaceWith((()=>{
-        const template=document.createElement('template');template.innerHTML=weightCard(iso);return template.content.firstElementChild;
-      })());
+      // Rebuild the card this view rendered: Today's weigh-in card includes the condition score.
+      const section=renderPending&&document.getElementById(focus)?.closest('section');
+      if(section){
+        const template=document.createElement('template');
+        template.innerHTML=section.id==='weight-'+iso?weightConditionCard(iso):weightCard(iso);
+        section.replaceWith(template.content.firstElementChild);
+      }
       refocus(focus);
     }
     return;

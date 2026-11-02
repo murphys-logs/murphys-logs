@@ -24,6 +24,7 @@ The new order is:
   - A fibre or oil schedule change in the past week is cautioned beside the amounts, not inside Change meal (AGY-02).
 - **Weigh-in & condition:** Weight entry, Weight missed and the condition score are in one card.
   - The hint under the weight shows only the saved reading's status and the unusual-change warning. The target, range and means are in the assessment above.
+  - Toggling Weight missed while another entry is unfinished rebuilds this combined card, so the condition score stays beside the weight (CC-01).
 - **Closed sections:** Each summary line shows what is recorded, for example "Walked 40 min · 3.2 km · Tractive 31 Oct: 55 min". Tractive minutes stay attached to yesterday.
   - A restored draft opens its section. A section the user opened stays open across saves.
   - Any collapsible section holding an unsaved entry shows "Unsaved changes" in its summary until the entry is saved or cancelled. This covers Edit meal, supplement corrections and History's disclosures too, so collapsing a section never hides a draft.
@@ -66,7 +67,7 @@ node tests/navigation-drafts.browser.cjs
 node tests/today-layout.browser.cjs
 ```
 
-- **Results:** 163 unit tests and 21 + 26 + 8 browser scenarios pass. There are no external requests or page errors.
+- **Results:** 163 unit tests and 21 + 26 + 9 browser scenarios pass. There are no external requests or page errors.
 - **Codex and Antigravity review follow-ups:**
   - Tests check that Mark as fed saves exactly the shown DARF, Bella & Duke, oil and fibre amounts.
   - A matrix covers supplement inclusion (true, false, unknown) against amounts (positive, zero, missing).

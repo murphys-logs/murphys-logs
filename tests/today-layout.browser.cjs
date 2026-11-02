@@ -308,6 +308,36 @@ async function main() {
     passed++; console.log('PASS clearing a feeding-time draft clears its marker through unchanged, full and deferred renders');
 
     {
+      // CC-01: Weight missed while another entry is unfinished must rebuild Today's
+      // combined card, not History's Weight card, so the condition score stays.
+      const { context, page } = await open({ width: 390, height: 844 });
+      const card = () => page.evaluate(today => {
+        const section = document.getElementById('weight-missed-' + today)?.closest('section');
+        return { id: section?.id, heading: section?.querySelector('h3')?.textContent,
+          scale: section?.querySelectorAll(`#condition-${today} [data-act="bcs"]`).length ?? 0,
+          briefHint: !!section?.querySelector('[data-weight-hint][data-brief]') };
+      }, TODAY);
+      const expected = { id: `weight-${TODAY}`, heading: 'Weigh-in & condition', scale: 7, briefHint: true };
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await page.locator(`#in-notes-${TODAY}`).fill('Unfinished note');
+      const before = await page.evaluate(() => testApp.queuedWrites().length);
+      await page.locator(`#weight-missed-${TODAY}`).click();
+      assert.equal(await page.evaluate(today => testApp.S.days[today].weightMissed, TODAY), true);
+      assert.deepEqual(await card(), expected, 'marking weight missed keeps the condition score beside it');
+      assert.equal(await page.evaluate(() => document.activeElement.id), `weight-missed-${TODAY}`);
+      await page.locator(`#todo-${TODAY}-bcs`).click();
+      assert.equal(await page.evaluate(() => document.activeElement.id), `condition-${TODAY}`, 'the condition shortcut still lands on the scale');
+      await page.locator(`#weight-missed-${TODAY}`).click();
+      assert.deepEqual(await card(), expected, 'switching it off again keeps the combined card');
+      // Cancelling the note takes render()'s unchanged-markup return, so the card must already match.
+      await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+      assert.deepEqual(await card(), expected, 'the card is correct after the deferred render ends');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), before + 2, 'each toggle queues one write; Cancel queues none');
+      await context.close();
+    }
+    passed++; console.log('PASS Weight missed keeps the combined weigh-in and condition card while another entry is unfinished');
+
+    {
       const { context, page } = await open({ width: 390, height: 844 }, 'unplanned');
       assert.equal(await page.locator(`#meal-change-${TODAY}`).evaluate(el => el.open), true, 'Change meal starts open without a recipe');
       assert.equal(await page.locator(`#meal-fed-action-${TODAY}`).count(), 0);
