@@ -149,8 +149,8 @@ async function main() {
     {
       // History can show the same date as Today, but must retain its separate cards.
       const { context, page } = await open({ width: 390, height: 844 });
-      await page.locator('#tabbar [data-tab="day"]').click();
-      await page.locator('#history-date').fill(TODAY);
+      await page.locator('#tabbar [data-tab="history"]').click();
+      await page.locator(`#open-day-${TODAY}`).click();
       await page.waitForFunction(today => testApp.S.tab === 'day' && testApp.S.cursor === today, TODAY);
       await page.locator(`#in-notes-${TODAY}`).fill('History draft');
       const conditionNode = await page.locator(`#condition-${TODAY}`).elementHandle();
@@ -314,7 +314,7 @@ async function main() {
       const { context, page } = await open({ width: 390, height: 844 });
       await page.locator(`#notes-${TODAY} > summary`).click();
       await page.locator(`#in-notes-${TODAY}`).fill('Draft in a closed section');
-      for (const tab of ['status', 'today']) {
+      for (const tab of ['review', 'today']) {
         await page.locator(`#tabbar [data-tab="${tab}"]`).click();
         await page.waitForFunction(tab => testApp.S.tab === tab, tab);
       }
@@ -332,8 +332,8 @@ async function main() {
       await page.locator(`[data-key="notes"] [data-act="cancelinput"]`).click();
 
       // A draft typed in History, where nothing is folded, opens Today's closed section.
-      await page.locator(`#tabbar [data-tab="day"]`).click();
-      await page.locator('#history-date').fill(TODAY);
+      await page.locator(`#tabbar [data-tab="history"]`).click();
+      await page.locator(`#open-day-${TODAY}`).click();
       await page.waitForFunction(today => testApp.S.tab === 'day' && testApp.S.cursor === today, TODAY);
       await page.locator(`#in-treats-${TODAY}`).fill('3');
       await page.locator(`#tabbar [data-tab="today"]`).click();
@@ -371,7 +371,7 @@ async function main() {
       await page.locator(`#meal-amount-${TODAY}-oilMl`).fill('5');
       await page.locator(`#meal-change-${TODAY} > summary`).click();
       assert.equal(await mark(`meal-change-${TODAY}`).isVisible(), true, 'collapsed Edit meal says it holds an unsaved entry');
-      for (const tab of ['status', 'today']) {
+      for (const tab of ['review', 'today']) {
         await page.locator(`#tabbar [data-tab="${tab}"]`).click();
         await page.waitForFunction(tab => testApp.S.tab === tab, tab);
       }

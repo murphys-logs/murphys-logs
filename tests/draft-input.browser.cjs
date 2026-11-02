@@ -409,7 +409,8 @@ async function main() {
     assert.equal(await savedDraft(),null);
     passed++;console.log('PASS quick logging preselects only the tapped type, requires confirmation and restores focus on Cancel');
 
-    await page.locator('#tabbar [data-tab="day"]').click();
+    await page.locator('#tabbar [data-tab="history"]').click();
+    await page.locator('#open-day-2026-10-31').click();
     await page.locator('#history-date').fill('2026-10-30');
     assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-30');
     await page.locator('#history-date').evaluate(input=>{
