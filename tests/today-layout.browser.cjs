@@ -272,6 +272,42 @@ async function main() {
     passed++; console.log('PASS a collapsed section says it holds an unsaved entry until that entry is saved or cancelled');
 
     {
+      // CX-05: a feeding-time draft cleared without changing saved markup must clear its marker too.
+      const { context, page } = await open({ width: 390, height: 844 });
+      const fold = `#meal-${YESTERDAY}`, time = `#fed-time-${YESTERDAY}`;
+      const marked = id => page.locator(`${id} > summary > .draft-mark`).count();
+      const draftFields = () => page.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('murphy-draft-v2:'))
+        .flatMap(k => JSON.parse(localStorage.getItem(k)).fields.map(f => f.key)));
+      await page.locator(`${fold} > summary`).click();
+      // Sole draft, Cancel: rendered markup is unchanged, so render() takes its early return.
+      await page.locator(time).fill('19:01');
+      assert.equal(await marked(fold), 1);
+      await page.locator(`[data-act="cancelfeedingtime"][data-date="${YESTERDAY}"]`).click();
+      assert.equal(await page.locator(time).inputValue(), '18:00');
+      assert.equal(await marked(fold), 0, 'Cancel clears the marker');
+      assert.deepEqual(await draftFields(), [], 'no draft remains');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
+      // Sole draft, Save after reverting to the original time.
+      await page.locator(time).fill('19:01'); await page.locator(time).fill('18:00');
+      assert.equal(await marked(fold), 1);
+      await page.locator(`[data-act="savefeedingtime"][data-date="${YESTERDAY}"]`).click();
+      assert.equal(await page.evaluate(y => testApp.S.days[y].meal.fedAt, YESTERDAY), '18:00');
+      assert.equal(await marked(fold), 0, 'Save clears the marker');
+      assert.deepEqual(await draftFields(), []);
+      // Deferred render: an unrelated note draft keeps its own marker.
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await page.locator(`#in-notes-${TODAY}`).fill('Unrelated note');
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await page.locator(time).fill('19:01');
+      await page.locator(`[data-act="cancelfeedingtime"][data-date="${YESTERDAY}"]`).click();
+      assert.equal(await marked(fold), 0);
+      assert.equal(await marked(`#notes-${TODAY}`), 1, 'the surviving note keeps its marker');
+      assert.deepEqual(await draftFields(), ['notes']);
+      await context.close();
+    }
+    passed++; console.log('PASS clearing a feeding-time draft clears its marker through unchanged, full and deferred renders');
+
+    {
       const { context, page } = await open({ width: 390, height: 844 }, 'unplanned');
       assert.equal(await page.locator(`#meal-change-${TODAY}`).evaluate(el => el.open), true, 'Change meal starts open without a recipe');
       assert.equal(await page.locator(`#meal-fed-action-${TODAY}`).count(), 0);

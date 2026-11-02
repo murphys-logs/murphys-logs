@@ -66,7 +66,7 @@ node tests/navigation-drafts.browser.cjs
 node tests/today-layout.browser.cjs
 ```
 
-- **Results:** 163 unit tests and 21 + 26 + 7 browser scenarios pass. There are no external requests or page errors.
+- **Results:** 163 unit tests and 21 + 26 + 8 browser scenarios pass. There are no external requests or page errors.
 - **Codex and Antigravity review follow-ups:**
   - Tests check that Mark as fed saves exactly the shown DARF, Bella & Duke, oil and fibre amounts.
   - A matrix covers supplement inclusion (true, false, unknown) against amounts (positive, zero, missing).

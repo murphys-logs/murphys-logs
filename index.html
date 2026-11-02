@@ -1769,7 +1769,8 @@ function render(force=false){
   });
   $('#main').className=['today','day','history'].includes(S.tab)?'wide':'';
   const html=S.tab==='today'?viewToday():S.tab==='day'?viewDay():S.tab==='status'?viewStatus():S.tab==='history'?viewHistory():viewMore();
-  if(!force&&html===rendered)return;
+  // Unchanged markup skips replacement, but a handler may just have cleared a draft (CX-05).
+  if(!force&&html===rendered){syncDraftMarkers();return;}
   rendered=html;
   const expanded=$$('#main details[id]').map(e=>[e.id,e.open]), focus=document.activeElement?.id;
   replaceRenderedHtml($('#main'),html);
