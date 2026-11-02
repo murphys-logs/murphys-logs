@@ -1991,11 +1991,11 @@ function liveFeedingControls(iso,m){
   const b=bowlFor(iso,m.recipe,S.settings,S.changes,m);
   if(!b)return '';
   // Mark as fed keeps an actual amount already saved for this meal (for example
-  // after Undo Fed) rather than overwriting it, so say so beside the action.
+  // after Undo Fed) rather than overwriting it, so explain it before the action.
   const kept=m.darfFed!=null&&m.darfFed!==b.darfG;
-  return `<button id="meal-fed-action-${iso}" class="btn" data-act="fed" data-date="${iso}" aria-describedby="meal-fed-help-${iso}">Mark as fed</button>`+
-    (kept?`<p class="sub watch-text" id="meal-fed-help-${iso}">Records the time now, the other amounts above and <b>${esc(m.darfFed)} g DARF</b> actually fed, saved earlier for this meal. The plan is ${b.darfG} g.</p><button class="link" id="meal-use-plan-${iso}" data-act="useplandarf" data-date="${iso}">Record the ${b.darfG} g plan instead</button>`:
-      `<p class="sub" id="meal-fed-help-${iso}">Records the time now and the amounts above.</p>`);
+  return (kept?`<p class="sub watch-text" id="meal-fed-help-${iso}">Records the time now, the other amounts above and <b>${esc(m.darfFed)} g DARF</b> actually fed, saved earlier for this meal. The plan is ${b.darfG} g.</p><button class="link" id="meal-use-plan-${iso}" data-act="useplandarf" data-date="${iso}">Record the ${b.darfG} g plan instead</button>`:'')+
+    `<button id="meal-fed-action-${iso}" class="btn" data-act="fed" data-date="${iso}" aria-describedby="meal-fed-help-${iso}">Mark as fed</button>`+
+    (kept?'':`<p class="sub" id="meal-fed-help-${iso}">Records the time now and the amounts above.</p>`);
 }
 // Undo Fed lives under Edit meal, with the other corrections.
 const liveUnfeedControl=(iso,m)=>isFedMeal(m)?`<button id="meal-unfeed-${iso}" class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button><p class="sub">Returns this meal to tonight’s plan. The recipe and ingredient choices are kept.</p>`:'';
@@ -2021,10 +2021,12 @@ function todayMealAmounts(iso){
   if(isEditablePlan(iso,m)){
     const b=bowlFor(iso,m.recipe,S.settings,S.changes,m);
     if(!b)return `<p class="muted">Amounts are unavailable for ${name}. Choose a listed recipe under Change meal.</p>`;
-    return `<p class="meal-hero tonight"><span>${name} · DARF Active</span><strong>${b.darfG} g</strong></p><dl class="meal-amounts">`+
+    const kept=m.darfFed!=null&&m.darfFed!==b.darfG;
+    return `<p class="meal-hero tonight"><span>${name} · ${kept?'DARF to record':'DARF Active'}</span><strong>${kept?esc(m.darfFed):b.darfG} g</strong></p><dl class="meal-amounts">`+
+      (kept?item('DARF planned',b.darfG+' g'):'')+
       item('Bella &amp; Duke',b.bdGrams+' g')+item('Salmon oil',b.oilMl?b.oilMl+' ml':'None tonight')+item('Pro-Fibre',b.fibreG?b.fibreG+' g':'None tonight')+
       (m.egg?item('Egg','1'):'')+(m.broth?item('Bone broth','50 ml'):'')+'</dl>'+supplementCaution(iso)+
-      (b.overTarget?'<p class="note warn">Other ingredients exceed the calorie target. DARF is 0 g.</p>':'');
+      (b.overTarget?'<p class="note warn">Other ingredients exceed the calorie target. Planned DARF is 0 g.</p>':'');
   }
   // Fed: the saved snapshot, never recalculated from current settings.
   const fedG=m.darfFed??m.darfPlanned;

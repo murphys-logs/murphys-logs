@@ -370,27 +370,37 @@ test('Mark as fed saves exactly the amounts shown above it, including Bella & Du
   assert.deepEqual([saved.darfFed, saved.darfPlanned, String(saved.oilMl), String(saved.fibreG)], [darf, darf, shown('Salmon oil'), shown('Pro-Fibre')]);
 });
 
-test('a retained DARF amount is shown beside Mark as fed, and the plan can be recorded instead (CX-01)', async () => {
+test('the retained DARF amount is prominent before Mark as fed, and the plan can be recorded instead (CX-01, CC-02)', async () => {
   // Fish fed at 160 g, Undo Fed, then Lamb chosen: the earlier actual amount is retained.
-  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb', darfFed: 160 } } } });
-  let card = mealCardOf(h.api.viewToday());
-  const planned = Number(card.match(/DARF Active<\/span><strong>(\d+) g/)[1]);
-  assert.notEqual(planned, 160);
-  const at = text => card.indexOf(text);
-  assert.ok(at(`id="meal-fed-action-${TODAY}"`) < at(`id="meal-fed-help-${TODAY}"`) && at(`id="meal-fed-help-${TODAY}"`) < at(`id="meal-change-${TODAY}"`), 'the notice sits beside the action');
-  assert.match(card, new RegExp(`id="meal-fed-help-${TODAY}">Records the time now, the other amounts above and <b>160 g DARF</b> actually fed, saved earlier for this meal\\. The plan is ${planned} g\\.`));
-  assert.match(card, new RegExp(`data-act="useplandarf" data-date="${TODAY}">Record the ${planned} g plan instead<`));
-  await h.click('useplandarf', { date: TODAY }, `meal-use-plan-${TODAY}`);
-  assert.equal(h.api.S.days[TODAY].meal.darfFed, undefined, 'only the retained amount is removed');
-  assert.equal(h.api.S.days[TODAY].meal.recipe, 'lamb');
-  card = mealCardOf(h.api.viewToday());
-  assert.doesNotMatch(card, /data-act="useplandarf"/);
-  await h.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
-  assert.equal(h.api.S.days[TODAY].meal.darfFed, planned, 'Mark as fed now records the displayed plan');
-  // Keeping the retained amount records exactly what the notice states.
-  const kept = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb', darfFed: 160 } } } });
-  await kept.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
-  assert.equal(kept.api.S.days[TODAY].meal.darfFed, 160);
+  for (const amount of [160, 150, 0]) {
+    const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb', darfFed: amount } } } });
+    let card = mealCardOf(h.api.viewToday());
+    assert.match(card, new RegExp(`Lamb · DARF to record</span><strong>${amount} g</strong>`));
+    const planned = Number(card.match(/<dt>DARF planned<\/dt><dd>(\d+) g/)[1]);
+    assert.notEqual(planned, amount);
+    const at = text => card.indexOf(text);
+    assert.ok(at(`id="meal-fed-help-${TODAY}"`) < at(`id="meal-use-plan-${TODAY}"`) && at(`id="meal-use-plan-${TODAY}"`) < at(`id="meal-fed-action-${TODAY}"`), 'the explanation and plan choice precede the action');
+    assert.match(card, new RegExp(`id="meal-fed-help-${TODAY}">Records the time now, the other amounts above and <b>${amount} g DARF</b> actually fed, saved earlier for this meal\\. The plan is ${planned} g\\.`));
+    assert.match(card, new RegExp(`data-act="useplandarf" data-date="${TODAY}">Record the ${planned} g plan instead<`));
+    await h.click('useplandarf', { date: TODAY }, `meal-use-plan-${TODAY}`);
+    assert.equal(h.api.S.days[TODAY].meal.darfFed, undefined, 'only the retained amount is removed');
+    assert.equal(h.api.S.days[TODAY].meal.recipe, 'lamb');
+    card = mealCardOf(h.api.viewToday());
+    assert.doesNotMatch(card, /data-act="useplandarf"/);
+    assert.match(card, new RegExp(`DARF Active</span><strong>${planned} g</strong>`));
+    await h.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
+    assert.equal(h.api.S.days[TODAY].meal.darfFed, planned, 'Mark as fed now records the displayed plan');
+    // Keeping the retained amount records exactly what the notice states.
+    const kept = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb', darfFed: amount } } } });
+    await kept.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
+    assert.equal(kept.api.S.days[TODAY].meal.darfFed, amount);
+  }
+  const over = makeHarness({ days: { [TODAY]: { meal: { recipe: 'fish', darfFed: 160 } } } });
+  over.api.S.settings = { ...over.api.S.settings, targetKcal: 1 };
+  const overCard = mealCardOf(over.api.viewToday());
+  assert.match(overCard, /DARF to record<\/span><strong>160 g<\/strong>/);
+  assert.match(overCard, /<dt>DARF planned<\/dt><dd>0 g<\/dd>/);
+  assert.match(overCard, /Other ingredients exceed the calorie target\. Planned DARF is 0 g\./);
 });
 
 test('fed supplements keep unknown inclusion visible for every amount (CX-02)', () => {

@@ -19,7 +19,7 @@ The new order is:
 - **After feeding:** The card shows the saved snapshot, "Fed at HH:MM" and the bowl result.
   - **Edit meal** holds the recipe correction, grams actually fed, switches, supplement corrections and **Undo Fed**.
   - Focus moves to the fed time after Mark as fed, and back to Mark as fed after Undo Fed.
-  - Mark as fed keeps an actual DARF amount already saved for an unfed meal (for example after Undo Fed). When that amount differs from the plan, a notice beside the button states it, with **Record the plan instead** (CX-01).
+  - Mark as fed keeps an actual DARF amount already saved for an unfed meal (for example after Undo Fed). When that amount differs from the plan, the large **DARF to record** figure shows the retained amount, including 0 g. **DARF planned** shows the recipe's plan separately. The explanation and **Record the plan instead** choice appear before Mark as fed (CX-01, CC-02).
   - The fed summary keeps unknown supplement inclusion visible. A quantity is shown plainly only when inclusion is confirmed; otherwise it is qualified as "originally recorded" (CX-02).
   - A fibre or oil schedule change in the past week is cautioned beside the amounts, not inside Change meal (AGY-02).
 - **Weigh-in & condition:** Weight entry, Weight missed and the condition score are in one card.
@@ -67,7 +67,8 @@ node tests/navigation-drafts.browser.cjs
 node tests/today-layout.browser.cjs
 ```
 
-- **Results:** 163 unit tests and 21 + 26 + 10 browser scenarios pass. There are no external requests or page errors.
+- **Results:** 163 unit tests and 21 + 26 + 11 browser scenarios pass. There are no external requests or page errors.
+- **CC-02 regression:** Retained 160 g, 150 g and 0 g are shown as the prominent amount to record. The explanation and plan choice precede Mark as fed; selecting the plan updates the prominent figure. Browser checks cover the Fish → Fed → Undo → Lamb flow and synced positive/zero overrides while a Notes draft defers rendering, at 390, 375 and 320 px. The displayed amount is preserved by the queued feeding update, with no horizontal overflow; the amount and confirmation fit together above the tab bar.
 - **CC-01 regression:** With a Notes draft open, toggle Weight missed on and off, then cancel the note. Today's heading, seven condition-score buttons, brief hint and condition shortcut remain usable. The note's DOM node and persisted draft survive both toggles, which queue only their two weight writes. History viewing the same date keeps its separate cards. The new Today case fails against the pre-fix `e4111e1` HTML and passes with the fix.
 - **Codex and Antigravity review follow-ups:**
   - Tests check that Mark as fed saves exactly the shown DARF, Bella & Duke, oil and fibre amounts.
@@ -78,13 +79,15 @@ node tests/today-layout.browser.cjs
   - Two Undo Fed steps now use the control under Edit meal.
   - Their assertions are unchanged, apart from two added focus checks.
 
-## Physical iPhone checks still required
+## Physical iPhone checks
+
+**Complete per the owner's confirmation on 2 November 2026.** VoiceOver checks are **not applicable** to the owner's use: the owner does not use VoiceOver, so no VoiceOver validation is claimed. The remaining device checks below are recorded as complete on the owner's instruction, rather than established by automated tests.
 
 Use a preview with synthetic data, in Safari and the installed app, at normal and enlarged text sizes.
 
 1. **Picker:** Choose the first recipe with the native picker. It must not reopen, and Mark as fed must appear beneath the amounts.
 2. **Feeding flow:** Tap Mark as fed, then a bowl result. Open Edit meal and Undo Fed.
-   - Check what VoiceOver announces at each step.
+   - VoiceOver announcements: not applicable for the owner, as recorded above.
    - Check that focus never lands on the page body.
 3. **Unfinished note:** Leave a note unfinished, then save Treats and toggle an observation. The summaries should update and the note should stay open.
 4. **Force-close:** With a note or grams-fed draft, force-close and reopen. The draft's section should reopen without raising the keyboard.

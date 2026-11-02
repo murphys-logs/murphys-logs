@@ -223,7 +223,7 @@ async function main() {
     passed++; console.log('PASS shortcut, summaries, Mark as fed, bowl and Undo Fed work while another entry is unfinished');
 
     {
-      // CX-01: Fish → Mark as fed → Undo Fed → Lamb must not record a hidden amount.
+      // CX-01 / CC-02: the prominent amount must be what Mark as fed records.
       const { context, page } = await open({ width: 390, height: 844 });
       const hero = () => page.locator(`[data-meal-plan="${TODAY}"] .meal-hero strong`).textContent();
       const fishGrams = Number.parseInt(await hero(), 10);
@@ -233,20 +233,57 @@ async function main() {
       const select = page.locator(`#recipe-${TODAY}`);
       await select.focus(); await select.selectOption('lamb');
       await page.waitForFunction(() => testApp.S.days['2026-11-01'].meal.recipe === 'lamb');
-      const lambGrams = Number.parseInt(await hero(), 10);
+      assert.equal(await hero(), `${fishGrams} g`, 'the hero shows the retained amount to record');
+      const lambGrams = Number.parseInt(await page.locator('[data-meal-plan] .meal-amounts > div').filter({ hasText: 'DARF planned' }).locator('dd').textContent(), 10);
       assert.notEqual(lambGrams, fishGrams);
       const help = page.locator(`#meal-fed-help-${TODAY}`);
       assert.match(await help.textContent(), new RegExp(`${fishGrams} g DARF actually fed, saved earlier for this meal\\. The plan is ${lambGrams} g\\.`));
+      const helpBox = await box(page, `#meal-fed-help-${TODAY}`), planBox = await box(page, `#meal-use-plan-${TODAY}`), fedBox = await box(page, `#meal-fed-action-${TODAY}`);
+      assert.ok(helpBox.bottom <= planBox.top && planBox.bottom <= fedBox.top, 'the retained explanation and plan choice come before Mark as fed');
       assert.equal(await page.locator(`#meal-fed-action-${TODAY}`).getAttribute('aria-describedby'), `meal-fed-help-${TODAY}`);
       await page.locator(`#meal-use-plan-${TODAY}`).click();
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.darfFed ?? null), null);
       assert.equal(await page.evaluate(() => document.activeElement.id), `meal-fed-action-${TODAY}`, 'focus returns to Mark as fed');
       assert.equal(await help.textContent(), 'Records the time now and the amounts above.');
+      assert.equal(await hero(), `${lambGrams} g`, 'choosing the plan updates the prominent amount');
       await page.locator(`#meal-fed-action-${TODAY}`).click();
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].meal.darfFed), lambGrams, 'the displayed amount is recorded');
       await context.close();
     }
-    passed++; console.log('PASS a retained DARF amount is stated beside Mark as fed and the displayed plan can be recorded instead');
+    passed++; console.log('PASS a retained DARF amount is prominent before Mark as fed and the displayed plan can be recorded instead');
+
+    {
+      // Synced overrides refresh the amount and explanation together during deferral, including 0 g.
+      for (const viewport of [{ width: 390, height: 844 }, { width: 375, height: 667 }, { width: 320, height: 568 }]) {
+        for (const amount of [150, 0]) {
+          const { context, page } = await open(viewport);
+          await page.locator(`#notes-${TODAY} > summary`).click();
+          await page.locator(`#in-notes-${TODAY}`).fill('Unfinished retained-amount note');
+          const synced = await page.evaluate(([today, amount]) => ({ ...testApp.S.days[today], meal: { ...testApp.S.days[today].meal, darfFed: amount } }), [TODAY, amount]);
+          await page.evaluate(([today, value]) => window.__deliverDays(today, value), [TODAY, synced]);
+          const hero = page.locator(`[data-meal-plan="${TODAY}"] .meal-hero`);
+          assert.equal(await hero.locator('span').textContent(), 'Fish · DARF to record');
+          assert.equal(await hero.locator('strong').textContent(), `${amount} g`);
+          assert.match(await page.locator(`#meal-fed-help-${TODAY}`).textContent(), new RegExp(`${amount} g DARF actually fed, saved earlier`));
+          const heroBox = await box(page, `[data-meal-plan="${TODAY}"] .meal-hero`), helpBox = await box(page, `#meal-fed-help-${TODAY}`);
+          const choiceBox = await box(page, `#meal-use-plan-${TODAY}`), fedBox = await box(page, `#meal-fed-action-${TODAY}`);
+          assert.ok(heroBox.bottom <= helpBox.top && helpBox.bottom <= choiceBox.top && choiceBox.bottom <= fedBox.top, 'amount, explanation and choice precede confirmation');
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0);
+          const tabbar = await page.locator('#tabbar').evaluate(el => el.getBoundingClientRect().height);
+          assert.ok(fedBox.bottom - heroBox.top <= viewport.height - tabbar, 'retained amount and confirmation fit together above the tab bar');
+          await page.locator(`#meal-fed-action-${TODAY}`).click();
+          assert.equal(await page.evaluate(today => testApp.S.days[today].meal.darfFed, TODAY), amount);
+          const writes = await page.evaluate(() => testApp.queuedWrites());
+          assert.equal(writes.length, 1);
+          assert.equal(({ ...synced.meal, ...writes[0][1].patch.meal }).darfFed, amount, 'the queued update preserves the prominent amount');
+          assert.equal(writes[0][1].patch.meal.fedAt, '17:30');
+          assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'Unfinished retained-amount note');
+          assert.equal(await page.locator('[data-key="notes"][data-dirty]').count(), 1);
+          await context.close();
+        }
+      }
+    }
+    passed++; console.log('PASS retained positive and zero DARF amounts stay prominent, fit at narrow widths and match writes during deferred rendering');
 
     {
       // CX-04: a synced change refreshes Still to log while a note keeps full renders deferred.
