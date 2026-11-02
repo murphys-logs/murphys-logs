@@ -72,7 +72,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
     globalThis.testDownloads = [];
     download = (...args) => globalThis.testDownloads.push(args);
     globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, viewHistory, viewReview, viewSettings, navigateTo, normalizeTab, navDestination, formatAlertDates, formatVetAlertHeadline, rationAlertDateText, weeklyAdvice, insights, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
-      exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, APP_VERSION, downloads: globalThis.testDownloads,
+      exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, refreshSettingsReadOnly, APP_VERSION, downloads: globalThis.testDownloads,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
   `, context, { filename: htmlPath, timeout: 5000 });
@@ -864,4 +864,42 @@ test('Settings monthly export handles 1 November and year/leap boundaries, expor
     assert.equal(mOpts[1].ym, prevYm);
     assert.equal(mOpts[1].label, prevLabel);
   }
+});
+
+test('Settings refreshes current-day supplements during deferred renders and gives disclosure summaries stable focus IDs (CX-E1, CX-E2)', () => {
+  let currentNow = Date.parse('2026-11-01T23:55:00Z');
+  const h = makeHarness({ now: '2026-11-01T23:55:00Z', dirty: true });
+  h.api.S.settings = {
+    ...h.api.S.settings,
+    oilSchedule: [{ from: '2026-11-01', ml: 8 }, { from: '2026-11-02', ml: 4 }],
+    fibreSchedule: [{ from: '2026-11-01', g: 2.5 }, { from: '2026-11-02', g: 5 }],
+  };
+
+  const outNov1 = h.api.viewSettings();
+  assert.match(outNov1, /<span class="v" id="settings-oil-today">8 ml<\/span>/);
+  assert.match(outNov1, /<span class="v" id="settings-fibre-today">2\.5 g<\/span>/);
+  assert.match(outNov1, /<summary id="settings-schedules-summary">Supplement schedule history<\/summary>/);
+  assert.match(outNov1, /<summary class="sec" id="settings-advanced-summary">Advanced/);
+
+  // Simulate the live DOM nodes populated on 1 Nov, then check refreshSettingsReadOnly:
+  const oilNode = h.element('#settings-oil-today');
+  const fibNode = h.element('#settings-fibre-today');
+  oilNode.textContent = '8 ml';
+  fibNode.textContent = '2.5 g';
+  h.api.refreshSettingsReadOnly();
+  assert.equal(oilNode.textContent, '8 ml');
+  assert.equal(fibNode.textContent, '2.5 g');
+
+  // Verify midnight schedule evaluation on 2 Nov updates read-only amounts with zero storage writes:
+  const hNov2 = makeHarness({ now: '2026-11-02T00:05:00Z', dirty: true });
+  hNov2.api.S.settings = h.api.S.settings;
+  const oilNov2 = hNov2.element('#settings-oil-today');
+  const fibNov2 = hNov2.element('#settings-fibre-today');
+  oilNov2.textContent = '8 ml';
+  fibNov2.textContent = '2.5 g';
+  hNov2.api.refreshSettingsReadOnly();
+  assert.equal(oilNov2.textContent, '4 ml');
+  assert.equal(fibNov2.textContent, '5 g');
+  assert.equal(hNov2.storage.size, 0);
+  void currentNow;
 });

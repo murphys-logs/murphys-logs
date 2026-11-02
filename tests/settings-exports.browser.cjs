@@ -101,7 +101,13 @@ async function main() {
       const url = new URL(route.request().url());
       if (url.origin !== origin) { external.push(url.href); return route.abort(); }
       if (url.pathname === '/index.html') return route.fulfill({ contentType: 'text/html', body: html });
-      if (url.pathname === '/firebase-stub.js') return route.fulfill({ contentType: 'application/javascript', body: stub });
+      if (url.pathname === '/firebase-stub.js') {
+        const instrumentedStub = stub.replace(
+          'export const onSnapshot=(ref,_options,cb)=>{',
+          'export const onSnapshot=(ref,_options,cb)=>{(window.__snapshotListeners||={})[ref.id?ref.col+":"+ref.id:ref.col]=cb;'
+        );
+        return route.fulfill({ contentType: 'application/javascript', body: instrumentedStub });
+      }
       return route.fulfill({ status: 404, body: '' });
     });
     if (seed) {
@@ -512,6 +518,97 @@ async function main() {
       await page.evaluate(() => { Storage.prototype.setItem = window.__origSetItem; });
       await context.close();
       passed++; console.log('PASS Settings holds under offline, failed-save outbox quota error, forced-colors and 200% text scaling at 375x667');
+    }
+
+    // 5. CX-E1 (deferred-render supplement refresh across midnight/resume) & CX-E2 (summary focus preserved on background onSnapshot + Tab)
+    {
+      const { context, page } = await openContext({
+        viewport: { width: 375, height: 667 },
+        seed: { local: { 'test-clock': String(Date.parse('2026-11-01T23:55:00Z')) } },
+      });
+      await loadSyntheticState(page, buildFixtureDays(), {
+        settingsPatch: {
+          oilSchedule: [{ from: '2026-11-01', ml: 8 }, { from: '2026-11-02', ml: 4 }],
+          fibreSchedule: [{ from: '2026-11-01', g: 2.5 }, { from: '2026-11-02', g: 5 }],
+          regimeChanges: [],
+        },
+      });
+
+      await page.locator('#tabbar [data-tab="settings"]').click();
+      assert.equal(await page.locator('#settings-oil-today').textContent(), '8 ml');
+      assert.equal(await page.locator('#settings-fibre-today').textContent(), '2.5 g');
+
+      // CX-E1: Leave Daily target dirty on 1 Nov, advance across midnight to 2 Nov, and resume via visibilitychange:
+      const targetInput = page.locator('#in-setnum-targetKcal');
+      await targetInput.fill('1255');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
+
+      await page.evaluate(() => {
+        window.__now = Date.parse('2026-11-02T00:05:00Z');
+        testApp.londonNow();
+        Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      assert.equal(await page.locator('#settings-oil-today').textContent(), '4 ml', 'Salmon oil today updates across midnight while draft is open');
+      assert.equal(await page.locator('#settings-fibre-today').textContent(), '5 g', 'Pro-Fibre today updates across midnight while draft is open');
+      assert.equal(await targetInput.inputValue(), '1255', 'dirty Settings draft stays intact');
+      assert.equal(await page.locator('[data-setting="targetKcal"]').evaluate(el => el.hasAttribute('data-dirty')), true);
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'midnight supplement refresh creates zero recorded-data or outbox writes');
+
+      await page.locator('[data-setting="targetKcal"] [data-act="cancelinput"]').click();
+      assert.equal(await page.locator('#settings-oil-today').textContent(), '4 ml');
+      assert.equal(await page.locator('#settings-fibre-today').textContent(), '5 g');
+
+      // CX-E2: Keyboard-open Advanced, keep focus on #settings-advanced-summary, deliver real stubbed onSnapshot, then press Tab:
+      await page.locator('#settings-advanced-summary').scrollIntoViewIfNeeded();
+      await page.locator('#settings-advanced-summary').focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await page.locator('#settings-advanced').evaluate(el => el.open), true);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'settings-advanced-summary');
+      const scrollBeforeAdv = await page.evaluate(() => window.scrollY);
+      assert.ok(scrollBeforeAdv > 400, 'scrolled down to Advanced summary');
+
+      await page.evaluate(() => {
+        window.__snapshotListeners.changes({
+          docChanges: () => [{
+            type: 'added',
+            doc: { id: 'snap-chg-1', data: () => ({ id: 'snap-chg-1', date: '2026-10-25', deltaG: 5, source: 'manual' }) },
+          }],
+          metadata: { fromCache: false },
+        });
+      });
+      assert.equal(await page.locator('#settings-advanced').evaluate(el => el.open), true);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'settings-advanced-summary', 'Advanced summary retains focus across onSnapshot');
+      const scrollAfterAdv = await page.evaluate(() => window.scrollY);
+      assert.ok(Math.abs(scrollAfterAdv - scrollBeforeAdv) < 20, `scroll preserved (${scrollBeforeAdv} -> ${scrollAfterAdv})`);
+
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'in-setnum-kcalPerGDarf', 'Tab enters first Advanced field instead of jumping to Sign out');
+
+      // CX-E2 on Supplement schedule history (#settings-schedules-summary):
+      await page.locator('#settings-schedules-summary').scrollIntoViewIfNeeded();
+      await page.locator('#settings-schedules-summary').focus();
+      await page.keyboard.press('Enter');
+      assert.equal(await page.locator('#settings-schedules').evaluate(el => el.open), true);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'settings-schedules-summary');
+
+      await page.evaluate(() => {
+        window.__snapshotListeners.changes({
+          docChanges: () => [{
+            type: 'added',
+            doc: { id: 'snap-chg-2', data: () => ({ id: 'snap-chg-2', date: '2026-10-26', deltaG: -5, source: 'rule' }) },
+          }],
+          metadata: { fromCache: false },
+        });
+      });
+      assert.equal(await page.locator('#settings-schedules').evaluate(el => el.open), true);
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'settings-schedules-summary', 'Supplement schedule summary retains focus across onSnapshot');
+      await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.id), 'add-regime', 'Tab moves to next Feeding plan control instead of jumping to Sign out');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'CX-E2 check creates zero outbox writes');
+
+      await context.close();
+      passed++; console.log('PASS CX-E1 deferred-render current-day supplement refresh and CX-E2 disclosure summary focus across onSnapshot verified at 375x667');
     }
 
     assert.deepEqual(external, [], `Unexpected external requests: ${external.join(', ')}`);

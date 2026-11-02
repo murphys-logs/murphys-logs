@@ -1780,7 +1780,7 @@ function refreshSelectionStates(){
     const on=act==='event'?(d.events||[]).includes(button.dataset.id):act==='bowl'?d.meal?.bowl===button.dataset.k:act==='exportfmt'?(S.exportFormat==='md'?'md':'csv')===button.dataset.fmt:(S.settings.theme||'system')===button.dataset.t;
     button.classList.toggle('on',on);button.setAttribute('aria-pressed',String(on));
   }
-  refreshExportControls();
+  refreshSettingsReadOnly();
   refreshFoldSummaries();
   syncBcsGuidance();
 }
@@ -1829,10 +1829,14 @@ function render(force=false){
   // Unchanged markup skips replacement, but a handler may just have cleared a draft (CX-05).
   if(!force&&html===rendered){syncDraftMarkers();return;}
   rendered=html;
-  const expanded=$$('#main details[id]').map(e=>[e.id,e.open]), focus=document.activeElement?.id;
+  const active=document.activeElement, focus=active?.id, summaryId=!focus&&active?.tagName==='SUMMARY'?active.parentElement?.id:'';
+  const expanded=$$('#main details[id]').map(e=>[e.id,e.open]);
   replaceRenderedHtml($('#main'),html);
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
-  if(focus&&!pendingDraft&&document.activeElement?.id!==focus)refocus(focus);
+  if(!pendingDraft){
+    if(focus&&document.activeElement?.id!==focus)refocus(focus);
+    else if(summaryId)document.getElementById(summaryId)?.querySelector(':scope > summary')?.focus({preventScroll:true});
+  }
   restoreDraftInputs();
   syncBcsGuidance();
   refreshWeightConditionViews();
@@ -1895,7 +1899,7 @@ function todoCard(today){
 function row(k,v){ return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
 function choice(on,cls=''){return `class="${cls}${on?' on':''}" aria-pressed="${!!on}"`;}
 function panel(title,body,id='',attributes=''){ return `<section class="card sec" ${id?`id="${id}" tabindex="-1"`:''} ${attributes}><h3 class="lab">${title}</h3>${body}</section>`; }
-function fold(title,body,id,open=false,attributes=''){return `<details class="card" id="${id}" ${open?'open':''} ${attributes}><summary class="sec">${title}</summary><div class="sec">${body}</div></details>`;}
+function fold(title,body,id,open=false,attributes=''){return `<details class="card" id="${id}" ${open?'open':''} ${attributes}><summary class="sec"${id?` id="${id}-summary"`:''}>${title}</summary><div class="sec">${body}</div></details>`;}
 const settingsSpec={
   targetKcal:{label:'Daily target, kcal',min:1,max:10000,step:1,help:'The daily energy target used to calculate the planned bowl.'},
   bdGrams:{label:'Bella & Duke, g',min:1,max:10000,step:1,help:'The Bella & Duke portion in each planned meal.'},
@@ -2638,6 +2642,21 @@ function refreshExportControls(){
   const note=$('#export-output-note');
   if(note)note.textContent=exportOutputNote(ym,fmt);
 }
+function settingsSchedulesBody(s=S.settings){
+  const oil=(s.oilSchedule||[]).map(e=>row(fmtShortYear(e.from),e.ml+' ml')).join('')||'<p class="muted">None recorded.</p>';
+  const fib=(s.fibreSchedule||[]).map(e=>row(fmtShortYear(e.from),e.g+' g')).join('')||'<p class="muted">None recorded.</p>';
+  return `<h5 class="lab">Oil schedule</h5>${oil}
+    <p class="sub">Changes recalculate the base ration from that date, keeping calories level without changing the cumulative adjustment.</p>
+    <div class="review-subsec"><h5 class="lab">Pro-Fibre schedule</h5>${fib}</div>`;
+}
+function refreshSettingsReadOnly(){
+  const today=localToday(), s=S.settings;
+  const oil=$('#settings-oil-today'), fib=$('#settings-fibre-today'), sch=$('#settings-schedules-body');
+  if(oil&&oil.id==='settings-oil-today')oil.textContent=oilMlOn(today,s)+' ml';
+  if(fib&&fib.id==='settings-fibre-today')fib.textContent=fibreGOn(today,s)+' g';
+  if(sch&&sch.id==='settings-schedules-body'){const html=settingsSchedulesBody(s);if(sch.innerHTML!==html)sch.innerHTML=html;}
+  refreshExportControls();
+}
 function appReadinessSection(){
   const app=window.AppShell?.state||{},ready=app.offlineReady===true;
   const text=!app.available?'Offline opening is not supported in this browser.':ready?'App files are ready for offline opening.':app.offlineReady===false?'App files are not yet ready for offline opening.':'Offline opening has not been confirmed yet.';
@@ -2645,8 +2664,6 @@ function appReadinessSection(){
 }
 function viewSettings(){
   const s=S.settings, today=localToday();
-  const oil=(s.oilSchedule||[]).map(e=>row(fmtShortYear(e.from),e.ml+' ml')).join('')||'<p class="muted">None recorded.</p>';
-  const fib=(s.fibreSchedule||[]).map(e=>row(fmtShortYear(e.from),e.g+' g')).join('')||'<p class="muted">None recorded.</p>';
   const reg=(s.regimeChanges||[]).length
     ? s.regimeChanges.map((d,i)=>row(fmtShortYear(d),`<button class="link" id="del-regime-${d}-${i}" data-act="delregime" data-d="${d}" aria-label="Remove diet or routine change on ${fmtShortYear(d)}">remove</button>`)).join('')
     : '<p class="muted">None recorded.</p>';
@@ -2670,14 +2687,12 @@ function viewSettings(){
       </div>
       <div class="review-subsec">
         <h4 class="lab">Supplements</h4>
-        ${row('Salmon oil today',oilMlOn(today,s)+' ml')}
-        ${row('Pro-Fibre today',fibreGOn(today,s)+' g')}
+        <div class="row"><span class="k">Salmon oil today</span><span class="v" id="settings-oil-today">${oilMlOn(today,s)} ml</span></div>
+        <div class="row"><span class="k">Pro-Fibre today</span><span class="v" id="settings-fibre-today">${fibreGOn(today,s)} g</span></div>
         <div class="chips">${[2.5,5,7.5,10].map(g=>`<button class="chip" id="set-fibre-${String(g).replace('.','-')}" data-act="setfibre" data-g="${g}">Set ${g} g today</button>`).join('')}</div>
         <p class="sub">Manual doses up to ${s.fibreCapG} g are available here. Above ${s.fibreRestG} g is never advised: persistent soft stool needs vet review.</p>
-        <details class="review-disclosure" id="settings-schedules"><summary>Supplement schedule history</summary>
-          <h5 class="lab">Oil schedule</h5>${oil}
-          <p class="sub">Changes recalculate the base ration from that date, keeping calories level without changing the cumulative adjustment.</p>
-          <div class="review-subsec"><h5 class="lab">Pro-Fibre schedule</h5>${fib}</div>
+        <details class="review-disclosure" id="settings-schedules"><summary id="settings-schedules-summary">Supplement schedule history</summary>
+          <div id="settings-schedules-body">${settingsSchedulesBody(s)}</div>
         </details>
       </div>
       <div class="review-subsec">
@@ -3759,6 +3774,7 @@ function refreshLocalDay(){
   const today=localToday();
   if(today===renderedLocalDay) return;
   renderedLocalDay=today;
+  rendered='';
   render();
 }
 setInterval(refreshLocalDay,60000);
