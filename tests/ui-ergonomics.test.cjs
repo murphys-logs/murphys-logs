@@ -510,6 +510,11 @@ test('weight target labels derive from the single monitoring constant', () => {
   assert.deepEqual(lines.map(line => line.trim().slice(0, 26)), ['const WEIGHT_TARGET = Obje']);
 });
 
+test('recorded symptoms stay distinct from the empty summary when forced colours drop the warning colour (AGY-07)', () => {
+  assert.match(css, /\.fold-strip \.watch-text\{font-weight:650\}/);
+  assert.match(css, /\.assessment-strip,\.fold-strip\{[^}]*font-weight:500/);
+});
+
 test('fields never render below 16px, so iOS does not zoom on focus at any text size', () => {
   assert.match(css, /input,select,textarea\{font-size:max\(16px,1rem\)\}/);
   assert.match(css, /\.tin\{[^}]*font-size:max\(16px,1rem\)/);

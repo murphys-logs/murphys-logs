@@ -26,7 +26,7 @@ The new order is:
   - The hint under the weight shows only the saved reading's status and the unusual-change warning. The target, range and means are in the assessment above.
 - **Closed sections:** Each summary line shows what is recorded, for example "Walked 40 min · 3.2 km · Tractive 31 Oct: 55 min". Tractive minutes stay attached to yesterday.
   - A restored draft opens its section. A section the user opened stays open across saves.
-  - Summaries update while another entry is unfinished. Recorded symptoms are highlighted in the Observations summary (AGY-06), and each summary is separated from its title by a word space for screen readers (AGY-05).
+  - Summaries update while another entry is unfinished. Recorded symptoms are highlighted in the Observations summary, in bold as well as the warning colour so they stay distinct under forced colours (AGY-06, AGY-07), and each summary is separated from its title by a word space for screen readers (AGY-05).
 - **Still to log** now includes the evening meal's state ("tonight's recipe not chosen" or "tonight's meal not fed yet"). That shortcut lands on the meal card, so the amounts show above the button.
   - It also refreshes while another entry is unfinished (CX-03). Its shortcuts have stable IDs, so a refresh keeps focus on a surviving shortcut, or moves it to the card when that shortcut disappears (CX-04).
   - `missingFor()` is unchanged, so History's completeness rule is unchanged.
@@ -65,7 +65,7 @@ node tests/navigation-drafts.browser.cjs
 node tests/today-layout.browser.cjs
 ```
 
-- **Results:** 162 unit tests and 21 + 26 + 6 browser scenarios pass. There are no external requests or page errors.
+- **Results:** 163 unit tests and 21 + 26 + 6 browser scenarios pass. There are no external requests or page errors.
 - **Codex and Antigravity review follow-ups:**
   - Tests check that Mark as fed saves exactly the shown DARF, Bella & Duke, oil and fibre amounts.
   - A matrix covers supplement inclusion (true, false, unknown) against amounts (positive, zero, missing).
