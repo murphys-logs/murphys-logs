@@ -1594,7 +1594,7 @@ function weightConditionStrip(iso){
   return `${latest?`${weightNumber(latest.kg)} kg · ${weightAssessment(latest.kg).label} · ${age(latest.date)}`:'No weight recorded yet'}<br>${condition?`BCS ${condition.value.toFixed(1)} · ${age(condition.date)}`:'No condition score yet'}`;
 }
 function weightConditionFold(iso){
-  return `<details class="card weight-condition" id="assessment-${iso}"><summary class="sec">Weight &amp; condition<span class="assessment-strip" data-weight-strip data-date="${iso}">${weightConditionStrip(iso)}</span></summary><div class="sec" data-weight-summary="body" data-date="${iso}">${weightConditionContent(iso,false)}</div></details>`;
+  return `<details class="card weight-condition" id="assessment-${iso}"><summary class="sec">Weight &amp; condition <span class="assessment-strip" data-weight-strip data-date="${iso}">${weightConditionStrip(iso)}</span></summary><div class="sec" data-weight-summary="body" data-date="${iso}">${weightConditionContent(iso,false)}</div></details>`;
 }
 function refreshWeightConditionViews(){
   for(const el of $$('[data-weight-summary]')){
@@ -1907,7 +1907,7 @@ function dailyFields(iso,{activityDate=iso,live=false}={}){
 // Restored drafts open their fold (restoreDraftInputs), and
 // render() keeps a fold the user opened open across saves.
 function todayFold(kind,iso,title,body){
-  return `<details class="card today-fold" id="${kind}-${iso}"><summary class="sec">${title}<span class="fold-strip" data-fold-summary="${kind}" data-date="${iso}">${foldSummary(kind,iso)}</span></summary><div class="sec">${body}</div></details>`;
+  return `<details class="card today-fold" id="${kind}-${iso}"><summary class="sec">${title} <span class="fold-strip" data-fold-summary="${kind}" data-date="${iso}">${foldSummary(kind,iso)}</span></summary><div class="sec">${body}</div></details>`;
 }
 function foldSummary(kind,iso){
   const d=S.days[iso]||{}, n=v=>Number.isFinite(v);
@@ -1920,7 +1920,7 @@ function foldSummary(kind,iso){
   if(kind==='treats')return n(d.treats)?`Dried necks and feet: ${d.treats}`:'Not recorded';
   if(kind==='events'){
     const on=EVENTS.filter(e=>(d.events||[]).includes(e.id)).map(e=>e.label);
-    return on.length?esc(on.join(' · ')):'None recorded · Add observation';
+    return on.length?`<span class="watch-text">${esc(on.join(' · '))}</span>`:'None recorded · Add observation';
   }
   const note=typeof d.notes==='string'?d.notes.trim().split('\n')[0]:'';
   return note?esc(note.length>60?note.slice(0,59)+'…':note):'No notes';
@@ -2017,7 +2017,7 @@ function todayMealAmounts(iso){
     if(!b)return `<p class="muted">Amounts are unavailable for ${name}. Choose a listed recipe under Change meal.</p>`;
     return `<p class="meal-hero tonight"><span>${name} · DARF Active</span><strong>${b.darfG} g</strong></p><dl class="meal-amounts">`+
       item('Bella &amp; Duke',b.bdGrams+' g')+item('Salmon oil',b.oilMl?b.oilMl+' ml':'None tonight')+item('Pro-Fibre',b.fibreG?b.fibreG+' g':'None tonight')+
-      (m.egg?item('Egg','1'):'')+(m.broth?item('Bone broth','50 ml'):'')+'</dl>'+
+      (m.egg?item('Egg','1'):'')+(m.broth?item('Bone broth','50 ml'):'')+'</dl>'+supplementCaution(iso)+
       (b.overTarget?'<p class="note warn">Other ingredients exceed the calorie target. DARF is 0 g.</p>':'');
   }
   // Fed: the saved snapshot, never recalculated from current settings.
@@ -2031,11 +2031,11 @@ function todayMealAmounts(iso){
   return `<p class="meal-hero tonight"><span>${name} · DARF fed</span><strong>${fedG!=null?esc(fedG)+' g':'Not recorded'}</strong></p><dl class="meal-amounts">`+
     (m.darfPlanned!=null&&m.darfFed!=null&&m.darfPlanned!==m.darfFed?item('DARF planned',esc(m.darfPlanned)+' g'):'')+
     item('Salmon oil',supplement('oilGiven',m.oilMl,'ml'))+item('Pro-Fibre',supplement('fibreGiven',m.fibreG,'g'))+
-    (m.egg===true?item('Egg','Included'):'')+(m.broth===true?item('Bone broth','Included'):'')+'</dl>';
+    (m.egg===true?item('Egg','Included'):'')+(m.broth===true?item('Bone broth','Included'):'')+'</dl>'+supplementCaution(iso);
 }
 function todayMealContext(iso){
   const m=plannedMeal(iso), b=m.recipe&&isEditablePlan(iso,m)?bowlFor(iso,m.recipe,S.settings,S.changes,m):null;
-  return mealContext(iso,b);
+  return mealContext(iso,b,false);
 }
 function recipeSelect(iso,m,r){
   return `<label class="inline-lab" for="recipe-${iso}">Recipe · ${fmtDate(iso)}</label>
@@ -2167,14 +2167,17 @@ function mealPlanDetails(iso){
       ${meal.totalKcal!=null?`<p class="sub">${esc(meal.totalKcal)} kcal saved</p>`:''}`:planning?plan:'<p class="muted">Meal amounts not recorded.</p>';
   return amounts+mealContext(iso,b);
 }
-// Supplement-change caution plus the regime, recent recipes and (for a plan) the calculation.
-function mealContext(iso,b){
-  const s=S.settings, oil=s.oilSchedule||[], fibre=s.fibreSchedule||[];
+function supplementCaution(iso){
+  const s=S.settings, recent=[...(s.oilSchedule||[]),...(s.fibreSchedule||[])].map(e=>e.from).filter(d=>d<=iso&&toDay(iso)-toDay(d)<=7).sort().at(-1);
+  return recent?`<p class="sub watch-text">Fibre or oil changed on ${fmtDate(recent)}. An extra now will muddy the read-out.</p>`:'';
+}
+// Supplement-change caution (unless shown elsewhere) plus the regime, recent recipes and (for a plan) the calculation.
+function mealContext(iso,b,caution=true){
+  const s=S.settings, oil=s.oilSchedule||[];
   const next=oil.filter(e=>e.from>iso).sort((a,b)=>a.from.localeCompare(b.from))[0];
-  const recent=[...oil,...fibre].map(e=>e.from).filter(d=>d<=iso&&toDay(iso)-toDay(d)<=7).sort().at(-1);
   const last6=mealsList().filter(m=>m.date<iso).slice(-6).reverse().map(m=>RECIPES.find(r=>r.id===m.recipe)?.short||m.recipe);
   const calculation=b?`<p class="sub">${b.darfBase} g base ${b.adjustment>=0?'+':'−'} ${Math.abs(b.adjustment)} g adjustment · ${b.totalKcal} kcal${b.floored?' · at the ration floor':''}</p>`:'';
-  return (recent?`<p class="sub watch-text">Fibre or oil changed on ${fmtDate(recent)}. An extra now will muddy the read-out.</p>`:'')+
+  return (caution?supplementCaution(iso):'')+
     `<details class="meal-disclosure meal-context" id="meal-context-${iso}"><summary>Regime, recent recipes${calculation?' and calculation':''}</summary>
       <p class="sub">Regime: Pro-Fibre ${fibreGOn(iso,s)} g · oil ${oilMlOn(iso,s)} ml${next?` · changes to ${next.ml} ml in ${toDay(next.from)-toDay(iso)} days`:''}</p>`+
       (last6.length?`<p class="sub">Last six: ${esc(last6.join(', '))}</p>`:'')+calculation+'</details>';

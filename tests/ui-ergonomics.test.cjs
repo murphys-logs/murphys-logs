@@ -411,13 +411,33 @@ test('fed supplements keep unknown inclusion visible for every amount (CX-02)', 
   }
 });
 
+test('a recent supplement change is cautioned beside the amounts while Change meal is closed (AGY-02)', () => {
+  for (const meal of [{ recipe: 'fish' }, { recipe: 'fish', fedAt: '18:20', darfFed: 160, darfPlanned: 160, oilMl: 4, fibreG: 2.5, oilGiven: true, fibreGiven: true }]) {
+    const h = makeHarness({ days: { [TODAY]: { meal } } });
+    h.api.S.settings = { ...h.api.S.settings, oilSchedule: [{ from: '2026-01-01', ml: 8 }, { from: '2026-10-25', ml: 4 }] };
+    const card = mealCardOf(h.api.viewToday());
+    const caution = card.indexOf('Fibre or oil changed on Sun 25 Oct. An extra now will muddy the read-out.');
+    assert.ok(caution > card.indexOf('<dl class="meal-amounts">') && caution < card.indexOf(`id="meal-change-${TODAY}"`), (meal.fedAt ? 'fed' : 'planned') + ': visible above Change meal');
+    assert.equal(card.split('Fibre or oil changed').length - 1, 1, 'shown once, not repeated inside Change meal');
+  }
+  const quiet = mealCardOf(makeHarness({ days: { [TODAY]: { meal: { recipe: 'fish' } } } }).api.viewToday());
+  assert.doesNotMatch(quiet, /Fibre or oil changed/, 'no caution without a change in the past week');
+});
+
+test('section summaries are separated from their titles for assistive technology (AGY-05)', () => {
+  const page = makeHarness().api.viewToday();
+  for (const [kind, title] of [['activity', 'Activity'], ['treats', 'Treats'], ['events', 'Observations'], ['notes', 'Notes']])
+    assert.match(page, new RegExp(`id="${kind}-${TODAY}"><summary class="sec">${title} <span class="fold-strip"`));
+  assert.match(page, /<summary class="sec">Weight &amp; condition <span class="assessment-strip"/);
+});
+
 test('closed sections summarise what is recorded, with yesterday’s Tractive date and escaped notes', () => {
   const h = makeHarness({ days: {
     [TODAY]: { walkMin: 40, walkKm: 3.2, treats: 2, events: ['vomited', 'lethargic'], notes: '<b>Ate grass</b>\nsecond line' },
     [YESTERDAY]: { activeMin: 55 } } });
   assert.equal(h.api.foldSummary('activity', TODAY), 'Walked 40 min · 3.2 km · Tractive 27 Oct: 55 min');
   assert.equal(h.api.foldSummary('treats', TODAY), 'Dried necks and feet: 2');
-  assert.equal(h.api.foldSummary('events', TODAY), 'Vomited · Lethargic');
+  assert.equal(h.api.foldSummary('events', TODAY), '<span class="watch-text">Vomited · Lethargic</span>', 'recorded symptoms stand out (AGY-06)');
   assert.equal(h.api.foldSummary('notes', TODAY), '&lt;b&gt;Ate grass&lt;/b&gt;');
   const empty = makeHarness();
   assert.deepEqual(['activity', 'treats', 'events', 'notes'].map(kind => empty.api.foldSummary(kind, TODAY)),

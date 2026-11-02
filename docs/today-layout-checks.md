@@ -21,11 +21,12 @@ The new order is:
   - Focus moves to the fed time after Mark as fed, and back to Mark as fed after Undo Fed.
   - Mark as fed keeps an actual DARF amount already saved for an unfed meal (for example after Undo Fed). When that amount differs from the plan, a notice beside the button states it, with **Record the plan instead** (CX-01).
   - The fed summary keeps unknown supplement inclusion visible. A quantity is shown plainly only when inclusion is confirmed; otherwise it is qualified as "originally recorded" (CX-02).
+  - A fibre or oil schedule change in the past week is cautioned beside the amounts, not inside Change meal (AGY-02).
 - **Weigh-in & condition:** Weight entry, Weight missed and the condition score are in one card.
   - The hint under the weight shows only the saved reading's status and the unusual-change warning. The target, range and means are in the assessment above.
 - **Closed sections:** Each summary line shows what is recorded, for example "Walked 40 min · 3.2 km · Tractive 31 Oct: 55 min". Tractive minutes stay attached to yesterday.
   - A restored draft opens its section. A section the user opened stays open across saves.
-  - Summaries update while another entry is unfinished.
+  - Summaries update while another entry is unfinished. Recorded symptoms are highlighted in the Observations summary (AGY-06), and each summary is separated from its title by a word space for screen readers (AGY-05).
 - **Still to log** now includes the evening meal's state ("tonight's recipe not chosen" or "tonight's meal not fed yet"). That shortcut lands on the meal card, so the amounts show above the button.
   - It also refreshes while another entry is unfinished (CX-03).
   - `missingFor()` is unchanged, so History's completeness rule is unchanged.
@@ -64,8 +65,8 @@ node tests/navigation-drafts.browser.cjs
 node tests/today-layout.browser.cjs
 ```
 
-- **Results:** 160 unit tests and 21 + 26 + 5 browser scenarios pass. There are no external requests or page errors.
-- **Codex review follow-ups:**
+- **Results:** 162 unit tests and 21 + 26 + 5 browser scenarios pass. There are no external requests or page errors.
+- **Codex and Antigravity review follow-ups:**
   - Tests check that Mark as fed saves exactly the shown DARF, Bella & Duke, oil and fibre amounts.
   - A matrix covers supplement inclusion (true, false, unknown) against amounts (positive, zero, missing).
   - Restored drafts must reopen their section after navigation, reload and a History edit. Removing that reopening now fails a test.
