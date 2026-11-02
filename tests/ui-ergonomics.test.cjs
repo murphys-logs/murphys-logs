@@ -72,7 +72,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
     globalThis.testDownloads = [];
     download = (...args) => globalThis.testDownloads.push(args);
     globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, viewHistory, viewReview, viewSettings, navigateTo, normalizeTab, navDestination, formatAlertDates, formatVetAlertHeadline, rationAlertDateText, weeklyAdvice, insights, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
-      exportMonthCsv, exportMonthMd, previousMonth, downloads: globalThis.testDownloads,
+      exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, refreshSettingsReadOnly, APP_VERSION, downloads: globalThis.testDownloads,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
   `, context, { filename: htmlPath, timeout: 5000 });
@@ -723,4 +723,183 @@ test('Today alert banners use actual current date on recovered drafts and keep m
   const fullReviewDates = h.api.formatAlertDates(blood10, '2026-11-01');
   assert.match(fullReviewDates, /^Historical · 1 Nov 2025, 1 Dec 2025, .*29 July 2026$/);
   assert.equal(fullReviewDates.split(', ').length, 10);
+});
+
+test('release identifiers stay aligned across HTML shell, module and service worker', () => {
+  const swSource = fs.readFileSync(path.resolve(__dirname, '..', 'sw.js'), 'utf8');
+  const htmlVer = html.match(/<html[^>]*data-version="([^"]+)"/)?.[1];
+  const swVer = swSource.match(/const VERSION = '([^']+)'/)?.[1];
+  const h = makeHarness();
+  assert.equal(htmlVer, '3.9.0');
+  assert.equal(h.api.APP_VERSION, htmlVer);
+  assert.equal(swVer, htmlVer);
+});
+
+test('Settings groups Account, Appearance, Feeding plan, Backup & export, and Advanced without adding import preview or sign-out guard', () => {
+  const h = makeHarness({
+    now: '2026-11-01T12:00:00Z',
+    days: { '2026-10-20': { notes: 'Oct entry' } },
+  });
+  h.api.S.settings = {
+    ...h.api.S.settings,
+    regimeChanges: ['2026-10-15'],
+  };
+  h.api.S.changes = [{ id: 'chg-1', date: '2026-10-12', deltaG: -5, source: 'rule' }];
+
+  const out = h.api.viewSettings();
+  const ids = ['settings-account', 'settings-appearance', 'settings-feeding-plan', 'settings-backup-export', 'settings-advanced'];
+  const indices = ids.map(id => out.indexOf(`id="${id}"`));
+  assert.ok(indices.every(i => i > 0), 'all five Settings groups render with stable IDs');
+  for (let i = 1; i < indices.length; i++) {
+    assert.ok(indices[i - 1] < indices[i], `${ids[i - 1]} precedes ${ids[i]}`);
+  }
+
+  const advStart = indices[4];
+  const beforeAdv = out.slice(0, advStart);
+  const insideAdv = out.slice(advStart);
+
+  // Everyday ration inputs stay directly accessible in Feeding plan; detailed constants live under Advanced.
+  for (const openKey of ['targetKcal', 'bdGrams']) {
+    assert.match(beforeAdv, new RegExp(`id="in-setnum-${openKey}"`));
+    assert.doesNotMatch(insideAdv, new RegExp(`id="in-setnum-${openKey}"`));
+  }
+  for (const advKey of ['kcalPerGDarf', 'kcalPerMlOil', 'darfMinG', 'deadbandPct', 'damping', 'maxStepG', 'maxCumulativeG', 'minWeighIns', 'kcalPerKgTissue', 'bcsHoldAtOrBelow']) {
+    assert.doesNotMatch(beforeAdv, new RegExp(`id="in-setnum-${advKey}"`));
+    assert.match(insideAdv, new RegExp(`id="in-setnum-${advKey}"`));
+  }
+
+  // Updated item-6 copy and year-inclusive dates:
+  assert.match(beforeAdv, /id="settings-check-offline"[^>]*>Check offline access<\/button>/);
+  assert.doesNotMatch(html, /Check app files/);
+  assert.match(beforeAdv, /Diet or routine changes/);
+  assert.match(beforeAdv, /15 Oct 2026/);
+  assert.match(beforeAdv, /id="add-regime" data-act="addregime">\+ Record diet or routine change today<\/button>/);
+  assert.match(insideAdv, /12 Oct 2026 &middot; rule/);
+  assert.match(insideAdv, /id="run-selftest" data-act="selftest">Run self-tests<\/button>/);
+  assert.match(insideAdv, /When to call the vet/);
+  assert.match(insideAdv, /id="erase-log" data-act="erase"/);
+
+  // Unified monthly Export + separate Full backup + existing Import (no import preview):
+  assert.match(beforeAdv, /<select class="tin" id="export-month" data-act="exportmonthselect">/);
+  assert.match(beforeAdv, /id="export-fmt-csv"[^>]*data-act="exportfmt" data-fmt="csv">CSV<\/button>/);
+  assert.match(beforeAdv, /id="export-fmt-md"[^>]*data-act="exportfmt" data-fmt="md">Markdown<\/button>/);
+  assert.match(beforeAdv, /id="export-run" data-act="exportrun"[^>]*>Export<\/button>/);
+  assert.match(beforeAdv, /id="export-all" data-act="exportall">Full backup \(JSON\)<\/button>/);
+  assert.match(beforeAdv, /id="backup-file" class="tin" type="file" accept="application\/json,\.json" data-act="import">/);
+  assert.doesNotMatch(out, /preview/i);
+  assert.equal(h.storage.size, 0, 'rendering Settings creates no writes');
+});
+
+test('Settings monthly export handles 1 November and year/leap boundaries, exports both CSV files or Markdown, and writes nothing', async () => {
+  // 1 November boundary with October & November records + historical 2025-12 record + ancient 1980-05 record:
+  const h = makeHarness({
+    now: '2026-11-01T09:15:00Z',
+    days: {
+      '1980-05-01': { notes: 'ancient-import' },
+      '2025-12-30': { notes: 'dec-2025-note' },
+      '2026-10-31': { notes: 'october-note', stools: [stool] },
+      '2026-11-01': { notes: 'november-note' },
+    },
+  });
+  const opts = h.api.exportMonthOptions();
+  assert.ok(opts.length <= 125, 'ancient imported dates keep month option count bounded');
+  assert.equal(opts[0].ym, '2026-11');
+  assert.equal(opts[0].label, 'Nov 2026 (this month)');
+  assert.equal(opts[1].ym, '2026-10');
+  assert.equal(opts[1].label, 'Oct 2026 (last month)');
+  assert.ok(opts.some(o => o.ym === '2025-12' && o.label === 'Dec 2025'));
+  assert.ok(opts.some(o => o.ym === '1980-05' && o.label === 'May 1980'));
+  assert.equal(h.api.selectedExportMonth(opts), '2026-11');
+
+  // Select October on 1 November via change event -> zero writes, updates output note:
+  await h.dispatch('change', {
+    target: {
+      value: '2026-10',
+      dataset: { act: 'exportmonthselect' },
+      closest: () => ({ value: '2026-10', dataset: { act: 'exportmonthselect' } }),
+    },
+  });
+  assert.equal(h.api.S.exportMonth, '2026-10');
+  assert.equal(h.api.selectedExportMonth(), '2026-10');
+  assert.match(h.element('#export-output-note').textContent, /Murphy_Log_2026-10\.csv.*Murphy_Log_2026-10_stools\.csv/);
+  assert.equal(h.storage.size, 0);
+
+  // Single Export button in CSV mode downloads daily CSV + delayed stools CSV for October only:
+  await h.click('exportrun');
+  assert.equal(h.api.downloads.length, 1);
+  assert.equal(h.api.downloads[0][0], 'Murphy_Log_2026-10.csv');
+  assert.match(h.api.downloads[0][1], /october-note/);
+  assert.doesNotMatch(h.api.downloads[0][1], /november-note/);
+  h.timers.shift()();
+  assert.equal(h.api.downloads.length, 2);
+  assert.equal(h.api.downloads[1][0], 'Murphy_Log_2026-10_stools.csv');
+  assert.match(h.api.downloads[1][1], /2026-10-31,07:30,4/);
+
+  // Switch format to Markdown and Export October:
+  await h.click('exportfmt', { fmt: 'md' });
+  assert.equal(h.api.S.exportFormat, 'md');
+  assert.equal(h.element('#export-output-note').textContent, 'Markdown downloads Murphy_Log_2026-10.md.');
+  await h.click('exportrun');
+  assert.equal(h.api.downloads[2][0], 'Murphy_Log_2026-10.md');
+  assert.match(h.api.downloads[2][1], /# Murphy's Logs: Oct 2026/);
+  assert.match(h.api.downloads[2][1], /october-note/);
+  assert.doesNotMatch(h.api.downloads[2][1], /november-note/);
+
+  // Separate Full backup exports everything as JSON:
+  await h.click('exportall');
+  assert.equal(h.api.downloads[3][0], 'Murphy_Log_backup_2026-11-01.json');
+  assert.match(h.api.downloads[3][1], /"version": "3\.9\.0"/);
+  assert.equal(h.storage.size, 0, 'selecting months, formats and exporting writes nothing to storage');
+
+  // Empty-account check on 1 November, 1 January and leap-year 1 March:
+  for (const [now, curYm, prevYm, prevLabel] of [
+    ['2026-11-01T00:05:00Z', '2026-11', '2026-10', 'Oct 2026 (last month)'],
+    ['2027-01-01T00:05:00Z', '2027-01', '2026-12', 'Dec 2026 (last month)'],
+    ['2024-03-01T00:05:00Z', '2024-03', '2024-02', 'Feb 2024 (last month)'],
+  ]) {
+    const emptyH = makeHarness({ now, days: {} });
+    emptyH.api.S.settings = { ...emptyH.api.S.settings, startDate: curYm + '-01' };
+    const mOpts = emptyH.api.exportMonthOptions();
+    assert.equal(mOpts[0].ym, curYm);
+    assert.equal(mOpts[1].ym, prevYm);
+    assert.equal(mOpts[1].label, prevLabel);
+  }
+});
+
+test('Settings refreshes current-day supplements during deferred renders and gives disclosure summaries stable focus IDs (CX-E1, CX-E2)', () => {
+  let currentNow = Date.parse('2026-11-01T23:55:00Z');
+  const h = makeHarness({ now: '2026-11-01T23:55:00Z', dirty: true });
+  h.api.S.settings = {
+    ...h.api.S.settings,
+    oilSchedule: [{ from: '2026-11-01', ml: 8 }, { from: '2026-11-02', ml: 4 }],
+    fibreSchedule: [{ from: '2026-11-01', g: 2.5 }, { from: '2026-11-02', g: 5 }],
+  };
+
+  const outNov1 = h.api.viewSettings();
+  assert.match(outNov1, /<span class="v" id="settings-oil-today">8 ml<\/span>/);
+  assert.match(outNov1, /<span class="v" id="settings-fibre-today">2\.5 g<\/span>/);
+  assert.match(outNov1, /<summary id="settings-schedules-summary">Supplement schedule history<\/summary>/);
+  assert.match(outNov1, /<summary class="sec" id="settings-advanced-summary">Advanced/);
+
+  // Simulate the live DOM nodes populated on 1 Nov, then check refreshSettingsReadOnly:
+  const oilNode = h.element('#settings-oil-today');
+  const fibNode = h.element('#settings-fibre-today');
+  oilNode.textContent = '8 ml';
+  fibNode.textContent = '2.5 g';
+  h.api.refreshSettingsReadOnly();
+  assert.equal(oilNode.textContent, '8 ml');
+  assert.equal(fibNode.textContent, '2.5 g');
+
+  // Verify midnight schedule evaluation on 2 Nov updates read-only amounts with zero storage writes:
+  const hNov2 = makeHarness({ now: '2026-11-02T00:05:00Z', dirty: true });
+  hNov2.api.S.settings = h.api.S.settings;
+  const oilNov2 = hNov2.element('#settings-oil-today');
+  const fibNov2 = hNov2.element('#settings-fibre-today');
+  oilNov2.textContent = '8 ml';
+  fibNov2.textContent = '2.5 g';
+  hNov2.api.refreshSettingsReadOnly();
+  assert.equal(oilNov2.textContent, '4 ml');
+  assert.equal(fibNov2.textContent, '5 g');
+  assert.equal(hNov2.storage.size, 0);
+  void currentNow;
 });
