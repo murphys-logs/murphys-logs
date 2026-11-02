@@ -270,13 +270,33 @@ async function main() {
       assert.equal(await page.evaluate(() => document.activeElement.id), 'open-day-2026-10-31');
       assert.equal(await page.locator('#tabbar [data-tab="history"]').getAttribute('aria-current'), 'page');
 
-      // Jump to an older date outside the 14-day list via #history-list-date, then return to list -> focus lands cleanly on heading (never <body>)
+      // CC-D2: Tapping History in #tabbar from the day editor restores the selected older card and scroll position
+      await page.locator('#range-28').click();
+      await page.locator('#open-day-2026-10-22').click();
+      await page.waitForFunction(() => testApp.S.tab === 'day' && testApp.S.cursor === '2026-10-22');
+      await page.locator('#tabbar [data-tab="history"]').click();
+      await page.waitForFunction(() => testApp.S.tab === 'history');
+      const tabReturn = await page.evaluate(() => {
+        const el = document.getElementById('open-day-2026-10-22');
+        const r = el.getBoundingClientRect();
+        return { activeId: document.activeElement?.id, scrollY: window.scrollY, top: r.top, vh: window.innerHeight };
+      });
+      assert.equal(tabReturn.activeId, 'open-day-2026-10-22', 'tabbar History return focuses selected card');
+      assert.ok(tabReturn.scrollY > 500 && tabReturn.top >= -1 && tabReturn.top < tabReturn.vh, `tabbar History return scrolls card into view (scrollY=${tabReturn.scrollY})`);
+      await page.locator('#range-14').click();
+
+      // Jump to an older date outside the 14-day list via #history-list-date, then return via BOTH #history-back and #tabbar -> focus lands cleanly on heading
       await page.locator('#history-list-date').fill('2026-10-12');
       await page.waitForFunction(() => testApp.S.tab === 'day' && testApp.S.cursor === '2026-10-12');
       assert.match(await page.locator('#history-date-label').textContent(), /Mon 12 Oct 2026/);
       await page.locator('#history-back').click();
       await page.waitForFunction(() => testApp.S.tab === 'history');
       assert.equal(await page.evaluate(() => document.activeElement.tagName), 'H2', 'falls back to screen heading when cursor card is outside current range');
+      await page.locator('#history-list-date').fill('2026-10-12');
+      await page.waitForFunction(() => testApp.S.tab === 'day' && testApp.S.cursor === '2026-10-12');
+      await page.locator('#tabbar [data-tab="history"]').click();
+      await page.waitForFunction(() => testApp.S.tab === 'history');
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'history-list-heading', 'tabbar History return also falls back to heading when card is outside range');
 
       // Imported future-date record is hidden in 14 days, inspectable under All (9999)
       assert.equal(await page.locator('#open-day-2026-12-15').count(), 0);
@@ -323,6 +343,7 @@ async function main() {
 
       await assertNoHorizontalOverflow(page, `Review initial at ${viewport.width}x${viewport.height}`);
       await assertTapTargets(page, '#main [data-act="applyadv"], #main [data-act="refuseadv"], #main [data-act="applyfibre"], #main [data-act="dismissfibre"], #main details > summary', `Review controls ${viewport.width}`);
+      assert.equal((await page.locator('#main [data-act="refuseadv"]').textContent()).trim(), 'Keep current ration this week');
 
       // Verify actionable buttons are above collapsed supporting disclosures
       const applyBox = await page.locator('#main [data-act="applyadv"]').boundingBox();
@@ -342,6 +363,9 @@ async function main() {
         await page.locator(`#${id} > summary`).click();
         assert.equal(await page.locator(`#${id}`).evaluate(el => el.open), true);
       }
+      assert.match(await page.locator('#review-ration-details').textContent(), /Current DARF adjustment/);
+      assert.equal((await page.locator('#trend-range-note').textContent()).trim(), 'Applies to History and Review.');
+      assert.equal((await page.locator('#comp-range-note').textContent()).trim(), 'Applies to History and Review.');
       for (const tableId of [
         'chart-values-weight',
         'chart-values-weight-weekly-average',
@@ -502,8 +526,10 @@ async function main() {
       assert.match(reviewText, /1 Nov 2026 · dose since 1 Oct 2026/);
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
 
-      // Now test Refuse ration advice and Apply Pro-Fibre advice
-      await loadSyntheticDays(page, buildFixtureDays());
+      // Verify Diet or routine changed label (CC-D4), then test Keep current ration this week and Apply Pro-Fibre advice
+      await loadSyntheticDays(page, buildFixtureDays(), { regimeChanges: ['2026-10-20'] });
+      assert.match(await page.locator('#main').textContent(), /Diet or routine changed 20 Oct 2026 · windows 12 Oct 2026 to 25 Oct 2026/);
+      await loadSyntheticDays(page, buildFixtureDays(), { regimeChanges: [] });
       await page.locator('[data-act="refuseadv"]').click();
       assert.equal(await page.evaluate(() => testApp.S.changes.at(-1).refused), true);
       assert.equal(await page.evaluate(() => testApp.S.changes.at(-1).deltaG), 0);
@@ -513,7 +539,90 @@ async function main() {
 
       await context.close();
     }
-    passed++; console.log('PASS held ration alert, Pro-Fibre vet review alert, Refuse/Apply fibre actions and legacy v1 day recovery work cleanly');
+    passed++; console.log('PASS held ration alert, Pro-Fibre vet review alert, Keep current ration/Apply fibre actions and legacy v1 day recovery work cleanly');
+
+    // 6. CX-D1, CC-D1 & CC-D3: Recovered earlier-date v2 Today draft keeps actual current advice date, and 10 historical blood dates stay compact on Today while full on Review
+    for (const viewport of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
+      const oct20Key = 'murphy-draft-v2:draft-test:oct20-session';
+      const oct20Draft = {
+        version: 2,
+        savedAt: Date.parse('2026-11-01T21:00:00Z'),
+        tab: 'today',
+        cursor: null,
+        viewDate: '2026-10-20',
+        expanded: ['notes-2026-10-20'],
+        stool: null,
+        stools: [],
+        fields: [{ id: 'in-notes-2026-10-20', date: '2026-10-20', key: 'notes', value: 'Unfinished Today note from 20 Oct' }],
+      };
+      const { context, page } = await openContext({
+        viewport,
+        seed: {
+          session: { 'murphy-draft-session': 'current-nov1-session' },
+          local: { [oct20Key]: JSON.stringify(oct20Draft) },
+        },
+      });
+
+      const cleanDays = {
+        // 94 days before 1 Nov 2026 (> vetWindowDays=90 -> Historical on 1 Nov, but within 90 days of 20 Oct)
+        '2026-07-30': { date: '2026-07-30', stools: [{ id: 'b-jul30', time: '08:00', bristol: 4, mucus: false, blood: true }] },
+        '2026-10-20': { date: '2026-10-20', stools: [{ id: 'clean-20', time: '08:00', bristol: 4, mucus: false, blood: false }] },
+      };
+      for (let d = 17; d <= 31; d++) {
+        const iso = `2026-10-${d}`;
+        cleanDays[iso] = { date: iso, stools: [{ id: `clean-${d}`, time: '08:00', bristol: 4, mucus: false, blood: false }] };
+      }
+      await loadSyntheticDays(page, cleanDays, {
+        fibreSchedule: [{ from: '2026-10-16', g: 2.5 }],
+      });
+
+      // Trigger the actual v2 draft recovery flow via Restore entries
+      await page.locator('#feedback [data-act="recoverdraft"]').click();
+      assert.equal(await page.locator('#main .moment').textContent(), 'Unfinished entries');
+      assert.equal(await page.locator('#main h2.screen').textContent(), 'Tue 20 Oct');
+      assert.equal(await page.locator('#in-notes-2026-10-20').inputValue(), 'Unfinished Today note from 20 Oct');
+
+      const bannerTexts = await page.locator('#main > .note').allTextContents();
+      assert.ok(bannerTexts.some(t => /Pro-Fibre · 1 Nov 2026 · dose since 16 Oct 2026/.test(t)), 'Today Pro-Fibre banner uses actual current date (1 Nov 2026)');
+      assert.ok(bannerTexts.every(t => !/Pro-Fibre · 20 Oct 2026|\.\s*\(dose since/.test(t)), 'No stale draft date or doubled punctuation on Pro-Fibre banner');
+      assert.ok(bannerTexts.some(t => /Blood recorded \(Historical · 30 July 2026\)/.test(t)), 'Today vet historical classification uses actual current date (1 Nov 2026)');
+      await assertNoHorizontalOverflow(page, `Recovered Today draft at ${viewport.width}x${viewport.height}`);
+
+      // Cancel the recovered note so we return cleanly to current Today, then verify 10 historical blood dates stay bounded vs 1 date (CC-D1)
+      await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
+      await loadSyntheticDays(page, {
+        '2026-07-29': { date: '2026-07-29', stools: [{ id: 'blood-single', time: '08:00', bristol: 4, mucus: false, blood: true }] },
+      }, { startDate: '2025-11-01', fibreSchedule: [{ from: '2026-10-28', g: 2.5 }] });
+      await page.locator('#tabbar [data-tab="today"]').click();
+      const singleBannerHeight = (await page.locator('#main > .note.bad').first().boundingBox()).height;
+
+      const bloodDates = ['2025-11-01', '2025-12-01', '2025-12-31', '2026-01-30', '2026-03-01', '2026-03-31', '2026-04-30', '2026-05-30', '2026-06-29', '2026-07-29'];
+      const yearDays = {};
+      bloodDates.forEach((iso, idx) => {
+        yearDays[iso] = { date: iso, stools: [{ id: `blood-${idx}`, time: '08:00', bristol: 4, mucus: false, blood: true }] };
+      });
+      await loadSyntheticDays(page, yearDays, { startDate: '2025-11-01', fibreSchedule: [{ from: '2026-10-28', g: 2.5 }] });
+      await page.locator('#tabbar [data-tab="today"]').click();
+
+      const vetBanner = page.locator('#main > .note.bad').first();
+      const vetBannerText = await vetBanner.textContent();
+      assert.match(vetBannerText, /Blood recorded \(Historical · latest 29 July 2026 · 10 dates\)\./);
+      assert.doesNotMatch(vetBannerText, /1 Nov 2025/);
+      const vetBox = await vetBanner.boundingBox();
+      assert.ok(vetBox.height <= singleBannerHeight + 26, `Today vet banner stays bounded (${vetBox.height}px vs 1-date ${singleBannerHeight}px)`);
+      await assertNoHorizontalOverflow(page, `Today 10 blood dates at ${viewport.width}x${viewport.height}`);
+
+      // Review still lists all 10 dates in full
+      await vetBanner.locator('[data-act="go"][data-tab="review"]').click();
+      await page.waitForFunction(() => testApp.S.tab === 'review');
+      const reviewVetText = await page.locator('#main .note.bad').first().textContent();
+      for (const expected of ['1 Nov 2025', '1 Dec 2025', '31 Dec 2025', '30 Jan 2026', '1 Mar 2026', '31 Mar 2026', '30 Apr 2026', '30 May 2026', '29 June 2026', '29 July 2026']) {
+        assert.ok(reviewVetText.includes(expected), `Review retains full blood date ${expected}`);
+      }
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
+      await context.close();
+    }
+    passed++; console.log('PASS CX-D1 recovered draft advice date, CC-D1 compact 10-blood-date Today banner and CC-D3 punctuation verified at 375 and 390px');
 
     assert.deepEqual(errors, []);
     assert.deepEqual(external, []);

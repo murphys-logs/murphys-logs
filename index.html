@@ -348,7 +348,8 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 .meal-change>summary{font-size:.9375rem}
 .meal-change>[data-live-unfeed]:not(:empty){margin-top:var(--s4)}
 .watch-text{color:var(--watch)}
-.data-range{margin-bottom:20px}
+.data-range{margin-bottom:0}
+.range-note{margin:6px 0 18px}
 /* diary list */
 .history-top,.history-toolbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--s2) var(--s3);margin-bottom:var(--s4)}
 .history-top .screen{margin:0}
@@ -985,11 +986,16 @@ function formatAlertDates(dates, fallbackIso, vetWindowDays = S.settings.vetWind
   const historical = fallbackIso && Number.isFinite(vetWindowDays) && dates.every(d => toDay(d) <= toDay(fallbackIso) - vetWindowDays);
   return historical ? `Historical · ${list}` : list;
 }
-const formatVetAlertHeadline = (v, today) => `${v.title} (${formatAlertDates(v.dates, today)})`;
+function formatVetAlertHeadline(v, today, vetWindowDays = S.settings.vetWindowDays){
+  if (!v.dates?.length || v.dates.length === 1) return `${v.title} (${formatAlertDates(v.dates, today, vetWindowDays)})`;
+  const sorted = [...v.dates].sort(), latest = fmtShortYear(sorted.at(-1));
+  const historical = today && Number.isFinite(vetWindowDays) && sorted.every(d => toDay(d) <= toDay(today) - vetWindowDays);
+  return `${v.title} (${historical ? 'Historical · ' : ''}latest ${latest} · ${sorted.length} dates)`;
+}
 function rationAlertDateText(adv, regimeChanges = S.settings.regimeChanges || []){
   const lo = toDay(adv.previousWindow[0]), hi = toDay(adv.currentWindow[1]);
   const hit = regimeChanges.find(d => { const n = toDay(d); return n >= lo && n <= hi; });
-  if (hit) return `Regime change ${fmtShortYear(hit)} · windows ${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}`;
+  if (hit) return `Diet or routine changed ${fmtShortYear(hit)} · windows ${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}`;
   return `Week of ${fmtShortYear(adv.weekStart)} (${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])})`;
 }
 
@@ -1756,7 +1762,7 @@ function focusAfterRender(selector,fallback='#main h2.screen'){
   target.scrollIntoView({block:'start',behavior:'instant'});
 }
 function navigateTo(rawTab,{date,target,stoolId}={}){
-  const tab=normalizeTab(rawTab);
+  const tab=normalizeTab(rawTab), fromDay=S.tab==='day'&&tab==='history'&&!target;
   historyDateTyped=false;
   persistDrafts();
   if(tab==='day'&&!date&&!S.cursor)date=shiftDate(localToday(),-1);
@@ -1764,7 +1770,7 @@ function navigateTo(rawTab,{date,target,stoolId}={}){
   draftToday=null;draftResume=null;
   activateDraftView(stoolId);
   render(true);persistDrafts();
-  focusAfterRender(target||(tab==='day'?'#history-heading':'#main h2.screen'));
+  focusAfterRender(target||(fromDay&&(S.cursor?'#open-day-'+S.cursor:'#history-list-heading'))||(tab==='day'?'#history-heading':'#main h2.screen'));
   if(tab==='day')announceHistoryDate();
 }
 function refreshSelectionStates(){
@@ -1846,15 +1852,15 @@ function leaveDraft(){
 
 /* TODAY */
 function viewToday(){
-  const today=draftToday||localToday();
+  const actualToday=localToday(), today=draftToday||actualToday;
   const adv=weeklyAdvice(), {fib,vet}=insights();
   let head='';
-  if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>formatVetAlertHeadline(v,today)).join('. '))}. <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
+  if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>formatVetAlertHeadline(v,actualToday)).join('. '))}. <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
   if (adv.applied) head += `<div class="note warn"><b>This week’s ration advice is waiting · ${fmtShortYear(adv.weekStart)}</b>${esc(`${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g (${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}).`)} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
-  else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre · ${fmtShortYear(today)}</b>${esc(fib.advice.text)}${fib.since?` (dose since ${fmtShortYear(fib.since)}).`:''} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
+  else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre · ${fmtShortYear(actualToday)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
 
   // Actionable logging leads; the read-only assessment folds to one line.
-  return `<span class="moment">${today===localToday()?'Today':'Unfinished entries'}</span><h2 class="screen">${fmtDate(today)}</h2>`+head+todoCard(today)+weightConditionFold(today)+
+  return `<span class="moment">${today===actualToday?'Today':'Unfinished entries'}</span><h2 class="screen">${fmtDate(today)}</h2>`+head+todoCard(today)+weightConditionFold(today)+
     dailyFields(today,{activityDate:shiftDate(today,-1),live:true});
 }
 const BOWLS=['cleared','left','refused'];
@@ -2350,7 +2356,7 @@ function viewReview(){
   if (adv.applied){
     advResult = `<div class="note warn"><b>${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g on every recipe</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${adv.percentChange>=0?'+':''}${adv.percentChange.toFixed(2)}% weekly weight change (${adv.currentMean.toFixed(2)} kg vs ${adv.previousMean.toFixed(2)} kg).</p></div>
       <div class="btnrow"><button class="btn sm" data-act="applyadv">Apply</button>
-      <button class="btn ghost sm" data-act="refuseadv">Refuse</button></div>`;
+      <button class="btn ghost sm" data-act="refuseadv">Keep current ration this week</button></div>`;
   } else if (adv.held){
     advResult = `<div class="note hold"><b>Ration reduction held</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${esc(adv.reason)}</p></div>`;
   } else {
@@ -2362,12 +2368,12 @@ function viewReview(){
     <p class="sub">Weekly weight change: ${adv.percentChange==null?'unavailable':(adv.percentChange>=0?'+':'')+adv.percentChange.toFixed(2)+'%'} &middot; ${adv.previousN} and ${adv.currentN} weigh-ins${adv.fullCorrectionG!=null?` &middot; full correction ${Math.abs(adv.fullCorrectionG).toFixed(0)} g, damped to ${Math.abs(Math.round(adv.rawStepG))} g`:''}</p>` : '';
   const pct=Math.min(Math.abs(off)/s.maxCumulativeG,1)*50;
   const gauge=`<div class="gauge"><div class="mid"></div><div class="fill" style="${off>=0?`left:50%;width:${pct}%`:`right:50%;width:${pct}%`}"></div></div>`;
-  const rationExplain = `<details class="review-disclosure" id="review-ration-details"><summary>How this ration result was calculated (${off>=0?'+':'−'}${Math.abs(off)} g offset)</summary>
+  const rationExplain = `<details class="review-disclosure" id="review-ration-details"><summary>How this ration result was calculated (${off>=0?'+':'−'}${Math.abs(off)} g current adjustment)</summary>
     <p class="sub">${esc(adv.reason||'Not enough data yet.')}</p>${windows}
-    <div class="review-subsec"><p class="lab">Corrective offset</p>${gauge}
+    <div class="review-subsec"><p class="lab">Current DARF adjustment</p>${gauge}
       <p class="sub">${off>=0?'+':'&minus;'}${Math.abs(off)} g of the plus or minus ${s.maxCumulativeG} g cap</p>
       ${S.changes.length?S.changes.slice(-4).reverse().map(c=>`${row(`${fmtShortYear(c.date)} &middot; ${esc(c.source||'manual')}`,`${c.deltaG>=0?'+':'&minus;'}${Math.abs(c.deltaG)} g`)}`).join(''):'<p class="muted">No changes recorded.</p>'}
-      <p class="sub">Oil changes adjust the base ration, not this offset.</p></div></details>`;
+      <p class="sub">Oil changes adjust the base ration, not this adjustment.</p></div></details>`;
 
   const streakChips = fib.chips.length ? `<div class="streak">${
     Array.from({length:s.fibreStreakDays},(_,i)=>{
@@ -2404,8 +2410,8 @@ function viewReview(){
     panel('Pro-Fibre',fibResult+fibExplain)+
     `<details class="card weight-condition" id="review-weight-condition"><summary class="sec">Weight &amp; condition <span class="assessment-strip" data-weight-strip data-date="${today}">${weightConditionStrip(today)}</span></summary><div class="sec"><div data-weight-summary="body" data-date="${today}">${weightConditionContent(today,false)}</div><div class="review-subsec"><p class="lab">Weight averages</p>${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}</div><div class="review-subsec"><p class="lab">Condition averages</p>${meanRows(today,false,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}<p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body condition is subjective. Scores in this range do not alone call for a ration change. Weight-trend reductions retain the configured hold at or below ${s.bcsHoldAtOrBelow}.</p></div></div></details>`+
     `<details class="card" id="review-week-context"><summary class="sec">This week against last <span class="fold-strip">Walks, bowl, treats and extras</span></summary><div class="sec">${ctx}</div></details>`+
-    `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range">${rangeChips(range,'range')}</div><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
-    `<details class="card" id="review-comparisons"><summary class="sec">Food &amp; recipe comparisons <span class="fold-strip">${rangeLabel} · by recipe, extra and tonight’s DARF</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Comparison range">${rangeChips(range,'comp-range')}</div><p class="lab">By recipe</p>${foodTable(isos,false)}</div><div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></details>`;
+    `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range" aria-describedby="trend-range-note">${rangeChips(range,'range')}</div><p class="sub range-note" id="trend-range-note">Applies to History and Review.</p><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
+    `<details class="card" id="review-comparisons"><summary class="sec">Food &amp; recipe comparisons <span class="fold-strip">${rangeLabel} · by recipe, extra and tonight’s DARF</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Comparison range" aria-describedby="comp-range-note">${rangeChips(range,'comp-range')}</div><p class="sub range-note" id="comp-range-note">Applies to History and Review.</p><p class="lab">By recipe</p>${foodTable(isos,false)}</div><div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></details>`;
 }
 const viewStatus=viewReview;
 

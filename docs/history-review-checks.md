@@ -26,9 +26,12 @@ Release 3.8.0. Implements Phase D of [the iPhone usability review](iphone-usabil
 - **Single-day editor (`viewDay`) & return flow:** Every openable summary opens the existing daily editor for that date (`#open-day-<iso>`) and focuses `#history-date-label`. `← All days` (`#history-back`) or tapping `History` in `#tabbar` returns to the diary list and restores focus to `#open-day-<iso>` (falling back to `#main h2.screen` if `S.cursor` lies outside the active range).
 
 ### 2. Review (`viewReview()`)
-- **Actionable results first:** Leads with **Vet items**, **This week’s ration** (`Apply` / `Refuse`, held notice, or no-change summary), and **Pro-Fibre** (`Apply` / `Not now` / `Review with the vet`).
-- **Expandable explanations, trends, charts, and comparisons:** Supporting ration window/offset details (`#review-ration-details`), clean-day streak rules (`#review-fibre-details`), **Weight & condition** with 14- and 28-day means (`#review-weight-condition`), **This week against last** (`#review-week-context`), **Trends & charts** (`#review-trends`), and **Food & recipe comparisons** (`#review-comparisons`: *By recipe*, *By extra*, *Tonight by recipe*) are organized as `<details>` disclosures whose open state is preserved across in-place range updates.
-- **Full dates with year & historical alert labelling:** Shared helpers (`fmtShortYear`, `formatAlertDates`, `formatVetAlertHeadline`, `rationAlertDateText`) display the 4-digit year on every Today alert banner, Review alert, comparison window, Pro-Fibre schedule date, chart summary, chart axis endpoint, and accessible chart-value table without altering pure calculation outputs. Vet alerts whose recorded dates all precede `vetWindowDays` (such as an older non-expiring blood record) are explicitly labelled `Historical · <dates>` on both Today and Review.
+- **Actionable results first:** Leads with **Vet items**, **This week’s ration** (`Apply` / `Keep current ration this week`, held notice, or no-change summary), and **Pro-Fibre** (`Apply` / `Not now` / `Review with the vet`).
+- **Clearer item-6 labels (`CC-D4`):** Uses `Keep current ration this week` for weekly ration refusal (`data-act="refuseadv"`), `Current DARF adjustment` (`g current adjustment`) for the cumulative offset explanation, and `Diet or routine changed <date>` in ration alert headings while keeping pure calculation strings and saved payloads unchanged.
+- **Expandable explanations, trends, charts, and comparisons:** Supporting ration window/adjustment details (`#review-ration-details`), clean-day streak rules (`#review-fibre-details`), **Weight & condition** with 14- and 28-day means (`#review-weight-condition`), **This week against last** (`#review-week-context`), **Trends & charts** (`#review-trends`), and **Food & recipe comparisons** (`#review-comparisons`: *By recipe*, *By extra*, *Tonight by recipe*) are organized as `<details>` disclosures whose open state is preserved across in-place range updates. Range chip groups in `Trends & charts` and `Food & recipe comparisons` note `Applies to History and Review.` (`CC-D5`).
+- **Full dates with year, bounded Today summary, & current-day advice dating (`CX-D1`, `CC-D1`, `CC-D3`):** Shared helpers (`fmtShortYear`, `formatAlertDates`, `formatVetAlertHeadline`, `rationAlertDateText`) display the 4-digit year on every Today alert banner, Review alert, comparison window, Pro-Fibre schedule date, chart summary, chart axis endpoint, and accessible chart-value table without altering pure calculation outputs:
+  - When a recovered earlier-date Today draft is open (`draftToday`), Today retains the draft's original date for the heading and logging inputs while dating current Pro-Fibre advice and vet historical classification against `localToday()` (`CX-D1`), with `dose since <date>` placed in the `<b>` heading (`CC-D3`).
+  - Multi-date vet alerts stay bounded to `latest <date> · <N> dates` on Today (`CC-D1`) while Review displays every recorded date in full (`Historical · <dates>` when all dates precede `vetWindowDays`).
 - **Accessible chart-value tables preserved:** Retains all five semantic `<table>` disclosures (`#chart-values-weight`, `#chart-values-weight-weekly-average`, `#chart-values-condition`, `#chart-values-condition-weekly-average`, `#chart-values-stool`).
 
 ## What did not change
@@ -44,7 +47,7 @@ Measured using the shared Firebase-stubbed synthetic fixture from `tests/draft-i
 
 | Metric | `v3.7.0` (`6ebf489`) | `v3.8.0` (Phase D) | Delta |
 |---|---:|---:|---:|
-| `index.html` size (LF bytes / lines) | 234,584 B / 3,597 | 243,661 B / 3,672 | +9,077 B (+3.9%) |
+| `index.html` size (LF bytes / lines) | 234,584 B / 3,597 | 244,550 B / 3,678 | +9,966 B (+4.2%) |
 | Initial DOM elements (`Today` on boot) | 355 | 352 | −3 (−0.8%) |
 | `Today` height (`390×844` / `375×667`) | 2,851 px / 2,851 px | 2,851 px / 2,851 px | 0 px / 0 px |
 | `History` list DOM elements (14-day view vs old `Data`) | 553 | 370 | −183 (−33.1%) |
@@ -52,8 +55,8 @@ Measured using the shared Firebase-stubbed synthetic fixture from `tests/draft-i
 | Single-day editor (`day`) DOM / height (`390×844` / `375×667`) | 252 / 3,509 px / 3,595 px | 251 / 3,509 px / 3,594 px | −1 el / 0 px / −1 px |
 | `Review` initial height (`390×844` / `375×667`) vs old `Status` | 2,745 px / 2,766 px (`Status` alone; +3,928 px `Data`) | 1,343 px / 1,343 px | −1,402 px (−51.1% vs `Status`; −79.9% vs `Status + Data`) |
 | `Settings` DOM / height (`390×844` / `375×667`) | 202 / 4,150 px / 4,194 px | 199 / 4,150 px / 4,194 px | −3 els / 0 px |
-| Forced render cost (`390×844`, 10-run mean) | 0.40–1.60 ms | 0.56–1.93 ms | Sub-2 ms across all destinations |
-| Forced render cost (`375×667`, 10-run mean) | 0.43–1.57 ms | 0.43–1.39 ms | Sub-2 ms across all destinations |
+| Forced render cost (`390×844`, 10-run mean) | 0.40–1.60 ms | 1.07–1.81 ms | Sub-2 ms across all destinations |
+| Forced render cost (`375×667`, 10-run mean) | 0.43–1.57 ms | 0.40–1.56 ms | Sub-2 ms across all destinations |
 
 ## Automated checks
 
@@ -65,7 +68,7 @@ node tests/today-layout.browser.cjs
 node tests/history-review.browser.cjs
 ```
 
-- **Results:** 166 unit tests (`import-backup`, `restore-sync`, `sw-assets`, `ui-ergonomics`) and 63 browser scenarios (`21` in `draft-input`, `26` in `navigation-drafts`, `11` in `today-layout`, `5` in `history-review`) pass with **0 external requests** and **0 page errors**.
+- **Results:** 167 unit tests (`import-backup`, `restore-sync`, `sw-assets`, `ui-ergonomics`) and 64 browser scenarios (`21` in `draft-input`, `26` in `navigation-drafts`, `11` in `today-layout`, `6` in `history-review`) pass with **0 external requests** and **0 page errors**.
 - **Phase D coverage (`tests/history-review.browser.cjs` + `tests/ui-ergonomics.test.cjs`):**
   - Viewports `375×667`, `390×844`, and `320×568`, light and dark themes, `forced-colors: active`, and `200%` root font scaling.
   - Empty, partially completed (`Missed` weight, unrecorded BCS, planned-only meal), completed, tomorrow-preview, offline, failed-save (`QuotaExceededError` on outbox), multi-year historical (`2025-12-30` → `2026-11-01`), and imported future-date (`2026-12-15` under `All`) records.
