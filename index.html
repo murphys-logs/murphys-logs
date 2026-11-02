@@ -1806,14 +1806,15 @@ function viewToday(){
 const BOWLS=['cleared','left','refused'];
 const bowlLabel=k=>k==='left'?'Left some':k?k[0].toUpperCase()+k.slice(1):'';
 function refreshTodoCard(){
-  const current=S.tab==='today'&&$('#main [id^="todo-"]');
+  const current=S.tab==='today'&&$('#main [data-todo]');
   if(!current)return;
-  const template=document.createElement('template');template.innerHTML=todoCard(current.id.slice(5));
+  const template=document.createElement('template');template.innerHTML=todoCard(current.dataset.todo);
   const next=template.content.firstElementChild;
   if(next.isEqualNode(current))return;
-  const focus=current.contains(document.activeElement)?document.activeElement.id:null;
+  // Every control here has a stable ID; a control that disappears hands focus to the card.
+  const inside=current.contains(document.activeElement), focus=inside?document.activeElement.id:'';
   current.replaceWith(next);
-  if(focus)refocus(document.getElementById(focus)?focus:next.id);
+  if(inside)refocus(focus&&document.getElementById(focus)?focus:next.id);
 }
 function todoCard(today){
   const miss=missingFor(today), last=trackingMeal(today), meal=plannedMeal(today);
@@ -1821,12 +1822,12 @@ function todoCard(today){
   // observation set, which History and its completeness note also use.
   const tonight=today===localToday()?'tonight’s':'the evening';
   if(!isFedMeal(meal))miss.push({k:'meal',t:meal.recipe?`${tonight} meal not fed yet`:`${tonight} recipe not chosen`});
-  if(!miss.length)return `<div class="note good" id="todo-${today}" tabindex="-1"><b>Core observations recorded</b>Stools, weight and condition are recorded, and ${tonight} meal is marked as fed. You can keep editing throughout the day.</div>`;
+  if(!miss.length)return `<div class="note good" id="todo-${today}" data-todo="${today}" tabindex="-1"><b>Core observations recorded</b>Stools, weight and condition are recorded, and ${tonight} meal is marked as fed. You can keep editing throughout the day.</div>`;
   // A confirmed (Fed) meal can take its result here in one tap. A planned-only
   // meal still opens History, where its feeding time is recorded first.
   const prompt=last&&!last.bowl?`<div class="bowl-prompt" role="group" aria-labelledby="bowl-prompt-${last.date}"><p class="inline-lab" id="bowl-prompt-${last.date}">Last night’s bowl · ${esc(RECIPES.find(r=>r.id===last.recipe)?.short||last.recipe)}, fed ${esc(last.fedAt)}</p><div class="seg">${BOWLS.map(k=>`<button id="bowl-prompt-${last.date}-${k}" ${choice(false)} data-act="bowl" data-k="${k}" data-date="${last.date}">${bowlLabel(k)}</button>`).join('')}</div></div>`:'';
-  const links=miss.filter(x=>!(prompt&&x.k==='bowl')).map(x=>`<button class="chip" data-act="jump" data-k="${x.k}" data-date="${today}">${x.t}</button>`).join('');
-  return `<section class="card sec todo" id="todo-${today}" tabindex="-1" aria-labelledby="todo-title-${today}"><h3 class="lab" id="todo-title-${today}">Still to log</h3>${links?`<div class="chips">${links}</div>`:''}${prompt}</section>`;
+  const links=miss.filter(x=>!(prompt&&x.k==='bowl')).map(x=>`<button class="chip" id="todo-${today}-${x.k}" data-act="jump" data-k="${x.k}" data-date="${today}">${x.t}</button>`).join('');
+  return `<section class="card sec todo" id="todo-${today}" data-todo="${today}" tabindex="-1" aria-labelledby="todo-title-${today}"><h3 class="lab" id="todo-title-${today}">Still to log</h3>${links?`<div class="chips">${links}</div>`:''}${prompt}</section>`;
 }
 
 function row(k,v){ return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }

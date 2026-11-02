@@ -28,7 +28,7 @@ The new order is:
   - A restored draft opens its section. A section the user opened stays open across saves.
   - Summaries update while another entry is unfinished. Recorded symptoms are highlighted in the Observations summary (AGY-06), and each summary is separated from its title by a word space for screen readers (AGY-05).
 - **Still to log** now includes the evening meal's state ("tonight's recipe not chosen" or "tonight's meal not fed yet"). That shortcut lands on the meal card, so the amounts show above the button.
-  - It also refreshes while another entry is unfinished (CX-03).
+  - It also refreshes while another entry is unfinished (CX-03). Its shortcuts have stable IDs, so a refresh keeps focus on a surviving shortcut, or moves it to the card when that shortcut disappears (CX-04).
   - `missingFor()` is unchanged, so History's completeness rule is unchanged.
 - **Wording:**
   - History's note now says "Not yet recorded" or "Core observations recorded" instead of "Incomplete" or "Complete".
@@ -65,7 +65,7 @@ node tests/navigation-drafts.browser.cjs
 node tests/today-layout.browser.cjs
 ```
 
-- **Results:** 162 unit tests and 21 + 26 + 5 browser scenarios pass. There are no external requests or page errors.
+- **Results:** 162 unit tests and 21 + 26 + 6 browser scenarios pass. There are no external requests or page errors.
 - **Codex and Antigravity review follow-ups:**
   - Tests check that Mark as fed saves exactly the shown DARF, Bella & Duke, oil and fibre amounts.
   - A matrix covers supplement inclusion (true, false, unknown) against amounts (positive, zero, missing).

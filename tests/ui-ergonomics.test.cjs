@@ -448,6 +448,8 @@ test('closed sections summarise what is recorded, with yesterday’s Tractive da
 test('Still to log includes tonight’s meal until it is marked as fed', async () => {
   const chip = /data-act="jump" data-k="meal" data-date="2026-10-28">([^<]+)</;
   assert.equal(makeHarness().api.todoCard(TODAY).match(chip)[1], 'tonight’s recipe not chosen');
+  const ids = [...makeHarness().api.todoCard(TODAY).matchAll(/<button class="chip" id="([^"]+)" data-act="jump" data-k="(\w+)"/g)].map(m => [m[1], m[2]]);
+  assert.deepEqual(ids.map(([id, k]) => id === `todo-${TODAY}-${k}`), [true, true, true, true], 'every shortcut has a stable ID for focus restoration (CX-04)');
   assert.equal(makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb' } } } }).api.todoCard(TODAY).match(chip)[1], 'tonight’s meal not fed yet');
   const complete = makeHarness({ days: { [TODAY]: { stools: [stool], weight: 18.7, bcs: 5, meal: fedMeal } } }).api.todoCard(TODAY);
   assert.doesNotMatch(complete, chip);

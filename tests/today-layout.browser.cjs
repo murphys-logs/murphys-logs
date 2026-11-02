@@ -39,6 +39,8 @@ const stub = `
   export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb({uid:'layout-test'}));return()=>{};};
   export const onSnapshot=(ref,_options,cb)=>{
     const rows=ref.col==='days'?data:{};
+    // Lets a test deliver a later synced change through the app's own callback.
+    if(ref.col==='days')window.__deliverDays=(id,value)=>cb({docChanges:()=>[{type:'modified',doc:{id,data:()=>value}}],metadata:{fromCache:false}});
     queueMicrotask(()=>cb(ref.id?{exists:()=>false,metadata:{fromCache:true}}:
       {docChanges:()=>Object.entries(rows).map(([id,value])=>({type:'added',doc:{id,data:()=>value}})),metadata:{fromCache:true}}));
     return()=>{};
@@ -167,6 +169,30 @@ async function main() {
       await context.close();
     }
     passed++; console.log('PASS a retained DARF amount is stated beside Mark as fed and the displayed plan can be recorded instead');
+
+    {
+      // CX-04: a synced change refreshes Still to log while a note keeps full renders deferred.
+      const { context, page } = await open({ width: 390, height: 844 });
+      await page.locator(`#notes-${TODAY} > summary`).click();
+      await page.locator(`#in-notes-${TODAY}`).fill('Unfinished note');
+      const shortcut = k => page.locator(`#todo-${TODAY} [data-act="jump"][data-k="${k}"]`);
+      const fedToday = await page.evaluate(today => ({ ...testApp.S.days[today], meal: { ...testApp.S.days[today].meal, fedAt: '17:00' } }), TODAY);
+      await shortcut('weight').focus();
+      await page.evaluate(([id, value]) => window.__deliverDays(id, value), [TODAY, fedToday]);
+      assert.equal(await shortcut('meal').count(), 0, 'the synced feeding removes the meal reminder');
+      assert.equal(await page.evaluate(() => document.activeElement.dataset.k), 'weight', 'focus stays on the surviving shortcut');
+      // When the focused shortcut itself disappears, focus falls back to the card.
+      const unfed = await page.evaluate(today => ({ ...testApp.S.days[today], meal: { ...testApp.S.days[today].meal, fedAt: null } }), TODAY);
+      await page.evaluate(([id, value]) => window.__deliverDays(id, value), [TODAY, unfed]);
+      await shortcut('meal').focus();
+      await page.evaluate(([id, value]) => window.__deliverDays(id, value), [TODAY, fedToday]);
+      assert.equal(await page.evaluate(() => document.activeElement.id), `todo-${TODAY}`, 'focus falls back to the card');
+      assert.equal(await page.locator(`[data-form][data-key="notes"][data-dirty]`).count(), 1);
+      assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'Unfinished note');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'synced updates queue nothing');
+      await context.close();
+    }
+    passed++; console.log('PASS Still to log keeps focus on a surviving shortcut, or its card, when a synced change refreshes it');
 
     {
       // Restored drafts reopen their closed section without any help from the test.
