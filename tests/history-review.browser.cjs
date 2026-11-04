@@ -236,7 +236,7 @@ async function main() {
       assert.match(await ydCard.textContent(), /2 stools · Types 4–7/);
       assert.match(await ydCard.textContent(), /Blood · Mucus/);
       assert.match(await ydCard.textContent(), /19\.12 kg/);
-      assert.match(await ydCard.textContent(), /19\.12 kg Above range/);
+      assert.match(await ydCard.textContent(), /19\.12 kg Within range/);
       assert.match(await ydCard.textContent(), /BCS 5\.5/);
       assert.match(await ydCard.textContent(), /Observations: Vomited · Lethargic/);
       // Because 30 Oct's meal was only planned (not fed), 31 Oct must show Not recorded as fed!

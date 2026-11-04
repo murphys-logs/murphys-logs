@@ -73,6 +73,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
     download = (...args) => globalThis.testDownloads.push(args);
     globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, viewHistory, viewReview, viewSettings, navigateTo, normalizeTab, navDestination, formatAlertDates, formatVetAlertHeadline, rationAlertDateText, weeklyAdvice, insights, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
       exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, refreshSettingsReadOnly, APP_VERSION, downloads: globalThis.testDownloads,
+      weightAssessment, weightNumber, weightDeviation, weightOverview, weightMeanContent, weightHintContent, lineChart, toDay, computeDarfAdjustment,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
   `, context, { filename: htmlPath, timeout: 5000 });
@@ -512,12 +513,81 @@ test('Escape cancels a draft field; Return in the stool time saves through the S
   assert.equal(saved, 1);
 });
 
-test('weight target labels derive from the single monitoring constant', () => {
+test('weight target labels use the 19 kg centre and absolute 0.5 kg tolerance throughout the app', () => {
   const h = makeHarness();
-  assert.equal(h.api.WEIGHT_TARGET_TEXT, '18.70 kg ±1%');
-  assert.equal(h.api.WEIGHT_RANGE_TEXT, '18.513–18.887 kg');
-  const lines = html.split('\n').filter(line => /18\.70|18\.513|18\.887/.test(line));
-  assert.deepEqual(lines.map(line => line.trim().slice(0, 26)), ['const WEIGHT_TARGET = Obje']);
+  assert.equal(h.api.WEIGHT_TARGET_TEXT, '19 kg ±0.5 kg');
+  assert.equal(h.api.WEIGHT_RANGE_TEXT, '18.5–19.5 kg');
+  assert.doesNotMatch(html, /18\.70|18\.513|18\.887|tolerancePct/);
+  h.api.S.cursor = TODAY;
+  for (const markup of [h.api.viewToday(), h.api.viewDay(), h.api.viewReview(), h.api.weightHintContent(TODAY)]) {
+    assert.ok(markup.includes(h.api.WEIGHT_TARGET_TEXT));
+    assert.ok(markup.includes(h.api.WEIGHT_RANGE_TEXT));
+  }
+  assert.ok(h.api.viewSettings().includes(`The fixed ${h.api.WEIGHT_TARGET_TEXT} target range is assessed separately.`));
+});
+
+test('weight classification includes both boundaries without rounding outside readings into range', () => {
+  const { api } = makeHarness();
+  for (const [kg, status] of [[18.49, 'below'], [18.499, 'below'], [18.5, 'within'], [18.7, 'within'],
+    [19, 'within'], [19.5, 'within'], [19.501, 'above'], [19.51, 'above']]) {
+    assert.equal(api.weightAssessment(kg).status, status, `${kg} kg`);
+    assert.equal(api.weightAssessment(Number(api.weightNumber(kg))).status, status, `displayed ${kg} kg`);
+  }
+  for (const kg of [null, undefined, 0, -1, NaN, Infinity]) assert.equal(api.weightAssessment(kg).status, 'missing');
+  assert.equal(api.weightDeviation(19), '0.00 kg (0.00%) from target');
+  assert.equal(api.weightDeviation(19.5), '+0.50 kg (+2.63%) from target');
+  assert.equal(api.weightDeviation(18.5), '−0.50 kg (−2.63%) from target');
+});
+
+test('rolling means and History use the new band while missing weights stay excluded', () => {
+  for (const kg of [18.5, 19.5]) {
+    const h = makeHarness({ days: {
+      '2026-10-25': { weight: 0 },
+      '2026-10-26': { weight: 30, weightMissed: true },
+      [YESTERDAY]: { weight: kg - .1, bcs: 5 },
+      [TODAY]: { weight: kg + .1, bcs: 5 },
+    } });
+    const mean = h.api.weightOverview(TODAY).mean;
+    assert.equal(mean.n, 2);
+    assert.ok(Math.abs(mean.mean - kg) < 1e-12);
+    assert.match(h.api.weightMeanContent(mean), /data-weight-status="within"/);
+  }
+  const h = makeHarness({ days: { [TODAY]: { weight: 19, bcs: 5 } } });
+  const before = JSON.stringify(h.api.S.days);
+  assert.match(h.api.viewHistory(), /19\.00 kg<\/span> <span class="diary-flags" data-weight-status="within">Within range/);
+  h.api.viewToday(); h.api.viewReview(); h.api.viewSettings();
+  h.api.exportAll();
+  const backup = JSON.parse(h.api.downloads.at(-1)[1]);
+  assert.equal(backup.days[TODAY].weight, 19);
+  assert.equal(backup.days[TODAY].bcs, 5);
+  assert.equal(JSON.stringify(h.api.S.days), before);
+  assert.equal(h.storage.size, 0, 'assessment and exports do not write records or queue Firebase changes');
+});
+
+test('weight chart includes the full target band and correctly flags daily and weekly values', () => {
+  const { api } = makeHarness();
+  const pts = [18.49, 18.5, 19, 19.5, 19.51].map((y, i) => ({ x: api.toDay('2026-10-19') + i, y }));
+  const chart = api.lineChart(pts, 'kg');
+  assert.match(chart, /Shaded band: 18\.5–19\.5 kg\. Short horizontal dashes: 19\.00 kg target/);
+  assert.equal((chart.match(/class="chart-point weight-outside"/g) || []).length, 2);
+  assert.match(chart, /Square markers: outside range \(2 readings\)/);
+  assert.match(chart, /<td>19\.00<\/td><td>5<\/td><td>Within range<\/td>/);
+  // A single reading at the centre must still leave both band boundaries visible.
+  for (const markup of [chart, api.lineChart([{ x: pts[0].x, y: 19 }], 'kg')]) {
+    const band = markup.match(/class="weight-target-band" x="0" y="([\d.]+)" width="100" height="([\d.]+)"/);
+    assert.ok(band && Number(band[1]) >= 0 && Number(band[2]) > 0 && Number(band[1]) + Number(band[2]) <= 100);
+    assert.doesNotMatch(markup, /NaN|Infinity/);
+  }
+});
+
+test('the wider monitoring band does not change the weekly ration rule or BCS reduction hold', () => {
+  const { api } = makeHarness();
+  const weights = Array.from({ length: 14 }, (_, i) => ({ date: `2026-10-${String(12 + i).padStart(2, '0')}`, kg: i < 7 ? 18.8 : 19.1 }));
+  assert.equal(api.weightAssessment(19.1).status, 'within');
+  const args = { weights, asOf: TODAY, settings: api.S.settings };
+  assert.equal(api.S.settings.deadbandPct, 1);
+  assert.ok(api.computeDarfAdjustment({ ...args, bcs7dMean: 5.5 }).adjustmentG < 0, 'weekly gain is still assessed independently');
+  assert.equal(api.computeDarfAdjustment({ ...args, bcs7dMean: 5 }).adjustmentG, 0, 'ideal BCS still holds reductions');
 });
 
 test('recorded symptoms stay distinct from the empty summary when forced colours drop the warning colour (AGY-07)', () => {
@@ -730,7 +800,7 @@ test('release identifiers stay aligned across HTML shell, module and service wor
   const htmlVer = html.match(/<html[^>]*data-version="([^"]+)"/)?.[1];
   const swVer = swSource.match(/const VERSION = '([^']+)'/)?.[1];
   const h = makeHarness();
-  assert.equal(htmlVer, '3.9.0');
+  assert.equal(htmlVer, '3.9.1');
   assert.equal(h.api.APP_VERSION, htmlVer);
   assert.equal(swVer, htmlVer);
 });
@@ -848,7 +918,7 @@ test('Settings monthly export handles 1 November and year/leap boundaries, expor
   // Separate Full backup exports everything as JSON:
   await h.click('exportall');
   assert.equal(h.api.downloads[3][0], 'Murphy_Log_backup_2026-11-01.json');
-  assert.match(h.api.downloads[3][1], /"version": "3\.9\.0"/);
+  assert.match(h.api.downloads[3][1], /"version": "3\.9\.1"/);
   assert.equal(h.storage.size, 0, 'selecting months, formats and exporting writes nothing to storage');
 
   // Empty-account check on 1 November, 1 January and leap-year 1 March:
