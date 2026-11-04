@@ -29,8 +29,8 @@ const TODAY = '2026-10-28', YESTERDAY = '2026-10-27';
 const fedMeal = { recipe: 'lamb', fedAt: '18:30', darfFed: 140, darfPlanned: 140 };
 const stool = { id: 's1', time: '07:30', bristol: 4, mucus: false, blood: false };
 
-function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', source = moduleSource } = {}) {
-  const storage = new Map(), listeners = new Map(), nodes = new Map(), confirms = [], timers = [];
+function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', source = moduleSource, onLine = true, firebaseOverrides = {} } = {}) {
+  const storage = new Map(), listeners = new Map(), windowListeners = new Map(), intervals = [], nodes = new Map(), confirms = [], timers = [];
   const element = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
       selector, id: selector.startsWith('#') ? selector.slice(1) : '', value: '', dataset: {}, innerHTML: '', textContent: '',
@@ -45,6 +45,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
   const document = {
     querySelector: selector => /\[data-dirty\]|\[data-stool\]/.test(selector) ? (dirty ? element('draft') : null) : element(selector),
     querySelectorAll: () => [], getElementById: id => element('#' + id), documentElement: element('html'), activeElement: null,
+    hidden: false,
     addEventListener(name, callback) { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(callback); },
   };
   const fixed = Date.parse(now);
@@ -53,15 +54,20 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
   const firebase = Object.fromEntries(importNames.map(name => [name, name === 'onAuthStateChanged' ? () => () => {} : forbidden('Firebase call: ' + name)]));
   Object.assign(firebase, { initializeApp: () => ({}), getAuth: () => ({}), initializeFirestore: () => ({}),
     persistentLocalCache: () => ({}), persistentMultipleTabManager: () => ({}) });
+  Object.assign(firebase, firebaseOverrides);
+  const nav = { onLine };
   const context = vm.createContext({
     ...firebase, document, console, URL, Date: ClockDate, crypto: { randomUUID }, CSS: { escape: value => value },
-    navigator: { onLine: true }, localStorage: {
+    navigator: nav, localStorage: {
       get length() { return storage.size; }, key: index => [...storage.keys()][index] ?? null,
       getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, String(value)), removeItem: key => storage.delete(key),
     },
-    window: { addEventListener() {}, AppShell: { ready() {} } },
+    window: {
+      addEventListener(name, callback) { if (!windowListeners.has(name)) windowListeners.set(name, []); windowListeners.get(name).push(callback); },
+      AppShell: { ready() {} }
+    },
     ResizeObserver: class { observe() {} }, matchMedia: () => ({ matches: false, addEventListener() {} }),
-    setInterval() {}, setTimeout(callback) { timers.push(callback); }, clearTimeout() {}, fetch: forbidden('network'), prompt: forbidden('prompt'),
+    setInterval(callback, ms) { intervals.push({ callback, ms }); }, setTimeout(callback) { timers.push(callback); }, clearTimeout() {}, fetch: forbidden('network'), prompt: forbidden('prompt'),
     confirm: message => { confirms.push(message); return true; },
   });
   vm.runInContext(source + `
@@ -75,7 +81,8 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
       exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, refreshSettingsReadOnly, APP_VERSION, downloads: globalThis.testDownloads,
       weightAssessment, weightNumber, weightDeviation, weightOverview, weightMeanContent, weightHintContent, lineChart, toDay, computeDarfAdjustment,
       setDraftToday: value => { draftToday = value; },
-      draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; } };
+      draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; }, write, flushWrites, queuedWrites, saveDay, resyncIfPending, onResumeOrReconnect,
+      pendingFlush: () => flushTask };
   `, context, { filename: htmlPath, timeout: 5000 });
   const { api } = context;
   api.S.user = { uid: 'ui-test-only', email: 'test.invalid' };
@@ -86,7 +93,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
       focus() { document.activeElement = this; } };
     return dispatch('click', { target }).then(() => target);
   };
-  return { api, storage, confirms, element, document, click, dispatch, timers };
+  return { api, storage, confirms, element, document, click, dispatch, timers, intervals, listeners, windowListeners, context };
 }
 
 test('dismissing a failed local save cannot clear its error or claim success', async () => {
@@ -815,7 +822,7 @@ test('release identifiers stay aligned across HTML shell, module and service wor
   const htmlVer = html.match(/<html[^>]*data-version="([^"]+)"/)?.[1];
   const swVer = swSource.match(/const VERSION = '([^']+)'/)?.[1];
   const h = makeHarness();
-  assert.equal(htmlVer, '3.9.1');
+  assert.equal(htmlVer, '3.9.2');
   assert.equal(h.api.APP_VERSION, htmlVer);
   assert.equal(swVer, htmlVer);
 });
@@ -933,7 +940,7 @@ test('Settings monthly export handles 1 November and year/leap boundaries, expor
   // Separate Full backup exports everything as JSON:
   await h.click('exportall');
   assert.equal(h.api.downloads[3][0], 'Murphy_Log_backup_2026-11-01.json');
-  assert.match(h.api.downloads[3][1], /"version": "3\.9\.1"/);
+  assert.match(h.api.downloads[3][1], /"version": "3\.9\.2"/);
   assert.equal(h.storage.size, 0, 'selecting months, formats and exporting writes nothing to storage');
 
   // Empty-account check on 1 November, 1 January and leap-year 1 March:
@@ -987,4 +994,129 @@ test('Settings refreshes current-day supplements during deferred renders and giv
   assert.equal(fibNov2.textContent, '5 g');
   assert.equal(hNov2.storage.size, 0);
   void currentNow;
+});
+
+test('offline save stores to durable outbox with calm status, suppresses raw SDK error text, and auto-syncs on reconnection', async () => {
+  let remoteCalls = [];
+  const trackCalls = {
+    doc: (db, col, id) => ({ col, id }),
+    setDoc: async (ref, data) => { remoteCalls.push({ type: 'setDoc', ref, data }); },
+    runTransaction: async (db, fn) => {
+      remoteCalls.push({ type: 'runTransaction' });
+      const tx = {
+        get: async (ref) => { remoteCalls.push({ type: 'tx.get', ref }); return { exists: () => true, data: () => ({}) }; },
+        set: (ref, data) => { remoteCalls.push({ type: 'tx.set', ref, data }); }
+      };
+      return await fn(tx);
+    }
+  };
+
+  const h = makeHarness({
+    onLine: false,
+    days: { [TODAY]: { stools: [] } },
+    firebaseOverrides: trackCalls
+  });
+
+  h.api.S.ready = true;
+  assert.equal(h.context.navigator.onLine, false);
+
+  // 1. Save stool while offline
+  const stoolPayload = { stools: [{ id: 's-offline-1', time: '09:15', bristol: 4, mucus: false, blood: false }] };
+  const saved = await h.api.saveDay(TODAY, stoolPayload);
+  assert.equal(saved, true, 'saveDay succeeds offline');
+
+  // Assert calm status and no alarming technical error banner:
+  assert.equal(h.api.S.status, 'Offline · saved on this device');
+  assert.equal(h.element('#state').className, 'state warn');
+  assert.equal(h.api.S.banner, null, 'No technical error banner on offline save');
+
+  // Assert ZERO remote operations (no transactions, no reads, no writes):
+  assert.equal(remoteCalls.length, 0, 'No remote network operations attempted while offline');
+
+  // Assert outbox queue has exactly one item:
+  const getOutbox = () => [...h.storage.keys()].filter(k => k.startsWith('murphy-outbox-v2:ui-test-only:'));
+  assert.equal(getOutbox().length, 1, 'Operation is safely committed to localStorage outbox');
+
+  // Assert optimistic state updated immediately:
+  assert.equal(h.api.S.days[TODAY].stools.length, 1);
+  assert.equal(h.api.S.days[TODAY].stools[0].id, 's-offline-1');
+
+  // 2. Poor-signal error suppression and compact banner retention (B3):
+  // Simulate poor signal where navigator.onLine is true, but network fails with unavailable:
+  h.context.navigator.onLine = true;
+  h.api.S.banner = { source: 'sync', kind: 'warn', retry: true, compact: true, title: 'Sync pending', text: 'Dismissed sync failure' };
+
+  // Make runTransaction reject with unavailable:
+  h.context.runTransaction = async () => {
+    remoteCalls.push({ type: 'runTransaction-rejected' });
+    const err = new Error('Failed to get document because the client is offline.');
+    err.code = 'unavailable';
+    throw err;
+  };
+
+  await h.api.flushWrites();
+
+  // Assert compact banner remained compact (not re-expanded):
+  assert.equal(h.api.S.banner.compact, true, 'User-dismissed compact banner remains compact on failed background retry');
+  assert.doesNotMatch(h.api.S.banner.text, /Failed to get document/, 'Raw Firebase error text is suppressed');
+  assert.match(h.api.S.banner.text, /saved on this device and will sync automatically/, 'Calm explanation is presented');
+
+  // Restore working remote transaction:
+  h.context.runTransaction = trackCalls.runTransaction;
+
+  // 3. Independent Lifecycle Reconnect: visibilitychange (hidden=false) (B4 / P2)
+  const visListeners = h.listeners.get('visibilitychange') || [];
+  assert.ok(visListeners.length > 0, 'visibilitychange listener registered');
+  h.document.hidden = false;
+  for (const cb of visListeners) cb();
+  assert.ok(h.api.pendingFlush(), 'flushTask initiated by visibilitychange listener');
+  await h.api.pendingFlush();
+  assert.equal(getOutbox().length, 0, 'Outbox queue drained by visibilitychange event');
+  assert.equal(h.api.S.status, 'Synced');
+  assert.equal(h.api.S.banner, null);
+
+  // 4. Independent Lifecycle Reconnect: focus event with fresh pending queue
+  const stoolPayload2 = { stools: [{ id: 's-offline-2', time: '11:30', bristol: 3, mucus: false, blood: false }] };
+  h.context.navigator.onLine = false;
+  await h.api.saveDay(TODAY, stoolPayload2);
+  assert.equal(getOutbox().length, 1, 'Fresh item queued in outbox');
+  h.context.navigator.onLine = true;
+
+  const focusListeners = h.windowListeners.get('focus') || [];
+  assert.ok(focusListeners.length > 0, 'focus listener registered');
+  for (const cb of focusListeners) cb();
+  assert.ok(h.api.pendingFlush(), 'flushTask initiated by focus listener');
+  await h.api.pendingFlush();
+  assert.equal(getOutbox().length, 0, 'Outbox queue drained by focus event');
+  assert.equal(h.api.S.status, 'Synced');
+
+  // 5. Independent Lifecycle Reconnect: 15-second polling interval with fresh pending queue
+  const stoolPayload3 = { stools: [{ id: 's-offline-3', time: '14:00', bristol: 4, mucus: false, blood: false }] };
+  h.context.navigator.onLine = false;
+  await h.api.saveDay(TODAY, stoolPayload3);
+  assert.equal(getOutbox().length, 1, 'Fresh item queued in outbox');
+  h.context.navigator.onLine = true;
+
+  const retryInterval = h.intervals.find(i => i.ms === 15000);
+  assert.ok(retryInterval, '15-second retry interval is registered');
+  retryInterval.callback();
+  assert.ok(h.api.pendingFlush(), 'flushTask initiated by 15-second interval callback');
+  await h.api.pendingFlush();
+  assert.equal(getOutbox().length, 0, 'Outbox queue drained by 15-second interval');
+  assert.equal(h.api.S.status, 'Synced');
+
+  // 6. Independent Lifecycle Reconnect: online event with fresh pending queue
+  const stoolPayload4 = { stools: [{ id: 's-offline-4', time: '16:00', bristol: 4, mucus: false, blood: false }] };
+  h.context.navigator.onLine = false;
+  await h.api.saveDay(TODAY, stoolPayload4);
+  assert.equal(getOutbox().length, 1, 'Fresh item queued in outbox');
+  h.context.navigator.onLine = true;
+
+  const onlineListeners = h.windowListeners.get('online') || [];
+  assert.ok(onlineListeners.length > 0, 'online listener registered');
+  for (const cb of onlineListeners) cb();
+  assert.ok(h.api.pendingFlush(), 'flushTask initiated by online event listener');
+  await h.api.pendingFlush();
+  assert.equal(getOutbox().length, 0, 'Outbox queue drained by online event');
+  assert.equal(h.api.S.status, 'Synced');
 });
