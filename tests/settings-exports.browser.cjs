@@ -288,14 +288,14 @@ async function main() {
       assert.match(mdText, /Oct weekly step/);
       assert.doesNotMatch(mdText, /nov1-today-note/);
 
-      // Separate Full backup (JSON) includes all months and version 3.9.0:
+      // Separate Full backup (JSON) includes all months and the current release:
       const [jsonDownload] = await Promise.all([
         page.waitForEvent('download'),
         page.locator('#export-all').click(),
       ]);
       assert.equal(jsonDownload.suggestedFilename(), 'Murphy_Log_backup_2026-11-01.json');
       const backupObj = JSON.parse(await readDownloadText(jsonDownload));
-      assert.equal(backupObj.version, '3.9.0');
+      assert.equal(backupObj.version, '3.9.1');
       assert.ok(backupObj.days['2025-12-30'] && backupObj.days['2026-10-31'] && backupObj.days['2026-11-01']);
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'exports write nothing to outbox');
 

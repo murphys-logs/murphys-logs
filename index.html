@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.9.0">
+<html lang="en-GB" data-version="3.9.1">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -602,7 +602,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.9.0';
+const APP_VERSION = '3.9.1';
 
 /* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
    Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'
@@ -661,10 +661,14 @@ const BCS_STEPS = [
   { v:6, band:'a', description:'Ribs can be felt under slight excess fat, with a less prominent waist from above and a belly tuck from the side.' },
   { v:7, band:'r', description:'Ribs are hard to feel beneath heavy fat, with little or no waist from above and a belly tuck that may remain from the side.' }];
 const BCS_GENERAL = 'An informed, subjective assessment of ribs, waist and tuck. Excellent: 4.5–5.5; ideal centre: 5.0.';
-// Murphy's fixed monitoring target. This is independent of the weekly ration rule.
-const WEIGHT_TARGET = Object.freeze({kg:18.7,tolerancePct:1,lowerKg:18.513,upperKg:18.887});
-// Every label derives from the constant above, so a future editable target moves them together.
-const WEIGHT_TARGET_TEXT = `${WEIGHT_TARGET.kg.toFixed(2)} kg ±${WEIGHT_TARGET.tolerancePct}%`;
+// Murphy's fixed monitoring target at ideal body condition, independent of the weekly ration rule.
+// Normalize configured bounds to gram precision; never round recorded weights or means.
+const WEIGHT_TARGET = Object.freeze({kg:19,toleranceKg:.5,
+  get lowerKg(){return Math.round((this.kg-this.toleranceKg)*1000)/1000;},
+  get upperKg(){return Math.round((this.kg+this.toleranceKg)*1000)/1000;}
+});
+// Every target label derives from the fixed monitoring constant above.
+const WEIGHT_TARGET_TEXT = `${WEIGHT_TARGET.kg} kg ±${WEIGHT_TARGET.toleranceKg} kg`;
 const WEIGHT_RANGE_TEXT = `${WEIGHT_TARGET.lowerKg}–${WEIGHT_TARGET.upperKg} kg`;
 const EVENTS = [
   { id:'vomited', label:'Vomited' }, { id:'blood', label:'Blood' },
@@ -2550,7 +2554,7 @@ function lineChart(allPts,kind,forceRange,targetLine,dateRange){
   const points=pts.map(p=>`<span class="chart-point${weight&&weightAssessment(p.y).status!=='within'?' weight-outside':''}" title="${esc(`${historyDateLabel(toIso(p.x))}: ${format(p.y)}${unit}${weight?' · '+weightAssessment(p.y).label:''}`)}" style="left:${px(p.x)}%;top:${py(p.y)}%"></span>`).join('');
   const summary=pts.length===1?`${historyDateLabel(toIso(pts[0].x))}: ${format(pts[0].y)}${unit}. Add another reading to see a trend.`:`${pts.length} readings. ${format(pts[0].y)}${unit} on ${fmtShortYear(toIso(pts[0].x))}, ${format(pts.at(-1).y)}${unit} on ${fmtShortYear(toIso(pts.at(-1).x))}. Recorded range ${format(minimum)}–${format(maximum)}${unit}.`;
   const weeklySummary=weeks.map(w=>`${fmtShortYear(toIso(w.start))}–${fmtShortYear(toIso(w.end))}: ${format(w.mean)}${unit} from ${w.n} reading${w.n===1?'':'s'}`).join('; ');
-  const targetDescription=weight?`Shaded band: ${WEIGHT_RANGE_TEXT}. Short horizontal dashes: ${WEIGHT_TARGET.kg.toFixed(2)} kg target. Square markers: outside range (${pts.filter(p=>weightAssessment(p.y).status!=='within').length} readings). `:targetLine!=null?'Short horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':'';
+  const targetDescription=weight?`Shaded band: ${WEIGHT_RANGE_TEXT}. Short horizontal dashes: ${WEIGHT_TARGET.kg} kg target. Square markers: outside range (${pts.filter(p=>weightAssessment(p.y).status!=='within').length} readings). `:targetLine!=null?'Short horizontal dashes mark the ideal centre. Excellent range: 4.5–5.5. ':'';
   return `<p class="chart-summary">${esc(summary)}</p>`+chartFrame(yLabels,band+grid+target+changes+`<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`+weekly,points,[toIso(from),toIso(to)],`${weight?'Weight':'Body condition'} over time. ${summary} ${targetDescription}Monday–Sunday weekly means: ${weeklySummary}.`)+
     `<p class="legend"><span class="chart-key" aria-hidden="true"></span>Recorded · <span class="chart-key weekly" aria-hidden="true"></span>Weekly average (Mon–Sun). Uses recorded values for each calendar week, including days outside this view. ${targetDescription}Vertical dashes mark a recorded ration change.</p>`+values+
     chartValues(name+' weekly average',['Week, Mon–Sun',weight?'Mean, kg':'Mean BCS','Readings',...(weight?['Target range']:[])],weeks.map(w=>[`${fmtShortYear(toIso(w.start))}–${historyDateLabel(toIso(w.end))}`,format(w.mean),w.n,...(weight?[weightAssessment(w.mean).label]:[])]));
