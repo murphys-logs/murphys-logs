@@ -29,7 +29,7 @@ const TODAY = '2026-10-28', YESTERDAY = '2026-10-27';
 const fedMeal = { recipe: 'lamb', fedAt: '18:30', darfFed: 140, darfPlanned: 140 };
 const stool = { id: 's1', time: '07:30', bristol: 4, mucus: false, blood: false };
 
-function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = {}) {
+function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', source = moduleSource } = {}) {
   const storage = new Map(), listeners = new Map(), nodes = new Map(), confirms = [], timers = [];
   const element = selector => {
     if (!nodes.has(selector)) nodes.set(selector, {
@@ -64,7 +64,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z' } = 
     setInterval() {}, setTimeout(callback) { timers.push(callback); }, clearTimeout() {}, fetch: forbidden('network'), prompt: forbidden('prompt'),
     confirm: message => { confirms.push(message); return true; },
   });
-  vm.runInContext(moduleSource + `
+  vm.runInContext(source + `
     globalThis.renders = [];
     render = (...args) => { globalThis.renders.push(args); };
     const realRenderFeedback = renderFeedback;
@@ -526,6 +526,21 @@ test('weight target labels use the 19 kg centre and absolute 0.5 kg tolerance th
   assert.ok(h.api.viewSettings().includes(`The fixed ${h.api.WEIGHT_TARGET_TEXT} target range is assessed separately.`));
 });
 
+test('decimal target configurations keep clean labels and inclusive bounds without rounding readings', () => {
+  for (const [kg, toleranceKg, lower, upper] of [[18.6, .3, 18.3, 18.9], [19.2, .1, 19.1, 19.3], [18.7, .187, 18.513, 18.887]]) {
+    // Exercise the real module with alternate fixed constants, not a copied calculation.
+    const source = moduleSource.replace('Object.freeze({kg:19,toleranceKg:.5,', `Object.freeze({kg:${kg},toleranceKg:${toleranceKg},`);
+    assert.notEqual(source, moduleSource, 'the test must replace the fixed target');
+    const { api } = makeHarness({ source });
+    assert.equal(api.WEIGHT_TARGET_TEXT, `${kg} kg ±${toleranceKg} kg`);
+    assert.equal(api.WEIGHT_RANGE_TEXT, `${lower}–${upper} kg`);
+    for (const [reading, expected] of [[lower - .000001, 'below'], [lower, 'within'], [kg, 'within'], [upper, 'within'], [upper + .000001, 'above']]) {
+      assert.equal(api.weightAssessment(reading).status, expected, `${kg} ±${toleranceKg}: ${reading}`);
+      assert.equal(api.weightAssessment(Number(api.weightNumber(reading))).status, expected, 'display precision preserves the status');
+    }
+  }
+});
+
 test('weight classification includes both boundaries without rounding outside readings into range', () => {
   const { api } = makeHarness();
   for (const [kg, status] of [[18.49, 'below'], [18.499, 'below'], [18.5, 'within'], [18.7, 'within'],
@@ -568,7 +583,7 @@ test('weight chart includes the full target band and correctly flags daily and w
   const { api } = makeHarness();
   const pts = [18.49, 18.5, 19, 19.5, 19.51].map((y, i) => ({ x: api.toDay('2026-10-19') + i, y }));
   const chart = api.lineChart(pts, 'kg');
-  assert.match(chart, /Shaded band: 18\.5–19\.5 kg\. Short horizontal dashes: 19\.00 kg target/);
+  assert.match(chart, /Shaded band: 18\.5–19\.5 kg\. Short horizontal dashes: 19 kg target/);
   assert.equal((chart.match(/class="chart-point weight-outside"/g) || []).length, 2);
   assert.match(chart, /Square markers: outside range \(2 readings\)/);
   assert.match(chart, /<td>19\.00<\/td><td>5<\/td><td>Within range<\/td>/);

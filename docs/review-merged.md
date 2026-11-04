@@ -1,5 +1,7 @@
 # Consolidated usability and code review
 
+**Weight-target update (4 November 2026):** [PR #12](https://github.com/murphys-logs/murphys-logs/pull/12), for v3.9.1, supersedes the weight-control proposal below with a fixed **19 kg ±0.5 kg** target (**18.5–19.5 kg inclusive**); this change adds no editable or synced target settings and leaves ration rules and stored measurements unchanged. Earlier proposals remain below as historical context.
+
 **Status:** All three reviews reconciled; owner decision on merging PR #1 pending. This document is the canonical prioritised backlog, including explicit refinements and disagreements. No application fix has been implemented. The 35 source findings yield **33 active backlog items**: AV-06 maps to UX-03, and AV-01 is not confirmed as a defect and is deferred as a design preference.
 
 ## Baseline and provenance
