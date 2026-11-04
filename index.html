@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.9.1">
+<html lang="en-GB" data-version="3.9.2">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -602,7 +602,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.9.1';
+const APP_VERSION = '3.9.2';
 
 /* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
    Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'
@@ -1211,7 +1211,9 @@ async function write(op){
     localStorage.setItem(currentQueuePrefix()+writeClock+'-'+crypto.randomUUID(),JSON.stringify(op));
   }catch(e){storeError(e,writeScope(op));return false;}
   clearSaveError(writeScope(op));
-  applyOperation(op); setStatus('Saved locally; syncing','warn'); render();
+  let offline=false;
+  try{offline=navigator.onLine===false;}catch{}
+  applyOperation(op); setStatus(offline?'Offline · saved on this device':'Saved locally; syncing','warn'); render();
   void flushWrites(); return true;
 }
 const savedRecord=(col,id)=>col==='days'?savedDays?.[id]:col==='settings'?S.savedSettings:savedChanges.find(c=>c.id===id);
@@ -1325,6 +1327,12 @@ async function sendOperation(op,committed=()=>{},prior=savedRecord){
 function flushWrites(){
   // Establish all initial cache baselines before acknowledging queued writes.
   if(flushTask||!S.user||!S.ready)return flushTask||Promise.resolve();
+  try{
+    if(navigator.onLine===false&&queuedWrites().length>0){
+      setStatus('Offline · saved on this device','warn');
+      return Promise.resolve();
+    }
+  }catch{}
   flushing=true;
   const uid=S.user.uid;
   const flush=async()=>{
@@ -1353,15 +1361,22 @@ function flushWrites(){
       }
     }
     if(S.banner?.source==='sync') S.banner=null;
-    setStatus(navigator.onLine?'Synced':'Offline · saved on this device','');
+    setStatus(navigator.onLine?'Synced':'Offline · saved on this device',navigator.onLine?'':'warn');
     render();
   };
   return flushTask=(async()=>{
     try{
       if(navigator.locks)await navigator.locks.request('murphy-sync:'+uid,flush);else await flush();
     }catch(e){
-      setStatus('Saved locally; retry sync','warn');
-      if(S.banner?.source!=='local-save')S.banner={kind:'warn',source:'sync',retry:true,title:'Sync pending',text:'Your confirmed entries are saved on this device. Retry sync when connected. '+String(e.message||e)};
+      const offline=navigator.onLine===false||e?.code==='unavailable'||/offline|unavailable|network/i.test(String(e?.message||e));
+      setStatus(offline&&navigator.onLine===false?'Offline · saved on this device':'Saved locally; retry sync','warn');
+      if(S.banner?.source!=='local-save'){
+        const compact=!!(S.banner?.source==='sync'&&S.banner?.compact);
+        const explanation=offline?
+          'Your confirmed entries are saved on this device and will sync automatically once connected.':
+          'Your confirmed entries are saved on this device. Retry sync when connected. '+String(e.message||e);
+        S.banner={kind:'warn',source:'sync',retry:true,compact,title:'Sync pending',text:explanation};
+      }
       render();
     }finally{flushing=false;flushTask=null;}
   })();
@@ -3765,10 +3780,10 @@ onAuthStateChanged(auth, (u)=>{
   if (u) render();
 });
 
-window.addEventListener('online', ()=>flushWrites());
+window.addEventListener('online', ()=>void resyncIfPending());
 window.addEventListener('offline', ()=>{
   let pending=false;try{pending=queuedWrites().length>0;}catch{}
-  setStatus(pending?'Offline · entries saved on this device':'Offline · saved records available',pending?'warn':'');
+  setStatus(pending?'Offline · saved on this device':'Offline · saved records available',pending?'warn':'');
 });
 
 // Refresh the local feeding day after midnight, including a suspended/reopened tab.
@@ -3781,9 +3796,19 @@ function refreshLocalDay(){
   rendered='';
   render();
 }
+function resyncIfPending(){
+  try{
+    if(S.user&&!flushTask&&queuedWrites().length>0&&navigator.onLine!==false) void flushWrites();
+  }catch{}
+}
+function onResumeOrReconnect(){
+  refreshLocalDay();
+  resyncIfPending();
+}
 setInterval(refreshLocalDay,60000);
-window.addEventListener('focus',refreshLocalDay);
-document.addEventListener('visibilitychange',()=>{if(document.hidden)persistDrafts();else refreshLocalDay();});
+setInterval(resyncIfPending,15000);
+window.addEventListener('focus',onResumeOrReconnect);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)persistDrafts();else onResumeOrReconnect();});
 window.addEventListener('pagehide',persistDrafts);
 
 window.appCanUpdate=()=>!draftFields.length&&!draftStools.length&&!S.undoBusy&&!S.erasing&&!importing&&!$('#main [data-act="saveinput"]:disabled,#main [data-act="savestool"]:disabled');
