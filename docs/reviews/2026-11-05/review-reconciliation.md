@@ -14,7 +14,7 @@
 | CR-04 | P3 | **Disputed**: artefact of the withheld lock | Confirmed | **Withdrawn**, replaced by CX-01. The probe keeps its 3.9.2 assertion and is annotated | The offline launch now says "Offline · saved records available" directly |
 | CR-05 | P2 | Confirmed with correction: count operations accurately; "last synced" needs real acknowledgement evidence | Confirmed | **Fixed** with Codex's semantics | A 44 px status chip at 14 px+ with "N changes waiting" (operations, not observations) opens Settings › Sync & storage. That section shows the waiting count, the oldest entry's time, "Last confirmed with the server" (set only on an acknowledged send or all-listeners server snapshot), Retry sync now, and storage protection |
 | CR-06 | P2 | Confirmed with correction: warn **before** `leaveDraft()`; lockout untested against the SDK | Confirmed | **Fixed** as Codex asked | With pending changes or `navigator.onLine===false`, Sign out first asks for confirmation (count, kept on the device, signal needed to sign back in). This happens before the draft-discard prompt. `signOut` itself is unchanged |
-| CR-07 | P2 | Confirmed with correction; not P1 | Confirmed; borderline P1 | **P2, fixed.** Explicit Save is kept | (a) "Still to log" lists *Weight typed, not saved* (and the other field types), and the chip lands on Save. (b) On launch, when this window holds the `murphy-window` Web Lock (no other app window can own the draft), the newest earlier-session draft is restored automatically, still marked Unsaved changes, with a notice. Without the lock, or with Web Locks unsupported, the existing Restore entries prompt remains. This follows Codex's point that a missing BroadcastChannel reply is not proof: a suspended window still holds its lock |
+| CR-07 | P2 | Confirmed with correction; not P1 | Confirmed; borderline P1 | **P2, fixed.** Explicit Save is kept | (a) "Still to log" lists *Weight typed, not saved* (and the other field types), and the chip lands on Save. (b) Automatic restore of an earlier-session draft, still marked Unsaved changes, with a notice. **Revised after re-review (R1):** ownership is now per draft session, not one global lock (see round two below) |
 | CR-08 | P3 | Confirmed with correction: the whole editor is replaced first (L2278–2282, L2291) | Confirmed | **Fixed** across all replacements | `sameMarkup()` compares each replacement (whole meal editor, plan fragment, supplement switches, context, Undo Fed, feeding controls) ignoring `open` state, and keeps unchanged nodes. Swallowed native taps remain unverified |
 | CR-09 | P3 | Confirmed with correction: also invalid-shape JSON; Full backup holds zero days; preserve keys, order and raw data; copy before remove | **P2** | **P2, fixed** following Codex's recovery constraints and Antigravity's "syntactic quarantine only" distinction | Each outbox entry is parsed and shape-checked on its own. Unreadable entries stay at their original keys. Saved records and all readable work are projected (visible and in Full backup). Sending stops at the first unreadable entry, because its dependants are unknown. Status reads "Sync held · needs attention". The notice offers **Save recovery file** (raw unreadable, set-aside and pending entries) and **Set aside and continue syncing** (confirm, copy to `murphy-outbox-quarantine:`, verify, then remove the original). Full backup includes `unreadableOutbox`; erase treats it as pending. AG-05's semantic conflicts are **not** changed by this |
 | CR-10 | P2 | Cannot verify; the Apple attribution is wrong; WebKit now calls `black-translucent` deprecated | Confirmed | **Not changed.** Device check first, as both reviewers advise | None. Test light, dark and system appearance on the owner's iPhone, then choose between removing the key and painting a strip |
@@ -26,6 +26,22 @@
 
 Still open from 4 November and not addressed here: AG-05, FR-01, FR-02, FR-03, AG-04, AV-02, AG-01, AG-03, AG-09, AG-10, CL-03 and CL-05. CL-05's notice stack is smaller in practice now that CR-03's Undo leaves the pinned area after 15 minutes, but the sticky-region cap is unchanged. Several of these need explicit authorisation because an atomic fix would change transaction behaviour.
 
+## Round two: Codex re-review of `d467da7` (R1–R7)
+
+[Antigravity's re-review](https://github.com/murphys-logs/murphys-logs/pull/15#issuecomment-6646502175) found every item fixed and judged the PR ready for physical-iPhone acceptance. [Codex's re-review](https://github.com/murphys-logs/murphys-logs/pull/15#pullrequestreview-5778189278) confirmed the Firebase boundary and most fixes, and raised R1–R7. All seven are accepted and fixed, still with no Firebase change. Each now has a regression scenario in `tests/offline-friction.browser.cjs`.
+
+| ID | Codex finding | Fix |
+|---|---|---|
+| R1 (P2) | The global `murphy-window` lock elects one holder; it doesn't prove there are no other windows, so window C took live window B's draft | The global lock is removed. Each window holds `murphy-draft-owner:<its session>` while open. A recovered draft is auto-restored only if this window can take **that session's** lock (so no live window owns it) **and** the stored payload is byte-identical after the wait. Otherwise the Restore entries prompt remains. Corrected claim: WebKit can release a suspended page's locks, so after suspension this falls back to "the draft may be shown in two windows, both still needing Save", never to loss. iOS Home Screen behaviour is checked on a device (row 4 of the checklist) |
+| R2 (P2) | Shallow validation: `{items:[null]}` and a `stools` delta without `drop` passed, then threw during replay | `validQueuedOp` now checks nested aggregates, recovery, regime and move fields, plain-operation `patch` and `remove` paths, and stool deltas (`put` ids, `drop` array), plus `days` ids as dates. It checks shape only; AG-05's semantic conflicts are still not decided here |
+| R3 (P2) | Quarantine destination dropped the queue prefix, so equal suffixes collided and one payload was lost | The destination is `murphy-outbox-quarantine:<uid>:<encodeURIComponent(full original key)>`; a different envelope already there is never overwritten (a `~n` suffix is added instead). The full `{key,raw}` envelope is verified before each source is removed. A partial failure reports how many were moved and that the rest are still in place |
+| R4 (P2) | After the last set-aside, the recovery route disappeared and Full backup omitted quarantine | Sync & storage shows the set-aside count and **Save recovery file** whenever quarantine exists. Recovery files and **Full backup** (`setAsideOutbox`) include every set-aside envelope; set-aside entries are never replayed or sent |
+| R5 (P3) | The pinned Undo stayed until some other render | A timer redraws at expiry, and resume (focus or visibility) re-evaluates notices. The durable Undo is untouched |
+| R6 (P3) | "Last confirmed" could carry over to another account on a same-page switch | `subscribe()` clears it; `noteServerConfirmed(uid)` ignores evidence from a previous account's flush or listener; it reloads from that account's own device key |
+| R7 (P3) | The Sync & storage age ignored held entries and always promised automatic sending | The age includes unreadable entries' key timestamps. When sending is held, the text says so and offers the recovery actions instead of "syncs automatically"; Retry is hidden while it can't help |
+
+Noted, not changed: the hold compares queue keys lexically, the same order in which they are sent. FR-03's known mixed-width key ordering limitation (13-digit keys sorting before 12-digit ones) therefore still applies; numeric ordering across all historical formats is not claimed.
+
 ## Test changes to existing suites
 
 Each change below reflects deliberate new behaviour, not a loosened check:
@@ -35,15 +51,17 @@ Each change below reflects deliberate new behaviour, not a loosened check:
 - `history-review.browser.cjs`: CC-D1's bounded-banner check moves its latest Blood date inside the vet window, so the compact multi-date banner is still tested (CR-02).
 - `settings-exports.browser.cjs`: the old "Sign out must not add a guard" assertion now checks the CR-06 guard. With unsynced changes, one confirmation appears; declining never calls `signOut` and keeps the queue. The no-pending case is covered in the new suite. The backup version moves to 3.10.0.
 - `sw-assets.test.cjs`: the upgrade scenario becomes 3.9.2 → 3.10.0.
-- New `offline-friction.browser.cjs`: 9 scenarios covering CR-01 to CR-03, CR-05 to CR-09, CX-01 with the CR-04 wording, FR-04 and AG-14. These include controls for the in-window Blood alarm, the no-pending sign-out, and the prompt path when another window may own the draft.
+- New `offline-friction.browser.cjs`: **13 scenarios** covering CR-01 to CR-03, CR-05 to CR-09, CX-01 with the CR-04 wording, FR-04, AG-14 and R1–R7. These include controls for the in-window Blood alarm, the no-pending sign-out, and the prompt path when another window may own the draft. R1 uses real Web Locks with a live second window.
 
 ## Validation at the new head
 
 | Check | Result |
 |---|---|
 | `node --test --experimental-test-isolation=none tests/*.test.cjs` (Node 22.23.4) | **180/180 pass** |
-| Six browser suites (pre-installed Chromium) | **78/78 pass** (21 + 6 + 26 + 9 + 5 + 11); no page errors or external requests |
+| Six browser suites (pre-installed Chromium) | **82/82 pass** (21 + 6 + 26 + 13 + 5 + 11); no page errors or external requests |
 | `APP_HTML=<3.9.2 index.html> node docs/reviews/2026-11-05/reproduce-friction.cjs` | 9/9 probes still reproduce on the baseline |
 | The same probes against 3.10.0 | Fail at CR-01, as expected for fixed behaviour |
+
+**Physical-iPhone acceptance:** see [device-acceptance.md](device-acceptance.md).
 
 **Still not verified:** a physical iPhone (Home Screen cold launch, Web Locks lifetime across suspension, status-bar rendering, keyboard, VoiceOver, `persist()` grant), the real Firebase SDK, and production data.

@@ -15,7 +15,7 @@ const TODAY = '2026-11-05';
 const shellScript = /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/i;
 assert.doesNotMatch(original.match(shellScript)[0], /type=["']module["']/i, 'The first script is the classic shell script');
 const expose = (_, body, end) => body + `
-  window.testApp={S,queuedWrites,render,renderFeedback,setStatus,open:(tab,o)=>navigateTo(tab,o)};
+  window.testApp={S,queuedWrites,render,renderFeedback,setStatus,subscribe,open:(tab,o)=>navigateTo(tab,o)};
 ` + end;
 const sdk = s => s.replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/gi, '')
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
@@ -248,34 +248,120 @@ async function main() {
       passed++; console.log('PASS CR-08 unchanged meal editor and Mark as fed stay connected through deferred renders');
     }
 
-    // CR-09: an unreadable entry no longer hides saved records; later entries wait; set aside is copy-then-remove.
+    // CR-09 / R3 / R4 / R7: an unreadable entry no longer hides saved records; later entries wait;
+    // the details say sending is held; set aside is collision-free copy-then-remove and stays exportable.
     {
       const ctx = await context(native);
-      const bad = 'murphy-outbox-v2:probe-user:1000-bad';
-      const page = await open(ctx, { ...fixture({ days: { [TODAY]: { date: TODAY, weight: 19.1, bcs: 5 } } }), [bad]: '{not json',
-        'murphy-outbox-v2:probe-user:2000-ok': JSON.stringify({ col: 'days', id: TODAY, patch: { date: TODAY, notes: 'after the bad entry' }, remove: [] }) });
+      const at = iso => Date.parse(iso);
+      const bad = `murphy-outbox-v2:probe-user:${at('2026-11-05T08:00:00Z')}-same`;
+      const legacyBad = `murphy-outbox:probe-user:${at('2026-11-05T08:00:00Z')}-same`;
+      const ok = `murphy-outbox-v2:probe-user:${at('2026-11-05T08:30:00Z')}-ok`;
+      const page = await open(ctx, { ...fixture({ days: { [TODAY]: { date: TODAY, weight: 19.1, bcs: 5 } } }), [bad]: '{not json', [legacyBad]: 'null',
+        [ok]: JSON.stringify({ col: 'days', id: TODAY, patch: { date: TODAY, notes: 'after the bad entry' }, remove: [] }) });
       await page.waitForFunction(() => document.getElementById('state').textContent === 'Sync held · needs attention');
       const out = await page.evaluate(t => ({ weight: document.getElementById('in-weight-' + t).value, notes: testApp.S.days[t].notes,
         writes: localStorage.getItem('probe-writes'), notice: document.getElementById('feedback').textContent, count: document.getElementById('sync-count').textContent }), TODAY);
       assert.equal(out.weight, '19.1', 'saved records stay visible');
       assert.equal(out.notes, 'after the bad entry', 'later work is projected');
-      assert.equal(out.writes, null, 'nothing after the unreadable entry is sent');
-      assert.match(out.notice, /One saved change can’t be read/);
-      assert.equal(out.count, '2 changes waiting');
-      const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#outbox-recovery-file').click()]);
+      assert.equal(out.writes, null, 'nothing after the unreadable entries is sent');
+      assert.match(out.notice, /2 saved changes can’t be read/);
+      assert.equal(out.count, '3 changes waiting');
+      // R7: details count the held entries in the age and do not promise automatic sending.
+      await page.locator('#sync-chip').click();
+      const details = await page.locator('#settings-sync').textContent();
+      assert.match(details, /3 changes waiting on this device, the oldest saved at 08:00 today\. Sending is held because 2 changes can’t be read/);
+      assert.doesNotMatch(details, /sync automatically/);
+      const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#settings-outbox-recovery').click()]);
       const recovery = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
-      assert.deepEqual(recovery.unreadable, [{ key: bad, raw: '{not json' }]);
+      assert.deepEqual(recovery.unreadable.map(u => u.raw).sort(), ['{not json', 'null'].sort());
       assert.equal(recovery.pending.length, 1);
-      await page.locator('#outbox-set-aside').click();
+      await page.locator('#settings-outbox-set-aside').click();
       await page.waitForFunction(() => JSON.parse(localStorage.getItem('probe-writes') || '[]').length === 1);
-      const after = await page.evaluate(k => ({ original: localStorage.getItem(k),
-        quarantine: JSON.parse(localStorage.getItem('murphy-outbox-quarantine:probe-user:1000-bad')),
-        queued: testApp.queuedWrites().length }), bad);
-      assert.equal(after.original, null);
-      assert.equal(after.quarantine.raw, '{not json');
+      const after = await page.evaluate(([b, l]) => ({ originals: [localStorage.getItem(b), localStorage.getItem(l)],
+        quarantine: Object.keys(localStorage).filter(k => k.startsWith('murphy-outbox-quarantine:probe-user:')).map(k => JSON.parse(localStorage.getItem(k))),
+        queued: testApp.queuedWrites().length }), [bad, legacyBad]);
+      assert.deepEqual(after.originals, [null, null]);
+      // R3: equal suffixes under different prefixes keep both payloads, with their full original keys.
+      assert.deepEqual(after.quarantine.map(e => [e.key, e.raw]).sort(), [[legacyBad, 'null'], [bad, '{not json']].sort());
       assert.equal(after.queued, 0);
+      // R4: the set-aside copies remain visible, exportable and in Full backup.
+      await page.evaluate(() => testApp.open('settings', { target: '#settings-sync' }));
+      assert.match(await page.locator('#settings-sync').textContent(), /2 unreadable changes are set aside on this device/);
+      const [again] = await Promise.all([page.waitForEvent('download'), page.locator('#settings-outbox-recovery').click()]);
+      assert.equal(JSON.parse(fs.readFileSync(await again.path(), 'utf8')).setAside.length, 2);
+      const [backup] = await Promise.all([page.waitForEvent('download'), page.locator('#export-all').click()]);
+      const full = JSON.parse(fs.readFileSync(await backup.path(), 'utf8'));
+      assert.deepEqual(full.setAsideOutbox.map(e => e.raw).sort(), ['null', '{not json'].sort());
+      assert.equal(full.days[TODAY].notes, 'after the bad entry');
       await ctx.close();
-      passed++; console.log('PASS CR-09 unreadable outbox entry is isolated, holds later sync, exports raw and is set aside without loss');
+      passed++; console.log('PASS CR-09/R3/R4/R7 unreadable entries are held, explained, set aside without collision and stay in recovery files and Full backup');
+    }
+
+    // R2: structurally invalid but parseable operations are isolated too, so later work stays visible.
+    {
+      const ctx = await context();
+      const later = `murphy-outbox-v2:probe-user:${Date.parse('2026-11-05T08:30:00Z')}-ok`;
+      const page = await open(ctx, { ...fixture({ days: { [TODAY]: { date: TODAY, stools: [{ id: 's1', time: '07:00', bristol: 4 }] } } }),
+        [`murphy-outbox-v2:probe-user:${Date.parse('2026-11-05T08:00:00Z')}-a`]: JSON.stringify({ items: [null] }),
+        [`murphy-outbox-v2:probe-user:${Date.parse('2026-11-05T08:10:00Z')}-b`]: JSON.stringify({ col: 'days', id: TODAY, stools: { put: [] } }),
+        [later]: JSON.stringify({ col: 'days', id: TODAY, patch: { date: TODAY, notes: 'still visible' }, remove: [] }) });
+      await page.waitForFunction(() => testApp.S.ready && document.getElementById('state').textContent === 'Sync held · needs attention');
+      const out = await page.evaluate(t => ({ notes: testApp.S.days[t].notes, stools: testApp.S.days[t].stools.length,
+        unreadable: document.getElementById('feedback').textContent.includes('2 saved changes can’t be read') }), TODAY);
+      assert.deepEqual(out, { notes: 'still visible', stools: 1, unreadable: true });
+      await ctx.close();
+      passed++; console.log('PASS R2 nested-invalid operations are isolated and later work remains projected');
+    }
+
+    // R1: a draft owned by a live window is never auto-restored by another window.
+    {
+      const ctx = await context(native);
+      const a = await open(ctx, fixture({ days: {} }));
+      const b = await open(ctx, null);
+      await b.locator(`#in-weight-${TODAY}`).fill('19.3');
+      await b.waitForTimeout(400);
+      const bKey = await b.evaluate(() => Object.keys(localStorage).find(k => k.startsWith('murphy-draft-v2:') && localStorage.getItem(k).includes('19.3')));
+      assert.ok(bKey, 'B persisted its draft');
+      await a.close();
+      const c = await open(ctx, null);
+      await settle(c);
+      await c.waitForTimeout(300);
+      const out = await c.evaluate(([t, k]) => ({ field: document.getElementById('in-weight-' + t).value,
+        prompt: !!document.querySelector('[data-act="recoverdraft"]'), bKept: !!localStorage.getItem(k) }), [TODAY, bKey]);
+      assert.deepEqual(out, { field: '', prompt: true, bKept: true });
+      assert.equal(await b.locator(`#in-weight-${TODAY}`).inputValue(), '19.3', 'B keeps its own draft');
+      await ctx.close();
+      passed++; console.log('PASS R1 a live window keeps ownership of its draft; another window only offers the prompt');
+    }
+
+    // R5: the pinned Undo leaves on resume after 15 minutes, without a new render or relaunch.
+    {
+      const ctx = await context();
+      const page = await open(ctx, fixture({ days: { [TODAY]: { date: TODAY, stools: [{ id: 's-today', time: '07:30', bristol: 4 }] } } }));
+      await page.locator('[data-act="delstool"]').click();
+      await page.waitForSelector('#feedback #undo-removal');
+      await page.evaluate(() => { window.__now += 16 * 60000; window.dispatchEvent(new Event('focus')); });
+      assert.equal(await page.locator('#feedback #undo-removal').count(), 0);
+      assert.ok(await page.evaluate(() => !!testApp.S.undo), 'the durable Undo copy is kept');
+      await ctx.close();
+      passed++; console.log('PASS R5 pinned Undo expires on resume after 15 minutes and stays recoverable');
+    }
+
+    // R6: "last confirmed" belongs to one account.
+    {
+      const ctx = await context(native);
+      const page = await open(ctx, fixture({ days: {}, fromCache: false }));
+      await page.waitForFunction(() => testApp.S.lastConfirmed > 0);
+      const out = await page.evaluate(async () => {
+        localStorage.setItem('probe-fixture', JSON.stringify({ days: {} }));
+        testApp.S.user = { uid: 'second-user', email: 'second@example.invalid' };
+        testApp.subscribe();
+        await new Promise(r => setTimeout(r, 100));
+        return { lastConfirmed: testApp.S.lastConfirmed, status: document.getElementById('state').textContent };
+      });
+      assert.deepEqual(out, { lastConfirmed: null, status: 'Cached; checking sync' });
+      await ctx.close();
+      passed++; console.log('PASS R6 a second account starts without the first account’s server confirmation');
     }
 
     // AG-14: an invalid stool date explains itself beside the form.
