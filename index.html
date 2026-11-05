@@ -718,11 +718,14 @@ function toDay(iso){
   }
   return dateDays.get(iso);
 }
+const esc = (s)=> String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const toIso = (d) => new Date(d * DAY_MS).toISOString().slice(0, 10);
 // Calendar labels, not elapsed hours: safe across London midnight and BST changes.
 const shiftDate = (iso, days) => toIso(toDay(iso) + days);
 const validDate = iso => typeof iso==='string' && /^\d{4}-\d{2}-\d{2}$/.test(iso) && Number.isFinite(toDay(iso)) && toIso(toDay(iso))===iso;
 const validTime = time => typeof time==='string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+const cleanIsoDate = iso => { if (typeof iso!=='string') return ''; const clean=esc(iso.trim()); return validDate(clean)?clean:''; };
+const cleanTime = time => { if (typeof time!=='string') return ''; const clean=esc(time.trim()); return validTime(clean)?clean:''; };
 const isFedMeal = meal => !!meal?.recipe && validTime(meal.fedAt);
 function mondayOf(iso){ const d = toDay(iso); const w = new Date(d*DAY_MS).getUTCDay(); return d - ((w+6)%7); }
 const minsOf = (t) => { const [h,m] = String(t||'00:00').split(':').map(Number); return h*60+m; };
@@ -1528,16 +1531,17 @@ function flushWrites(){
   })();
 }
 function saveDay(iso,patch){
+  const cleanIso=typeof iso==='string'?esc(iso):iso;
   if(Object.hasOwn(patch,'weight')&&patch.weight!=null&&!validWeight(patch.weight)){
     storeError(Error('Enter a weight above zero, or use Weight missed'));return false;
   }
   if(patch.weightMissed===true){
-    const previous=validWeight(patch.weight)?patch.weight:S.days[iso]?.weight;
+    const previous=validWeight(patch.weight)?patch.weight:S.days[cleanIso]?.weight;
     patch={...patch,weight:null,...(validWeight(previous)?{weightBeforeMissed:{kg:previous}}:{})};
   }else if(validWeight(patch.weight)) patch={...patch,weightMissed:false,weightBeforeMissed:null};
-  const remove=[], data=cleanDay(patch,remove,[],S.days[iso]||{}), op={col:'days',id:iso,patch:data,remove};
+  const remove=[], data=cleanDay(patch,remove,[],S.days[cleanIso]||{}), op={col:'days',id:cleanIso,patch:data,remove};
   if(Array.isArray(data.stools)){
-    const before=S.days[iso]?.stools||[], after=data.stools;
+    const before=S.days[cleanIso]?.stools||[], after=data.stools;
     op.stools={put:after.flatMap(s=>{
       const old=before.find(b=>b.id===s.id); if(!old) return [s];
       const patch=Object.fromEntries(Object.entries(s).filter(([k,v])=>k==='id'||v!==old[k]));
@@ -1546,25 +1550,26 @@ function saveDay(iso,patch){
       drop:before.filter(s=>!after.some(a=>a.id===s.id)).map(s=>s.id)};
     delete data.stools;
   }
-  data.date=iso; data.updatedAt=new Date().toISOString();
+  data.date=cleanIso; data.updatedAt=new Date().toISOString();
   return write(op);
 }
 function moveStool(from,to,stool,original=null){
-  if(!validDate(from)||!validDate(to)||to>localToday()||from===to){storeError(Error('Choose a valid stool date on or before today'));return false;}
-  const old=(S.days[from]?.stools||[]).find(s=>s.id===stool.id);
+  const cleanFrom=typeof from==='string'?esc(from):from, cleanTo=typeof to==='string'?esc(to):to;
+  if(!validDate(cleanFrom)||!validDate(cleanTo)||cleanTo>localToday()||cleanFrom===cleanTo){storeError(Error('Choose a valid stool date on or before today'));return false;}
+  const old=(S.days[cleanFrom]?.stools||[]).find(s=>s.id===stool.id);
   if(!old||!stool.id){storeError(Error('The original stool could not be found'));return false;}
   const updatedAt=new Date().toISOString();
   // Transfer the current source record; patch only fields this form can edit.
   // A snapshot arriving during the draft must not overwrite newer legacy fields.
   const baseline=original||old, patch={id:stool.id};
   for(const k of ['time','bristol','mucus','blood']) if(stool[k]!==baseline[k]) patch[k]=stool[k];
-  const move={from,to,id:stool.id,patch,updatedAt};
-  try{stoolMovePatches(move,S.days[from],S.days[to]);}catch(e){storeError(e);return false;}
+  const move={from:cleanFrom,to:cleanTo,id:stool.id,patch,updatedAt};
+  try{stoolMovePatches(move,S.days[cleanFrom],S.days[cleanTo]);}catch(e){storeError(e);return false;}
   // One durable entry, one remote transaction. The ordinary items also retain
   // a readable representation for an older application with a pending outbox.
   return write({move,items:[
-    {col:'days',id:from,patch:{date:from,updatedAt},stools:{put:[],drop:[stool.id]}},
-    {col:'days',id:to,patch:{date:to,updatedAt},stools:{put:[{...old,...stool}],drop:[]}}
+    {col:'days',id:cleanFrom,patch:{date:cleanFrom,updatedAt},stools:{put:[],drop:[stool.id]}},
+    {col:'days',id:cleanTo,patch:{date:cleanTo,updatedAt},stools:{put:[{...old,...stool}],drop:[]}}
   ]});
 }
 function saveSettings(patch){
@@ -1767,7 +1772,6 @@ matchMedia('(prefers-color-scheme: light)').addEventListener('change',applyTheme
 
 const $  = (q,r)=> (r||document).querySelector(q);
 const $$ = (q,r)=> Array.from((r||document).querySelectorAll(q));
-const esc = (s)=> String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 let derivedCache={};
 function cached(key,fn){
@@ -1861,14 +1865,17 @@ function weightConditionFold(iso){
 function refreshWeightConditionViews(){
   for(const el of $$('[data-weight-summary]')){
     // A midnight draft keeps its rendered date until the whole page can advance.
-    const html=weightConditionContent(el.dataset.date,el.dataset.weightSummary!=='body');
+    const date=esc(el.dataset.date);
+    const html=weightConditionContent(date,el.dataset.weightSummary!=='body');
     if(el.innerHTML!==html)el.innerHTML=html;
   }
   for(const el of $$('[data-weight-strip]')){
-    const html=weightConditionStrip(el.dataset.date);if(el.innerHTML!==html)el.innerHTML=html;
+    const date=esc(el.dataset.date);
+    const html=weightConditionStrip(date);if(el.innerHTML!==html)el.innerHTML=html;
   }
   for(const el of $$('[data-weight-hint]')){
-    const html=weightHintContent(el.dataset.date,el.hasAttribute('data-brief'));if(el.innerHTML!==html)el.innerHTML=html;
+    const date=esc(el.dataset.date);
+    const html=weightHintContent(date,el.hasAttribute('data-brief'));if(el.innerHTML!==html)el.innerHTML=html;
   }
   const announcement=$('#weight-announcement'), tab=normalizeTab(S.tab);
   const iso=tab==='day'?(S.cursor||shiftDate(localToday(),-1)):$('#main [data-weight-summary]')?.dataset.date||localToday();
@@ -2090,7 +2097,8 @@ const bowlLabel=k=>k==='left'?'Left some':k?k[0].toUpperCase()+k.slice(1):'';
 function refreshTodoCard(){
   const current=S.tab==='today'&&$('#main [data-todo]');
   if(!current?.isEqualNode)return;
-  const template=document.createElement('template');template.innerHTML=todoCard(current.dataset.todo);
+  const todoDate=esc(current.dataset.todo);
+  const template=document.createElement('template');template.innerHTML=todoCard(todoDate);
   const next=template.content.firstElementChild;
   if(next.isEqualNode(current))return;
   // Every control here has a stable ID; a control that disappears hands focus to the card.
@@ -2225,7 +2233,8 @@ function foldSummary(kind,iso){
 }
 function refreshFoldSummaries(){
   for(const el of $$('[data-fold-summary]')){
-    const html=foldSummary(el.dataset.foldSummary,el.dataset.date);if(el.innerHTML!==html)el.innerHTML=html;
+    const foldKind=esc(el.dataset.foldSummary), foldDate=esc(el.dataset.date);
+    const html=foldSummary(foldKind,foldDate);if(el.innerHTML!==html)el.innerHTML=html;
   }
 }
 function switchRow(id,label,value,detail,attributes){
@@ -2431,9 +2440,10 @@ function stoolsCard(iso,previousMeal=false){
   const previous=previousMeal?`<div class="previous-meal">${mealEditor(shiftDate(iso,-1),false,'',true,meal)}</div>`:'';
   return panel('Stools',`<div data-stool-log="${iso}">${rows||'<p class="muted">None logged.</p>'}${form}</div>`+previous,'stools-'+iso);
 }
-function refreshStoolLog(iso){
+function refreshStoolLog(rawIso){
   // Completing a stool entry must not replace another section's unfinished form,
   // including the previous-meal editor nested beside this log.
+  const iso=esc(rawIso);
   const log=document.querySelector(`[data-stool-log="${iso}"]`);
   if(log){
     const expanded=Array.from(log.querySelectorAll('details[id]'),el=>[el.id,el.open]), focus=document.activeElement?.id;
@@ -2514,13 +2524,14 @@ function refreshMealPlans(){
     }
   }
   for(const el of $$('[data-meal-context]')){
-    const html=todayMealContext(el.dataset.mealContext);if(el.innerHTML!==html&&!sameMarkup(el,html))el.innerHTML=html;
+    const iso=esc(el.dataset.mealContext);
+    const html=todayMealContext(iso);if(el.innerHTML!==html&&!sameMarkup(el,html))el.innerHTML=html;
   }
   for(const el of $$('[data-live-unfeed]')){
-    const iso=el.dataset.liveUnfeed,html=liveUnfeedControl(iso,plannedMeal(iso));if(el.innerHTML!==html&&!sameMarkup(el,html))el.innerHTML=html;
+    const iso=esc(el.dataset.liveUnfeed),html=liveUnfeedControl(iso,plannedMeal(iso));if(el.innerHTML!==html&&!sameMarkup(el,html))el.innerHTML=html;
   }
   for(const el of $$('[data-live-feeding]')){
-    const iso=el.dataset.liveFeeding,m=plannedMeal(iso),disabled=!isFedMeal(m);
+    const iso=esc(el.dataset.liveFeeding),m=plannedMeal(iso),disabled=!isFedMeal(m);
     const feeding=liveFeedingControls(iso,m);if(!sameMarkup(el,feeding))el.innerHTML=feeding;
     for(const button of $$('[data-act="bowl"]',el.closest('[data-meal-editor]')))button.disabled=disabled;
     document.querySelector(`[data-bowl-help="${iso}"]`)?.classList.toggle('hide',!disabled);
@@ -2553,7 +2564,7 @@ function announceHistoryDate(){ $('#history-announcement').textContent=historyDa
 let historyDateTyped=false;
 function chooseHistoryDate(input,target='#history-date-label'){
   historyDateTyped=false;
-  const next=input.value, error=$('#history-date-error');
+  const next=input?.value?cleanIsoDate(input.value):'', error=$('#history-date-error');
   if(!next||(S.tab==='day'&&next===S.cursor))return;
   if(!permittedHistoryDate(next)){
     input.setAttribute('aria-invalid','true');
@@ -3637,8 +3648,9 @@ function finishInput(form,keep){
   syncDraftMarkers();refreshTodoCard();
   persistDrafts();
   if(form.dataset.key==='weight'){
-    const toggle=document.getElementById('weight-missed-'+form.dataset.date);
-    if(toggle) toggle.outerHTML=weightSwitch(form.dataset.date,S.days[form.dataset.date]||{});
+    const safeDate=esc(form.dataset.date);
+    const toggle=document.getElementById('weight-missed-'+safeDate);
+    if(toggle) toggle.outerHTML=weightSwitch(safeDate,S.days[safeDate]||{});
   }
   if(renderPending) render();
   if(document.activeElement.id!==input.id) refocus(input.id);
@@ -3811,8 +3823,9 @@ document.addEventListener('click', async (ev)=>{
       if(renderPending){
         const section=document.getElementById(focus)?.closest('section');
         if(section){
+          const safeIso=esc(iso);
           const template=document.createElement('template');
-          template.innerHTML=section.id==='weight-'+iso?weightConditionCard(iso):weightCard(iso);
+          template.innerHTML=section.id==='weight-'+safeIso?weightConditionCard(safeIso):weightCard(safeIso);
           section.replaceWith(template.content.firstElementChild);
         }
       }
@@ -3878,10 +3891,11 @@ document.addEventListener('click', async (ev)=>{
     scheduleDrafts();
 
     const time=$('#st-t'), dateInput=$('#st-date');
+    const rawTime=time?.value?cleanTime(time.value):'', rawDate=dateInput?.value?cleanIsoDate(dateInput.value):'';
     if(time&&dateInput){
       const valid=input=>typeof input.checkValidity==='function'?input.checkValidity():input.reportValidity();
-      const whenError=!valid(time)?['Enter the time of this stool.',time]:
-        !valid(dateInput)||!validDate(dateInput.value)||dateInput.value>localToday()?['Choose a date on or before today.',dateInput]:null;
+      const whenError=!valid(time)||!rawTime?['Enter the time of this stool.',time]:
+        !valid(dateInput)||!rawDate||rawDate>localToday()?['Choose a date on or before today.',dateInput]:null;
       if(whenError){
         const error=$('#st-error');if(error){error.textContent=whenError[0];error.classList.remove('hide');}
         whenError[1].setAttribute?.('aria-invalid','true');whenError[1].focus?.({preventScroll:true});return;
@@ -3893,9 +3907,9 @@ document.addEventListener('click', async (ev)=>{
     }
 
     // Instant stool logging: tapping the rating immediately saves the log entry.
-    const timeVal=(time&&time.value)?time.value:(stoolDraft.time||nowHHMM());
-    const dateVal=(dateInput&&dateInput.value)?dateInput.value:(S.adding||localToday());
-    const originalDate=S.adding||dateVal;
+    const timeVal=rawTime||stoolDraft.time||nowHHMM();
+    const dateVal=rawDate||(S.adding?esc(S.adding):localToday());
+    const originalDate=S.adding?esc(S.adding):dateVal;
     const moving=dateVal!==originalDate&&!!stoolOriginal;
     const edited={...stoolDraft,bristol:type,time:timeVal};
     const list=S.days[dateVal]?.stools||[];
@@ -3934,10 +3948,11 @@ document.addEventListener('click', async (ev)=>{
       $('#main [data-act="stooltype"]')?.focus();return;
     }
     const time=$('#st-t'), dateInput=$('#st-date');
+    const rawTime=time?.value?cleanTime(time.value):'', rawDate=dateInput?.value?cleanIsoDate(dateInput.value):'';
     // Say what is wrong beside the form; a native bubble is easy to miss on iPhone (AG-14).
     const valid=input=>typeof input.checkValidity==='function'?input.checkValidity():input.reportValidity();
-    const whenError=!valid(time)?['Enter the time of this stool.',time]:
-      !valid(dateInput)||!validDate(dateInput.value)||dateInput.value>localToday()?['Choose a date on or before today.',dateInput]:null;
+    const whenError=!valid(time)||!rawTime?['Enter the time of this stool.',time]:
+      !valid(dateInput)||!rawDate||rawDate>localToday()?['Choose a date on or before today.',dateInput]:null;
     if(whenError){
       const error=$('#st-error');if(error){error.textContent=whenError[0];error.classList.remove('hide');}
       whenError[1].setAttribute?.('aria-invalid','true');whenError[1].focus?.({preventScroll:true});return;
@@ -3947,7 +3962,7 @@ document.addEventListener('click', async (ev)=>{
       storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+S.adding+':'+stoolDraft.id);return;
     }
     el.disabled=true;
-    const originalDate=S.adding, date=dateInput.value, list=S.days[date]?.stools||[], edited={...stoolDraft,time:time.value};
+    const originalDate=S.adding?esc(S.adding):rawDate, date=rawDate, list=S.days[date]?.stools||[], edited={...stoolDraft,time:rawTime};
     const moving=date!==originalDate&&!!stoolOriginal;
     const changes=stoolOriginal?Object.fromEntries(['time','bristol','mucus','blood'].filter(k=>edited[k]!==stoolOriginal[k]).map(k=>[k,edited[k]])):{};
     const next=stoolOriginal&&!moving?{...list.find(s=>s.id===stoolOriginal.id),...changes}:edited;
@@ -3991,7 +4006,8 @@ document.addEventListener('click', async (ev)=>{
     if(await saveMeal(iso,{[k]:plannedMeal(iso)[k]!==true,...(k==='oilGiven'&&isEditablePlan(iso,d.meal)?{oilDefaultMode:'manual'}:{})})){
       if(renderPending){
         const current=document.getElementById(focus), m=S.days[iso].meal;
-        if(current) current.outerHTML=switchRow(focus,MEAL_FLAGS[k],m[k],mealFlagDetail(m,k,isEditablePlan(iso,m)),`data-act="extra" data-k="${k}" data-date="${iso}"`);
+        const safeFocus=esc(focus), safeK=esc(k), safeIso=esc(iso);
+        if(current) current.outerHTML=switchRow(safeFocus,MEAL_FLAGS[safeK],m[safeK],mealFlagDetail(m,safeK,isEditablePlan(safeIso,m)),`data-act="extra" data-k="${safeK}" data-date="${safeIso}"`);
       }
       refocus(focus);
     }
@@ -4002,11 +4018,12 @@ document.addEventListener('click', async (ev)=>{
     if (!r||el.disabled) return;
     if (el.dataset.fedTime==='explicit'){
       const form=el.closest('[data-feeding]'), input=$('input',form);
-      if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
+      const fedTime=input?.value?cleanTime(input.value):'';
+      if (!input.reportValidity()||!fedTime||!isFedMeal({recipe:r,fedAt:fedTime})) return;
       el.disabled=true;
       const wasFed=isFedMeal(d.meal);
       const bowlPatch=!wasFed&&meal.bowl==null?{bowl:'cleared'}:(meal.bowl!=null?{bowl:meal.bowl}:{});
-      const saved=saveMeal(iso,{fedAt:input.value,...bowlPatch,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})});
+      const saved=saveMeal(iso,{fedAt:fedTime,...bowlPatch,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})});
       const failureScope=lastSaveFailure;
       if (await saved){
         clearSaveError('feeding:'+input.id);
