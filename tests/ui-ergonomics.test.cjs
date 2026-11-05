@@ -1400,16 +1400,37 @@ test('Instant Stool Logging: rating autosave enforces date and time validity bef
   assert.equal((h.api.S.days[TODAY].stools || []).length, 0);
   assert.equal(h.api.queuedWrites().length, 0, 'no write saved with invalid time');
   assert.equal(h.element('#st-error').textContent, 'Enter the time of this stool.');
+  assert.equal(h.api.draft().bristol, 4, 'draft bristol is updated even when date/time validation fails');
 });
 
-test('Instant Stool Logging: failed quick-log saveDay binds error and handles quota failure', async () => {
+test('Instant Stool Logging: failed quick-log saveDay binds error and clears on retry or dismiss', async () => {
   const h = makeHarness({ days: { [TODAY]: { stools: [] } } });
-  h.storage.set = () => { throw new Error('Quota exceeded'); };
+  let fail = true;
+  h.storage.set = (k, v) => {
+    if (fail) throw new Error('Quota exceeded');
+    Map.prototype.set.call(h.storage, k, v);
+  };
   await h.click('openstool', { b: '4', date: TODAY });
-  assert.ok(h.api.S.localSaveError, 'save error bound on failure');
+  assert.equal(h.api.S.localSaveError, 'quickstool:' + TODAY, 'quickstool error bound on failure');
+
+  // Dismissing the banner acknowledges the instant-action error and restores clean status
+  await h.click('dismiss-banner');
+  assert.equal(h.api.S.localSaveError, null, 'dismiss clears instant-action error');
+
+  // Re-inject failure
+  fail = true;
+  await h.click('openstool', { b: '5', date: TODAY });
+  assert.equal(h.api.S.localSaveError, 'quickstool:' + TODAY);
+
+  // Restoring storage and retrying the quick tap clears the error and saves the stool
+  fail = false;
+  await h.click('openstool', { b: '5', date: TODAY });
+  assert.equal(h.api.S.localSaveError, null, 'successful retry clears error');
+  assert.equal(h.api.S.days[TODAY].stools.length, 1);
+  assert.equal(h.api.S.days[TODAY].stools[0].bristol, 5);
 });
 
-test('BCS-Exclusive DARF Ration Adjustment: decoupled from settings.bcsTarget and discretizes with deadband around ideal 5.0', () => {
+test('BCS-Exclusive DARF Ration Adjustment: decoupled from settings.bcsTarget and discretizes with symmetric deadband around ideal 5.0', () => {
   const { api } = makeHarness();
   const settings = api.S.settings;
 
@@ -1424,26 +1445,48 @@ test('BCS-Exclusive DARF Ration Adjustment: decoupled from settings.bcsTarget an
   assert.equal(at55.applied, true);
   assert.equal(at55.adjustmentG, -5, 'BCS 5.5 reduces by 5 g even when settings.bcsTarget is 6');
 
-  // 2. Deadband around ideal 5.0 (+/-0.25):
+  // 2. Deadband around ideal 5.0 (+/-0.25) and symmetric tie-breaking:
   // Float value 5.06 holds at 0 g (does NOT produce -1 g noise!)
   const at506 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.06, settings });
   assert.equal(at506.applied, false, 'BCS 5.06 holds at 0 g');
   assert.equal(at506.adjustmentG, 0);
 
+  // Exact deadband boundaries: symmetric half-way ties round away from 5.0
+  // 5.25 produces -5 g (1 step down) and 4.75 produces +5 g (1 step up)
+  const at525 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.25, settings });
+  assert.equal(at525.applied, true, 'exact BCS 5.25 reduces by 5 g');
+  assert.equal(at525.adjustmentG, -5);
+
+  const at475 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.75, settings });
+  assert.equal(at475.applied, true, 'exact BCS 4.75 increases by 5 g');
+  assert.equal(at475.adjustmentG, 5);
+
+  // Quarter-point transitions at 0.75: symmetric ties round away from 5.0
+  // 5.75 produces -10 g (2 steps down) and 4.25 produces +10 g (2 steps up)
+  const at575 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.75, settings });
+  assert.equal(at575.applied, true, 'exact BCS 5.75 reduces by 10 g');
+  assert.equal(at575.adjustmentG, -10);
+
+  const at425 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.25, settings });
+  assert.equal(at425.applied, true, 'exact BCS 4.25 increases by 10 g');
+  assert.equal(at425.adjustmentG, 10);
+
+  // Values inside deadband:
   // Float value 5.24 holds at 0 g
   const at524 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.24, settings });
-  assert.equal(at524.applied, false, 'BCS 5.24 holds at 0 g');
+  assert.equal(at524.applied, false, 'BCS 5.24 holds at 0 g inside deadband');
   assert.equal(at524.adjustmentG, 0);
-
-  // Float value 5.26 rounds to 5.5 (-5 g)
-  const at526 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.26, settings });
-  assert.equal(at526.applied, true);
-  assert.equal(at526.adjustmentG, -5);
 
   // Float value 4.76 holds at 0 g inside deadband
   const at476 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.76, settings });
   assert.equal(at476.applied, false, 'BCS 4.76 holds at 0 g inside deadband');
   assert.equal(at476.adjustmentG, 0);
+
+  // Adjacent values just outside deadband:
+  // Float value 5.26 rounds to 5.5 (-5 g)
+  const at526 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.26, settings });
+  assert.equal(at526.applied, true);
+  assert.equal(at526.adjustmentG, -5);
 
   // Float value 4.74 rounds to 4.5 (+5 g)
   const at474 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.74, settings });

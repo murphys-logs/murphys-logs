@@ -839,7 +839,9 @@ function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustm
   const bcs = bcs7dMean;
   // Discretize to clinical half-point steps (e.g. 5.0 -> 0 g, 5.5 -> -5 g, 6.0 -> -10 g, 4.5 -> +5 g, 4.0 -> +10 g).
   // Deviations within +/-0.25 of ideal 5.0 fall in the deadband and hold current ration.
-  const bcsStep = Math.round((BCS_RATION_TARGET - bcs) * 2) / 2;
+  // Symmetric tie-breaking: round magnitude, then restore direction.
+  const bcsDelta = BCS_RATION_TARGET - bcs;
+  const bcsStep = Math.sign(bcsDelta) * Math.round(Math.abs(bcsDelta) * 2) / 2;
   if (Math.abs(bcsStep) < 0.25){
     out.reason = `Body condition score is ideal (${bcs.toFixed(1)} / 9): hold current ration.`;
     return out;
@@ -3815,6 +3817,7 @@ document.addEventListener('click', async (ev)=>{
   }
   if (a==='openstool'||a==='editstool'){
     persistDrafts();
+    clearSaveError('quickstool:'+iso);
     const old=(d.stools||[]).find(x=>x.id===el.dataset.id);
     const type=Number(el.dataset.b);
     // Instant stool logging: tapping a rating on the quick-log row immediately saves the log entry.
@@ -3826,11 +3829,12 @@ document.addEventListener('click', async (ev)=>{
       const saved=await saveDay(iso,{stools:[...list,newStool]});
       const failureScope=lastSaveFailure;
       if(saved){
+        clearSaveError('quickstool:'+iso);
         clearSaveError('stool:'+iso+':'+newStool.id);
         persistDrafts();render(true);
         focusAfterRender(`[data-act="editstool"][data-id="${CSS.escape(newStool.id)}"][data-date="${iso}"]`);
       } else {
-        bindSaveError('stool:'+iso+':'+newStool.id,failureScope);
+        bindSaveError('quickstool:'+iso,failureScope);
         focusAfterRender('#add-stool-'+iso);
       }
       return;
@@ -3865,6 +3869,8 @@ document.addEventListener('click', async (ev)=>{
     if (!type||!BRISTOL[type]) return;
     stoolDraft.bristol=type;
     $('#st-error')?.classList.add('hide');
+    $$('#main [data-act="stooltype"]').forEach(b=>{const on=Number(b.dataset.b)===type;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
+    scheduleDrafts();
 
     const time=$('#st-t'), dateInput=$('#st-date');
     if(time&&dateInput){
