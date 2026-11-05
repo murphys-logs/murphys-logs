@@ -1850,9 +1850,6 @@ function weightConditionContent(iso,heading=true){
       ${conditionMean.mean!==null?`<p class="sub">7-day mean ${conditionMean.mean.toFixed(1)} · ${conditionMean.n} reading${conditionMean.n===1?'':'s'}.</p>`:''}
     </div></div>`;
 }
-function weightConditionSummary(iso){
-  return `<section class="card sec weight-condition" data-weight-summary data-date="${iso}">${weightConditionContent(iso)}</section>`;
-}
 // One glanceable line for Today; the full assessment stays one tap away.
 function weightConditionStrip(iso){
   const {latest,condition}=weightOverview(iso);
@@ -2671,7 +2668,6 @@ function viewReview(){
     `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range" aria-describedby="trend-range-note">${rangeChips(range,'range')}</div><p class="sub range-note" id="trend-range-note">Applies to History and Review.</p><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],5.0,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
     `<details class="card" id="review-comparisons"><summary class="sec">Food &amp; recipe comparisons <span class="fold-strip">${rangeLabel} · by recipe, extra and tonight’s DARF</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Comparison range" aria-describedby="comp-range-note">${rangeChips(range,'comp-range')}</div><p class="sub range-note" id="comp-range-note">Applies to History and Review.</p><p class="lab">By recipe</p>${foodTable(isos,false)}</div><div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></details>`;
 }
-const viewStatus=viewReview;
 
 function weekContext(today){
   const end=toDay(today);
@@ -3042,7 +3038,6 @@ function viewSettings(){
         <p class="sub">Deletes days and changes; keeps settings. Export first.</p>
       </div>`,'settings-advanced');
 }
-const viewMore=viewSettings;
 
 /* EXPORT */
 function download(name, text, type){
