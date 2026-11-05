@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.10.0">
+<html lang="en-GB" data-version="3.11.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -401,10 +401,10 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 .datebar button[disabled]{opacity:.28}
 .datebar .d{font-size:1.0625rem;font-weight:600;font-variant-numeric:tabular-nums;min-width:0;text-align:center;line-height:1.4;overflow-wrap:anywhere}
 /* The native date field covers the label: one tap opens the system picker. */
-.date-choice{position:relative;display:block;padding-block:2px;border-radius:8px}
+.date-choice{position:relative;display:flex;flex-direction:column;justify-content:center;min-height:44px;padding-block:2px;border-radius:8px}
 .date-choice:has(.date-overlay:focus-visible){outline:3px solid var(--accent);outline-offset:2px}
 .date-hint{display:block;font-size:.8125rem;font-weight:500;color:var(--ink-3)}
-.date-overlay{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:0;border:0;opacity:0;cursor:pointer;-webkit-appearance:none;appearance:none}
+.date-overlay{position:absolute;inset:0;width:100%;height:100%;min-height:44px;margin:0;padding:0;border:0;opacity:0;cursor:pointer;-webkit-appearance:none;appearance:none}
 .history-date-error{text-align:center}
 
 /* misc */
@@ -617,7 +617,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.10.0';
+const APP_VERSION = '3.11.0';
 
 /* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
    Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'
@@ -829,20 +829,23 @@ function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustm
   }
 
   // BCS is the sole deciding factor for changing DARF ration. Weight trends are decoupled.
+  // The clinical ideal reference is 5.0 on the 9-point WSAVA scale, decoupled from legacy chart settings.
+  const BCS_RATION_TARGET = 5.0;
   if (bcs7dMean === null || !Number.isFinite(bcs7dMean)){
     out.reason = 'No Body Condition Score (BCS) recorded in the assessment period: ration held.';
     return out;
   }
 
   const bcs = bcs7dMean;
-  const target = cfg.bcsTarget ?? 5.0;
-  if (Math.abs(bcs - target) < 0.05){
+  // Discretize to clinical half-point steps (e.g. 5.0 -> 0 g, 5.5 -> -5 g, 6.0 -> -10 g, 4.5 -> +5 g, 4.0 -> +10 g).
+  // Deviations within +/-0.25 of ideal 5.0 fall in the deadband and hold current ration.
+  const bcsStep = Math.round((BCS_RATION_TARGET - bcs) * 2) / 2;
+  if (Math.abs(bcsStep) < 0.25){
     out.reason = `Body condition score is ideal (${bcs.toFixed(1)} / 9): hold current ration.`;
     return out;
   }
 
-  const bcsDelta = target - bcs;
-  const rawStep = bcsDelta * 10;
+  const rawStep = bcsStep * 10;
   out.rawStepG = rawStep;
   let step = Math.round(rawStep);
 
@@ -860,7 +863,7 @@ function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustm
   }
 
   out.adjustmentG = step; out.applied = true;
-  out.reason = `Mean condition score ${bcs.toFixed(1)} is ${bcs > target ? 'above' : 'below'} ideal (${target.toFixed(1)}): `
+  out.reason = `Mean condition score ${bcs.toFixed(1)} is ${bcs > BCS_RATION_TARGET ? 'above' : 'below'} ideal (${BCS_RATION_TARGET.toFixed(1)}): `
     + `${step > 0 ? 'increase' : 'reduce'} DARF by ${Math.abs(step)} g`
     + (out.limitedBy ? ` and held at the ${out.limitedBy==='maxStepG'?'single-step':'cumulative'} cap.` : '.');
   return out;
@@ -2128,13 +2131,13 @@ const settingsSpec={
   kcalPerGDarf:{label:'DARF, kcal per g',min:.01,max:10000,step:.01,help:'Energy per gram, as stated for the food you use.'},
   kcalPerMlOil:{label:'Oil, kcal per ml',min:.01,max:10000,step:.01,help:'Energy per millilitre of salmon oil.'},
   darfMinG:{label:'DARF portion floor, g',min:1,max:10000,step:1,help:'The smallest planned DARF portion when calories remain.'},
-  deadbandPct:{label:'Weekly weight-change threshold, %',min:0,max:100,step:.1,help:`Changes between weekly averages smaller than this percentage do not trigger a ration adjustment. The fixed ${WEIGHT_TARGET_TEXT} target range is assessed separately.`},
-  damping:{label:'Adjustment fraction',min:.005,max:1,step:.005,help:'The fraction of the calculated correction to use. 0.125 means one eighth.'},
+  deadbandPct:{label:'Weekly weight-change threshold, %',min:0,max:100,step:.1,help:`Legacy weight-trend threshold. Weekly DARF ration adjustments are now decided solely by Body Condition Score (BCS). The fixed ${WEIGHT_TARGET_TEXT} target range is assessed separately.`},
+  damping:{label:'Adjustment fraction',min:.005,max:1,step:.005,help:'Legacy weight-trend damping fraction. Ration adjustments are now decided solely by Body Condition Score (BCS).'},
   maxStepG:{label:'Maximum weekly step, g',min:1,max:10000,step:1,help:'Limits the size of a single weekly adjustment.'},
   maxCumulativeG:{label:'Maximum total adjustment, g',min:1,max:10000,step:1,help:'Limits the combined adjustment above or below the base ration.'},
-  minWeighIns:{label:'Weigh-ins needed per week',min:1,max:7,step:1,help:'Each comparison week needs this many recorded weights.'},
-  kcalPerKgTissue:{label:'Tissue energy, kcal per kg',min:1,max:10000,step:1,help:'The energy conversion used by the existing weekly weight rule.'},
-  bcsHoldAtOrBelow:{label:'Hold reductions at or below condition score',min:0,max:9,step:.5,help:'A mean condition score at or below this value holds a reduction. Zero disables this hold.'}
+  minWeighIns:{label:'Weigh-ins needed per week',min:1,max:7,step:1,help:'Legacy requirement for weight-trend evaluations. Weekly ration changes are now governed by Body Condition Score (BCS).'},
+  kcalPerKgTissue:{label:'Tissue energy, kcal per kg',min:1,max:10000,step:1,help:'Legacy tissue energy conversion parameter for weight-trend adjustments.'},
+  bcsHoldAtOrBelow:{label:'Hold reductions at or below condition score',min:0,max:9,step:.5,help:'Legacy threshold. Current ration adjustments directly step by Body Condition Score against ideal 5.0.'}
 };
 // Import limits for active settings without an editor. The day-count ceiling
 // bounds loops and rendered markers; it is not a clinical recommendation.
@@ -2646,7 +2649,7 @@ function viewReview(){
     panel('Vet items',vetHtml)+
     panel("This week’s ration",advResult+rationExplain)+
     panel('Pro-Fibre',fibResult+fibExplain)+
-    `<details class="card weight-condition" id="review-weight-condition"><summary class="sec">Weight &amp; condition <span class="assessment-strip" data-weight-strip data-date="${today}">${weightConditionStrip(today)}</span></summary><div class="sec"><div data-weight-summary="body" data-date="${today}">${weightConditionContent(today,false)}</div><div class="review-subsec"><p class="lab">Weight averages</p>${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}</div><div class="review-subsec"><p class="lab">Condition averages</p>${meanRows(today,false,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}<p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body condition is subjective. Scores in this range do not alone call for a ration change. Weight-trend reductions retain the configured hold at or below ${s.bcsHoldAtOrBelow}.</p></div></div></details>`+
+    `<details class="card weight-condition" id="review-weight-condition"><summary class="sec">Weight &amp; condition <span class="assessment-strip" data-weight-strip data-date="${today}">${weightConditionStrip(today)}</span></summary><div class="sec"><div data-weight-summary="body" data-date="${today}">${weightConditionContent(today,false)}</div><div class="review-subsec"><p class="lab">Weight averages</p>${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}</div><div class="review-subsec"><p class="lab">Condition averages</p>${meanRows(today,false,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}<p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body Condition Score (BCS) directly governs weekly DARF ration adjustments, while weight trends and the 5-entry mean are tracked for ongoing health monitoring.</p></div></div></details>`+
     `<details class="card" id="review-week-context"><summary class="sec">This week against last <span class="fold-strip">Walks, bowl, treats and extras</span></summary><div class="sec">${ctx}</div></details>`+
     `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range" aria-describedby="trend-range-note">${rangeChips(range,'range')}</div><p class="sub range-note" id="trend-range-note">Applies to History and Review.</p><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
     `<details class="card" id="review-comparisons"><summary class="sec">Food &amp; recipe comparisons <span class="fold-strip">${rangeLabel} · by recipe, extra and tonight’s DARF</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Comparison range" aria-describedby="comp-range-note">${rangeChips(range,'comp-range')}</div><p class="sub range-note" id="comp-range-note">Applies to History and Review.</p><p class="lab">By recipe</p>${foodTable(isos,false)}</div><div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></details>`;
@@ -2991,6 +2994,7 @@ function viewSettings(){
       </div>
       <div class="review-subsec">
         <h3 class="lab">Weekly ration rule</h3>
+        <p class="sub">Ration adjustment is governed solely by Body Condition Score (BCS). Cap parameters apply; weight-trend parameters are retained for historical configuration and backup compatibility.</p>
         <div class="stack">
           ${num('deadbandPct')}
           ${num('damping')}
@@ -3819,9 +3823,16 @@ document.addEventListener('click', async (ev)=>{
       const newStool={id:'s'+crypto.randomUUID(),time:nowHHMM(),bristol:type,mucus:false,blood:false};
       const list=S.days[iso]?.stools||[];
       S.adding=null;stoolDraft=null;stoolOriginal=null;
-      await saveDay(iso,{stools:[...list,newStool]});
-      persistDrafts();render(true);
-      focusAfterRender(`[data-act="editstool"][data-id="${CSS.escape(newStool.id)}"][data-date="${iso}"]`);
+      const saved=await saveDay(iso,{stools:[...list,newStool]});
+      const failureScope=lastSaveFailure;
+      if(saved){
+        clearSaveError('stool:'+iso+':'+newStool.id);
+        persistDrafts();render(true);
+        focusAfterRender(`[data-act="editstool"][data-id="${CSS.escape(newStool.id)}"][data-date="${iso}"]`);
+      } else {
+        bindSaveError('stool:'+iso+':'+newStool.id,failureScope);
+        focusAfterRender('#add-stool-'+iso);
+      }
       return;
     }
     // New-entry buttons honour the tapped type; hidden new drafts have their own resume links.
@@ -3832,7 +3843,7 @@ document.addEventListener('click', async (ev)=>{
     }
     stoolReturnFocus=el.id?'#'+CSS.escape(el.id):old?`[data-act="editstool"][data-id="${CSS.escape(old.id)}"][data-date="${iso}"]`:`[data-act="openstool"][data-date="${iso}"]`;
     stoolOriginal=old?{...old}:null;
-    // A quick-log type arrives preselected, so Save is the only remaining tap.
+    // A quick-log type arrives preselected, so Save or tapping a rating will save the log entry.
     stoolDraft=old?{...old}:{id:'s'+crypto.randomUUID(),time:nowHHMM(),mucus:false,blood:false,...(BRISTOL[type]?{bristol:type}:{})};
     S.adding=iso;activeStoolKey=null;
     pendingDraft={fields:draftFields,expanded:draftExpanded};
@@ -3854,9 +3865,24 @@ document.addEventListener('click', async (ev)=>{
     if (!type||!BRISTOL[type]) return;
     stoolDraft.bristol=type;
     $('#st-error')?.classList.add('hide');
+
+    const time=$('#st-t'), dateInput=$('#st-date');
+    if(time&&dateInput){
+      const valid=input=>typeof input.checkValidity==='function'?input.checkValidity():input.reportValidity();
+      const whenError=!valid(time)?['Enter the time of this stool.',time]:
+        !valid(dateInput)||!validDate(dateInput.value)||dateInput.value>localToday()?['Choose a date on or before today.',dateInput]:null;
+      if(whenError){
+        const error=$('#st-error');if(error){error.textContent=whenError[0];error.classList.remove('hide');}
+        whenError[1].setAttribute?.('aria-invalid','true');whenError[1].focus?.({preventScroll:true});return;
+      }
+      time.removeAttribute?.('aria-invalid');dateInput.removeAttribute?.('aria-invalid');
+    }
+    if(stoolOriginal&&!(S.days[S.adding]?.stools||[]).some(s=>s.id===stoolOriginal.id)){
+      storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+S.adding+':'+stoolDraft.id);return;
+    }
+
     // Instant stool logging: tapping the rating immediately saves the log entry.
-    const timeInput=$('#st-t'), dateInput=$('#st-date');
-    const timeVal=(timeInput&&timeInput.value)?timeInput.value:(stoolDraft.time||nowHHMM());
+    const timeVal=(time&&time.value)?time.value:(stoolDraft.time||nowHHMM());
     const dateVal=(dateInput&&dateInput.value)?dateInput.value:(S.adding||localToday());
     const originalDate=S.adding||dateVal;
     const moving=dateVal!==originalDate&&!!stoolOriginal;
@@ -3967,7 +3993,9 @@ document.addEventListener('click', async (ev)=>{
       const form=el.closest('[data-feeding]'), input=$('input',form);
       if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
       el.disabled=true;
-      const saved=saveMeal(iso,{fedAt:input.value,bowl:meal.bowl??'cleared',...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})});
+      const wasFed=isFedMeal(d.meal);
+      const bowlPatch=!wasFed&&meal.bowl==null?{bowl:'cleared'}:(meal.bowl!=null?{bowl:meal.bowl}:{});
+      const saved=saveMeal(iso,{fedAt:input.value,...bowlPatch,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})});
       const failureScope=lastSaveFailure;
       if (await saved){
         clearSaveError('feeding:'+input.id);

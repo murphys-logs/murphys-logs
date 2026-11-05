@@ -831,7 +831,7 @@ test('release identifiers stay aligned across HTML shell, module and service wor
   const htmlVer = html.match(/<html[^>]*data-version="([^"]+)"/)?.[1];
   const swVer = swSource.match(/const VERSION = '([^']+)'/)?.[1];
   const h = makeHarness();
-  assert.equal(htmlVer, '3.10.0');
+  assert.equal(htmlVer, '3.11.0');
   assert.equal(h.api.APP_VERSION, htmlVer);
   assert.equal(swVer, htmlVer);
 });
@@ -949,7 +949,7 @@ test('Settings monthly export handles 1 November and year/leap boundaries, expor
   // Separate Full backup exports everything as JSON:
   await h.click('exportall');
   assert.equal(h.api.downloads[3][0], 'Murphy_Log_backup_2026-11-01.json');
-  assert.match(h.api.downloads[3][1], /"version": "3\.10\.0"/);
+  assert.match(h.api.downloads[3][1], /"version": "3\.11\.0"/);
   assert.equal(h.storage.size, 0, 'selecting months, formats and exporting writes nothing to storage');
 
   // Empty-account check on 1 November, 1 January and leap-year 1 March:
@@ -1324,4 +1324,129 @@ test('BCS-Exclusive DARF Ration Adjustment: BCS is the sole deciding factor; wei
   assert.equal(adjNull.applied, false);
   assert.equal(adjNull.adjustmentG, 0);
   assert.match(adjNull.reason, /No Body Condition Score/);
+});
+
+test('Zero-Friction Bowl Logging: editing feeding time on an already-fed meal preserves an explicitly unmarked bowl', async () => {
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'beef', darfPlanned: 150 } } } });
+  // Initial mark as fed auto-clears bowl
+  await h.click('fed', { date: TODAY }, 'meal-fed-action-' + TODAY);
+  assert.equal(h.api.S.days[TODAY].meal.fedAt !== null, true);
+  assert.equal(h.api.S.days[TODAY].meal.bowl, 'cleared');
+
+  // Explicitly unmark bowl by clicking 'cleared'
+  await h.click('bowl', { date: TODAY, k: 'cleared' });
+  assert.ok(h.api.S.days[TODAY].meal.bowl == null, 'bowl is unmarked');
+
+  // Edit feeding time via explicit input
+  const inputEl = { id: 'in-fedAt-' + TODAY, value: '19:45', defaultValue: '18:00', reportValidity: () => true };
+  const formEl = { querySelector: sel => sel === 'input' ? inputEl : null, removeAttribute() {} };
+  const target = {
+    id: 'save-feeding-' + TODAY,
+    dataset: { act: 'savefeedingtime', date: TODAY, fedTime: 'explicit' },
+    disabled: false,
+    querySelector: () => null,
+    closest: sel => sel === '[data-feeding]' ? formEl : target,
+    removeAttribute() {},
+    focus() {}
+  };
+  await h.dispatch('click', { target });
+
+  // Time updated, but bowl remains unmarked (not reverted to 'cleared')
+  assert.equal(h.api.S.days[TODAY].meal.fedAt, '19:45');
+  assert.ok(h.api.S.days[TODAY].meal.bowl == null, 'unmarked bowl state is preserved after time edit');
+});
+
+test('Instant Stool Logging: rating autosave on a deleted stool aborts safely and prevents outbox corruption', async () => {
+  const origStool = { id: 's-orig-del', time: '08:00', bristol: 4, mucus: false, blood: false };
+  const h = makeHarness({ days: { [TODAY]: { stools: [origStool] } } });
+  h.api.S.adding = TODAY;
+  h.api.setDraft({ ...origStool }, { ...origStool });
+  h.element('#st-t').value = '08:00';
+  h.element('#st-date').value = TODAY;
+
+  // Stool is deleted while form is still open
+  h.api.S.days[TODAY].stools = [];
+
+  // Tapping rating 5
+  await h.click('stooltype', { b: '5' });
+
+  // Missing-original guard stops save and records error
+  assert.equal((h.api.S.days[TODAY].stools || []).length, 0);
+  assert.equal(h.api.queuedWrites().length, 0, 'no malformed write queued to outbox');
+  assert.ok(h.api.S.localSaveError, 'save error was recorded');
+  assert.match(h.api.S.banner?.text, /removed or moved elsewhere/);
+});
+
+test('Instant Stool Logging: rating autosave enforces date and time validity before write', async () => {
+  const h = makeHarness({ days: { [TODAY]: { stools: [] } } });
+  h.api.S.adding = TODAY;
+  h.api.setDraft({ id: 's-validate', time: '08:00', bristol: 3, mucus: false, blood: false });
+
+  // 1. Future date rejects write
+  h.element('#st-t').value = '08:00';
+  h.element('#st-date').value = '2099-01-01';
+  await h.click('stooltype', { b: '4' });
+  assert.equal((h.api.S.days[TODAY].stools || []).length, 0);
+  assert.equal((h.api.S.days['2099-01-01']?.stools || []).length, 0);
+  assert.equal(h.api.queuedWrites().length, 0, 'no future write saved');
+  assert.equal(h.element('#st-error').textContent, 'Choose a date on or before today.');
+
+  // 2. Invalid time rejects write
+  h.element('#st-date').value = TODAY;
+  h.element('#st-t').value = '';
+  h.element('#st-t').checkValidity = () => false;
+  h.element('#st-t').reportValidity = () => false;
+  await h.click('stooltype', { b: '4' });
+  assert.equal((h.api.S.days[TODAY].stools || []).length, 0);
+  assert.equal(h.api.queuedWrites().length, 0, 'no write saved with invalid time');
+  assert.equal(h.element('#st-error').textContent, 'Enter the time of this stool.');
+});
+
+test('Instant Stool Logging: failed quick-log saveDay binds error and handles quota failure', async () => {
+  const h = makeHarness({ days: { [TODAY]: { stools: [] } } });
+  h.storage.set = () => { throw new Error('Quota exceeded'); };
+  await h.click('openstool', { b: '4', date: TODAY });
+  assert.ok(h.api.S.localSaveError, 'save error bound on failure');
+});
+
+test('BCS-Exclusive DARF Ration Adjustment: decoupled from settings.bcsTarget and discretizes with deadband around ideal 5.0', () => {
+  const { api } = makeHarness();
+  const settings = api.S.settings;
+
+  // 1. Decoupled from settings.bcsTarget:
+  // Even if legacy chart setting bcsTarget is set to 6, 5.0 holds at 0 g, and 5.5 reduces by -5 g
+  const settingsWithBcs6 = { ...settings, bcsTarget: 6 };
+  const at50 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.0, settings: settingsWithBcs6 });
+  assert.equal(at50.applied, false, 'BCS 5.0 holds at 0 g even when settings.bcsTarget is 6');
+  assert.equal(at50.adjustmentG, 0);
+
+  const at55 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.5, settings: settingsWithBcs6 });
+  assert.equal(at55.applied, true);
+  assert.equal(at55.adjustmentG, -5, 'BCS 5.5 reduces by 5 g even when settings.bcsTarget is 6');
+
+  // 2. Deadband around ideal 5.0 (+/-0.25):
+  // Float value 5.06 holds at 0 g (does NOT produce -1 g noise!)
+  const at506 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.06, settings });
+  assert.equal(at506.applied, false, 'BCS 5.06 holds at 0 g');
+  assert.equal(at506.adjustmentG, 0);
+
+  // Float value 5.24 holds at 0 g
+  const at524 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.24, settings });
+  assert.equal(at524.applied, false, 'BCS 5.24 holds at 0 g');
+  assert.equal(at524.adjustmentG, 0);
+
+  // Float value 5.26 rounds to 5.5 (-5 g)
+  const at526 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.26, settings });
+  assert.equal(at526.applied, true);
+  assert.equal(at526.adjustmentG, -5);
+
+  // Float value 4.76 holds at 0 g inside deadband
+  const at476 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.76, settings });
+  assert.equal(at476.applied, false, 'BCS 4.76 holds at 0 g inside deadband');
+  assert.equal(at476.adjustmentG, 0);
+
+  // Float value 4.74 rounds to 4.5 (+5 g)
+  const at474 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.74, settings });
+  assert.equal(at474.applied, true);
+  assert.equal(at474.adjustmentG, 5);
 });
