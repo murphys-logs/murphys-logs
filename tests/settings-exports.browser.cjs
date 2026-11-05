@@ -295,7 +295,7 @@ async function main() {
       ]);
       assert.equal(jsonDownload.suggestedFilename(), 'Murphy_Log_backup_2026-11-01.json');
       const backupObj = JSON.parse(await readDownloadText(jsonDownload));
-      assert.equal(backupObj.version, '3.10.0');
+      assert.equal(backupObj.version, '3.11.0');
       assert.ok(backupObj.days['2025-12-30'] && backupObj.days['2026-10-31'] && backupObj.days['2026-11-01']);
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'exports write nothing to outbox');
 
