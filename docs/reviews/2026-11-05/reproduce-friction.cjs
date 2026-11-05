@@ -4,14 +4,19 @@
 // audit evidence, not regression tests of the desired outcome.
 // Synthetic data only. Every non-local URL is aborted; Firebase is replaced by a
 // local stub module. No production account, Firebase project or data is touched.
-// Run from the repository root: node docs/reviews/2026-11-05/reproduce-friction.cjs
+// These probes describe app 3.9.2. 3.10.0 fixes CR-01..CR-03 and CR-05..CR-09, so
+// run them against the reviewed baseline (APP_HTML) to see the original behaviour:
+//   git show 5590437:index.html > /tmp/murphy-3.9.2.html
+//   APP_HTML=/tmp/murphy-3.9.2.html node docs/reviews/2026-11-05/reproduce-friction.cjs
+// CR-04's original assertion depended on a permanently withheld Web Lock (Codex review):
+// it is kept as a record of the 3.9.2 harness result, not as evidence of a device defect.
 // PLAYWRIGHT_MODULE / BROWSER_EXECUTABLE follow the existing browser suites.
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(__dirname, '../../..');
-const original = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+const original = fs.readFileSync(process.env.APP_HTML || path.join(root, 'index.html'), 'utf8');
 const origin = 'http://127.0.0.1:8877';
 const shellScript = /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/i;
 const expose = (_, body, end) => body + `
@@ -62,7 +67,8 @@ async function main() {
       if (u.origin !== origin) { external.push(u.href); return route.abort(); }
       if (u.pathname === '/index.html') return route.fulfill({contentType:'text/html',body});
       if (u.pathname === '/firebase-stub.js') return route.fulfill({contentType:'application/javascript',body:stub});
-      return route.fulfill({status:404,body:''});
+      // AG-12: stock Chromium aborts navigation to an empty, untyped 404.
+      return route.fulfill({status:404,contentType:'text/html',body:'not found'});
     });
     return ctx;
   }

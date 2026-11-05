@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.9.2">
+<html lang="en-GB" data-version="3.10.0">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -102,7 +102,11 @@ input,select,textarea,[tabindex="-1"]{scroll-margin-block:calc(var(--headerh) + 
   display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:var(--s2) var(--s3);
 }
 .topbar .who{font-size:1rem;font-weight:650;letter-spacing:-.02em}
-.topbar .state{font-size:.75rem;color:var(--ink-3)}
+.topbar .state{font-size:.875rem;font-weight:600;color:var(--ink-2)}
+/* The sync state is the owner's main signal in poor coverage: readable, tappable, with a count. */
+.sync-chip{display:inline-flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-end;gap:0 8px;min-height:44px;margin-block:-10px -6px;padding:6px 0 6px 8px;text-align:right;max-width:100%}
+.sync-count{font-size:.875rem;font-weight:650;color:var(--watch);font-variant-numeric:tabular-nums}
+.sync-count:empty{display:none}
 .topbar .state.warn{color:var(--watch)}
 .topbar .state.bad{color:var(--alert)}
 
@@ -213,6 +217,8 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .chip{font-size:.9375rem;padding:var(--s2) var(--s3);border:1px solid var(--rule-2);border-radius:9px;color:var(--ink-2);background:transparent}
 .chip.on,.seg button.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
 .chip.on.ev{background:var(--accent);border-color:var(--accent)}
+.unsaved-chip{border:2px solid var(--watch);color:var(--ink);font-weight:650}
+.unsaved-chips+.chips{margin-top:var(--s2)}
 
 /* segmented */
 .seg{display:flex;border:1px solid var(--rule-2);border-radius:8px;overflow:hidden}
@@ -453,7 +459,8 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   <div class="gate-card">
     <h1>Murphy’s Logs</h1>
     <p class="sub">Stools, weight, condition and the evening bowl.</p>
-    <div class="stack">
+    <p class="muted" id="gate-opening" role="status">Opening Murphy’s Logs…</p>
+    <div class="stack hide" id="gate-form">
       <div>
         <label class="inline-lab" for="em">Email</label>
         <input class="tin" type="email" id="em" autocomplete="username" inputmode="email" autocapitalize="off" spellcheck="false" enterkeyhint="next">
@@ -466,14 +473,14 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
       <button class="btn ghost hide" id="boot-retry" type="button">Try loading again</button>
     </div>
     <p class="err hide" id="gate-err" role="alert"></p>
-    <p class="muted" style="margin-top:22px">Sign in with your existing Murphy’s Logs account to continue.</p>
+    <p class="muted hide" id="gate-help" style="margin-top:22px">Sign in with your existing Murphy’s Logs account to continue.</p>
   </div>
 </div>
 
 <div id="app" class="hide">
   <div class="topbar">
     <span class="who">Murphy’s Logs</span>
-    <span class="state" id="state" role="status">Connecting</span>
+    <button type="button" class="sync-chip" id="sync-chip" data-act="syncdetails" aria-describedby="sync-chip-hint"><span class="state" id="state" role="status">Connecting</span><span class="sync-count" id="sync-count"></span><span class="sr-only" id="sync-chip-hint">Opens sync and storage details in Settings.</span></button>
   </div>
   <div id="feedback" class="feedback-region" aria-live="polite" aria-atomic="true"></div>
   <main id="main"></main>
@@ -500,6 +507,9 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
     startupFailed=true;const error=document.getElementById('gate-err');
     error.textContent='Murphy’s Logs could not finish loading. Check your connection, then try again. Retrying does not reset your log.';
     error.classList.remove('hide');document.getElementById('boot-retry').classList.remove('hide');
+    // The form region holds the retry button; never leave a failed start-up on "Opening".
+    for(const id of ['gate-form','gate-help'])document.getElementById(id).classList.remove('hide');
+    document.getElementById('gate-opening').classList.add('hide');
     document.getElementById('signin').textContent='App unavailable';
   }
   const deadline=setTimeout(startupFailure,20000);
@@ -570,6 +580,11 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
     started=true;clearTimeout(deadline);document.getElementById('boot-retry').classList.add('hide');
     if(startupFailed){document.getElementById('gate-err').classList.add('hide');document.getElementById('gate-err').textContent='';startupFailed=false;}
     document.getElementById('signin').disabled=false;document.getElementById('signin').textContent='Sign in';
+    // If Auth never reports a state, still offer the form rather than "Opening" forever.
+    setTimeout(()=>{if(!window.appAuthKnown){
+      for(const id of ['gate-form','gate-help'])document.getElementById(id).classList.remove('hide');
+      document.getElementById('gate-opening').classList.add('hide');
+    }},4000);
   }};
   document.getElementById('boot-retry').addEventListener('click',()=>location.reload());
   document.addEventListener('click',event=>{
@@ -602,7 +617,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.9.2';
+const APP_VERSION = '3.10.0';
 
 /* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
    Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'
@@ -959,7 +974,8 @@ const S = {
   ready:false, tab:'today', cursor:null, adding:null,
   exportMonth:null, exportFormat:'csv',
   status:'Connecting', banner:null, testOut:null, subscribed:false,
-  undo:null, undoBusy:false, erasing:false, fibreSnooze:null, fibreSnoozedUntil:null, localSaveError:null
+  undo:null, undoBusy:false, erasing:false, fibreSnooze:null, fibreSnoozedUntil:null, localSaveError:null,
+  lastConfirmed:null, storageProtection:null
 };
 
 const localClock = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/London',
@@ -985,6 +1001,12 @@ function fmtDate(iso){
 }
 function fmtShort(iso){ const d=new Date(toDay(iso)*DAY_MS); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; }
 const fmtShortYear = iso => validDate(iso) ? `${fmtShort(iso)} ${iso.slice(0,4)}` : '';
+// Review lists every vet item, including Blood forever. Today's banner and the
+// Review dot carry only items with a date inside the vet window, or no date at
+// all, so a months-old record no longer keeps the alarm permanently on (CR-02).
+function currentVetItems(vet,today,vetWindowDays=S.settings.vetWindowDays){
+  return (vet||[]).filter(v=>!v.dates?.length||!Number.isFinite(vetWindowDays)||v.dates.some(d=>toDay(d)>toDay(today)-vetWindowDays));
+}
 function formatAlertDates(dates, fallbackIso, vetWindowDays = S.settings.vetWindowDays){
   if (!dates?.length) return fallbackIso ? `as of ${fmtShortYear(fallbackIso)}` : '';
   const list = dates.map(fmtShortYear).join(', ');
@@ -1029,9 +1051,20 @@ function setStatus(text, cls){
   if(S.localSaveError){text='Not saved';cls='bad';}
   S.status=text; const el=$('#state');
   if(el){el.textContent=text;el.className='state '+(cls||'');}
+  const count=$('#sync-count'), n=pendingCount();
+  // Operations, not observations: one import or move is a single queued change.
+  const label=n?`${n} change${n===1?'':'s'} waiting`:'';
+  if(count&&count.textContent!==label)count.textContent=label;
   renderFeedback();
+  refreshSyncSection();
+}
+// Queued plus unreadable outbox entries. Never throws: the status line must always render.
+function pendingCount(){
+  if(!S.user)return 0;
+  try{return queuedWrites().length+unreadableOutbox.length;}catch{return 0;}
 }
 
+let retryFailures=0, retryAfter=0;
 let flushing=false, flushTask=null, writeClock=0, unsubs=[], savedDays=null, savedChanges=[];
 const snapshotVersions=new Map();
 const snapshotVersion=(col,id)=>snapshotVersions.get(col+':'+id)||0;
@@ -1074,19 +1107,33 @@ function timedRecovery(op,clock){
   if(op.recover?.kind!=='stool'||Number.isFinite(Date.parse(op.recover.updatedAt)))return op;
   return {...op,recover:{...op.recover,updatedAt:new Date(clock).toISOString()}};
 }
+const queueOrder=key=>key.slice(key.lastIndexOf(':')+1);
+// A readable operation has one of the shapes this app writes. Anything else is kept, never guessed at.
+const validQueuedOp=op=>object(op)&&(object(op.recover)||object(op.regime)||object(op.move)||Array.isArray(op.items)||
+  (['days','settings','changes'].includes(op.col)&&typeof op.id==='string'&&op.id.length>0));
+// Unreadable outbox entries (CR-09). They stay at their original keys until the
+// owner sets them aside; every later entry is projected but held back from sync,
+// because an unknown entry gives no information about what depends on it.
+let unreadableOutbox=[], outboxBlockedAt=null;
 function queuedWrites(){
-  if(!S.user) return [];
-  const prefixes=queuePrefixes(), entries=[];
+  if(!S.user){unreadableOutbox=[];outboxBlockedAt=null;return [];}
+  const prefixes=queuePrefixes(), entries=[], unreadable=[];
   for(let i=0;i<localStorage.length;i++){
     const key=localStorage.key(i);
     if(prefixes.some(prefix=>key.startsWith(prefix))){
+      const raw=localStorage.getItem(key);let op;
+      try{op=JSON.parse(raw);}catch{op=undefined;}
+      if(!validQueuedOp(op)){unreadable.push({key,raw});continue;}
       // Older queued Undos have no timestamp; their durable key supplies it.
-      const clock=Number(key.slice(key.lastIndexOf(':')+1).split('-')[0]);
-      entries.push([key,timedRecovery(JSON.parse(localStorage.getItem(key)),clock)]);
+      const clock=Number(queueOrder(key).split('-')[0]);
+      entries.push([key,timedRecovery(op,clock)]);
     }
   }
-  return entries.sort(([a],[b])=>a.slice(a.lastIndexOf(':')+1).localeCompare(b.slice(b.lastIndexOf(':')+1)));
+  unreadableOutbox=unreadable.sort((a,b)=>queueOrder(a.key).localeCompare(queueOrder(b.key)));
+  outboxBlockedAt=unreadableOutbox.length?queueOrder(unreadableOutbox[0].key):null;
+  return entries.sort(([a],[b])=>queueOrder(a).localeCompare(queueOrder(b)));
 }
+const sendable=([key])=>outboxBlockedAt===null||queueOrder(key).localeCompare(outboxBlockedAt)<0;
 function replayQueuedWrites(queued=queuedWrites()){
   // Rebase all three collections, never an already-replayed local move/restore.
   // Settings/changes can arrive before the first days snapshot at startup.
@@ -1335,11 +1382,12 @@ function flushWrites(){
   }catch{}
   flushing=true;
   const uid=S.user.uid;
+  let acknowledged=false;
   const flush=async()=>{
     for(;;){
       // Parse and sort a batch once. Re-scan after it completes so writes made
       // while a network request is in flight are still drained in order.
-      const batch=queuedWrites(); if(!batch.length) break;
+      const batch=queuedWrites().filter(sendable); if(!batch.length) break;
       for(const [key,op] of batch){
         if(S.user?.uid!==uid) return;
         if(localStorage.getItem(key)===null) continue;
@@ -1352,7 +1400,7 @@ function flushWrites(){
             const record=committed.get(col+':'+id);
             return record&&!record.uncertain&&record.version===snapshotVersion(col,id)?record.data:savedRecord(col,id);
           });
-          sent=true;
+          sent=true;acknowledged=true;
         }finally{
           // One replay/render per aggregate (including its successful prefix
           // on failure), not one full import replay per restored document.
@@ -1361,13 +1409,25 @@ function flushWrites(){
       }
     }
     if(S.banner?.source==='sync') S.banner=null;
-    setStatus(navigator.onLine?'Synced':'Offline · saved on this device',navigator.onLine?'':'warn');
+    retryFailures=0;retryAfter=0;
+    if(acknowledged)noteServerConfirmed();
+    const waiting=queuedWrites().length+unreadableOutbox.length;
+    // "Synced" needs evidence: a server acknowledgement in this pass, or server-backed
+    // snapshots on every listener. An empty outbox alone proves nothing (CX-01).
+    if(unreadableOutbox.length)setStatus('Sync held · needs attention','warn');
+    else if(waiting)setStatus(navigator.onLine===false?'Offline · saved on this device':'Saved locally; retry sync','warn');
+    else if(navigator.onLine===false)setStatus('Offline · saved records available');
+    else setStatus(acknowledged||serverFresh()?'Synced':'Cached; checking sync');
     render();
   };
   return flushTask=(async()=>{
     try{
       if(navigator.locks)await navigator.locks.request('murphy-sync:'+uid,flush);else await flush();
     }catch(e){
+      // Poor signal: back off the periodic retry (15 s doubling to 5 min, with jitter).
+      // Lifecycle events, Retry sync and new entries still try immediately.
+      retryFailures++;
+      retryAfter=Date.now()+Math.min(15000*2**(retryFailures-1),300000)*(0.8+Math.random()*.4);
       const offline=navigator.onLine===false||e?.code==='unavailable'||/offline|unavailable|network/i.test(String(e?.message||e));
       setStatus(offline&&navigator.onLine===false?'Offline · saved on this device':'Saved locally; retry sync','warn');
       if(S.banner?.source!=='local-save'){
@@ -1454,6 +1514,8 @@ function loadDeviceState(){
     const r=JSON.parse(localStorage.getItem(deviceKey('undo'))||'null');
     S.undo=r&&['stool','change','regime'].includes(r.kind)&&recoveryMissing(r)?r:null;
     S.fibreSnooze=JSON.parse(localStorage.getItem(deviceKey('fibre-snooze'))||'null');
+    const confirmed=Number(localStorage.getItem(deviceKey('last-confirmed')));
+    if(Number.isFinite(confirmed)&&confirmed>0&&!(S.lastConfirmed>confirmed))S.lastConfirmed=confirmed;
     S.fibreSnoozedUntil=S.fibreSnooze?.until||null;
   }catch(e){console.warn('Device preferences could not be read.',e);}
 }
@@ -1462,7 +1524,7 @@ function fibreAdviceVisible(fib){
   return !!fib.advice&&!(S.fibreSnooze&&localToday()<S.fibreSnooze.until&&S.fibreSnooze.advice===fibreAdviceKey(fib));
 }
 async function removeWithUndo(recovery,operation){
-  const previous=S.undo, r={...recovery,id:crypto.randomUUID(),state:'prepared'};
+  const previous=S.undo, r={...recovery,id:crypto.randomUUID(),state:'prepared',createdAt:Date.now()};
   try{localStorage.setItem(deviceKey('undo'),JSON.stringify(r));}
   catch(e){storeError(Error('Could not keep an Undo copy. '+String(e.message||e)));return false;}
   if(!await write(operation)){
@@ -1477,6 +1539,10 @@ async function removeWithUndo(recovery,operation){
   if(r.kind==='stool'&&renderPending)refreshStoolLog(r.date);else render();
   return true;
 }
+// The pinned Undo notice is for the moment of removal. Afterwards the durable copy
+// stays available under Settings › Sync & storage until it is used or dismissed (CR-03).
+const UNDO_STICKY_MS=15*60000;
+const undoSticky=u=>!!u&&Number.isFinite(u.createdAt)&&Date.now()-u.createdAt<UNDO_STICKY_MS;
 async function undoRemoval(){
   const r=S.undo;if(!r||S.undoBusy)return;
   if(!recoveryMissing(r)){
@@ -1501,9 +1567,29 @@ async function undoRemoval(){
   }
 }
 
+// Server-backed snapshots per listener; "Synced" is claimed only with evidence (CX-01).
+let listenerFromCache={};
+const serverFresh=()=>['days','changes','settings'].every(name=>listenerFromCache[name]===false);
+function noteServerConfirmed(){
+  S.lastConfirmed=Date.now();
+  try{localStorage.setItem(deviceKey('last-confirmed'),String(S.lastConfirmed));}catch{}
+}
+// FR-04: ask the browser to keep this app's storage. A Home Screen app is the
+// strongest candidate on iOS; the answer is shown, never assumed.
+async function checkStorageProtection(){
+  try{
+    const storage=navigator.storage;
+    if(!storage?.persisted){S.storageProtection='unsupported';return;}
+    let kept=await storage.persisted();
+    if(!kept&&storage.persist)kept=await storage.persist();
+    S.storageProtection=kept?'persisted':'best-effort';
+  }catch{S.storageProtection='unknown';}
+  finally{refreshSyncSection();}
+}
 function subscribe(){
   unsubs.forEach(fn=>fn()); unsubs=[];
   const uid=S.user.uid, seen=new Set();let observedSettings;
+  listenerFromCache={};
   S.days={}; savedDays=null; S.changes=savedChanges=[]; S.savedSettings={};S.rawSettings={};
   S.settings={...DEFAULTS}; S.ready=false;snapshotVersions.clear();
   S.undo=null;S.fibreSnooze=null;S.fibreSnoozedUntil=null;resetSaveFeedback();S.banner=null;
@@ -1511,13 +1597,20 @@ function subscribe(){
     if(S.user?.uid!==uid) return;
     const wasReady=S.ready;
     seen.add(name); S.ready=seen.size===3;
+    listenerFromCache[name]=snap.metadata.fromCache!==false;
+    // At most one device write a minute for the "last confirmed" time.
+    if(serverFresh()&&!(Date.now()-(S.lastConfirmed||0)<60000))noteServerConfirmed();
     let queued;
     try{queued=queuedWrites();replayQueuedWrites(queued);}catch(e){storeError(e);return;}
     loadDeviceState();
     if(!queued.length&&S.banner?.source==='sync')S.banner=null;
-    setStatus(queued.length?'Saved locally; syncing':snap.metadata.fromCache?'Cached; checking sync':'Synced');
+    let offline=false;try{offline=navigator.onLine===false;}catch{}
+    // Freshness of all three listeners, not just the latest callback (CX-01, CR-04).
+    if(unreadableOutbox.length)setStatus('Sync held · needs attention','warn');
+    else if(queued.length)setStatus(offline?'Offline · saved on this device':'Saved locally; syncing','warn');
+    else setStatus(serverFresh()?'Synced':offline?'Offline · saved records available':'Cached; checking sync');
     applyTheme(); render();
-    if(!wasReady&&S.ready)void flushWrites();
+    if(!wasReady&&S.ready){void flushWrites();void checkStorageProtection();}
   };
   const failed=e=>{setStatus('Not connected','bad');S.banner={kind:'bad',title:'Connection failed',text:String(e.message||e)};render();};
   unsubs.push(onSnapshot(collection(db,'days'),{includeMetadataChanges:true},snap=>{
@@ -1803,6 +1896,9 @@ function refreshSelectionStates(){
   refreshFoldSummaries();
   syncBcsGuidance();
 }
+function undoNote(u){
+  return `<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
+}
 // Feedback has its own persistent region, including while a form defers rendering.
 function renderFeedback(){
   const region=$('#feedback');if(!region||!S.user)return;
@@ -1813,20 +1909,24 @@ function renderFeedback(){
     html+='<div class="note warn"><b>Sync pending</b><div class="feedback-actions"><button id="retry-sync" class="link" data-act="retrysync">Retry sync</button></div></div>';
   if(draftRecovery&&draftUser===S.user.uid)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button class="link" data-act="recoverdraft">Restore entries</button><button class="link" data-act="dismissdraft">Later</button></div></div>`;
   html+=hiddenDraftLinks();
-  if(u)html+=`<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
+  if(u&&(undoSticky(u)||S.undoBusy))html+=undoNote(u);
+  if(unreadableOutbox.length)html+=`<div class="note warn" role="alert"><b>${unreadableOutbox.length===1?'One saved change can’t be read':unreadableOutbox.length+' saved changes can’t be read'}</b><span>Your other entries are shown and kept on this device. Changes saved after it are held back from syncing until you deal with it.</span><div class="feedback-actions"><button class="link" id="outbox-recovery-file" data-act="outboxrecovery">Save recovery file</button><button class="link" id="outbox-set-aside" data-act="outboxsetaside">Set aside and continue syncing</button></div></div>`;
   if(app?.updateReady)html+=`<div class="note plain"><b>A new app version is ready</b><span>Your saved records are kept. Save or cancel unfinished entries before updating.</span><div class="feedback-actions"><button id="update-app" class="link" data-shell-act="update" ${app.busy?'disabled':''}>${app.busy?'Preparing update…':'Update app'}</button></div>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}</div>`;
   if(region.innerHTML!==html){const focused=region.contains(document.activeElement)?document.activeElement.id:null;region.innerHTML=html;if(focused)refocus(focused);}
 }
 let renderPending=false,rendered='';
 function render(force=false){
   if (!S.user) return;
-  if(S.ready&&draftUser!==S.user.uid){loadDrafts();force=true;}
+  if(S.ready&&draftUser!==S.user.uid){
+    loadDrafts();force=true;
+    if(soleWindow&&draftRecovery){restoreRecoveredDraft(true);return;}
+  }
   renderFeedback();
   if (!S.ready){rendered='';$('#main').innerHTML='<p role="status">Loading saved records…</p>';return;}
   // Saved assessments refresh even while unrelated drafts defer the editable page.
   refreshWeightConditionViews();
   const overview=weightOverview(localToday()),outside=kg=>['above','below'].includes(weightAssessment(kg).status);
-  const needs=outside(overview.latest?.kg)||outside(overview.mean.mean)||insights().vet.length||weeklyAdvice().applied||fibreAdviceVisible(insights().fib);
+  const needs=outside(overview.latest?.kg)||outside(overview.mean.mean)||currentVetItems(insights().vet,localToday()).length||weeklyAdvice().applied||fibreAdviceVisible(insights().fib);
   $('#tabbar .dotmark')?.classList.toggle('hide',!needs);
   $('#review-attention')?.classList.toggle('hide',!needs);
   syncBcsGuidance();
@@ -1878,7 +1978,7 @@ function leaveDraft(){
 /* TODAY */
 function viewToday(){
   const actualToday=localToday(), today=draftToday||actualToday;
-  const adv=weeklyAdvice(), {fib,vet}=insights();
+  const adv=weeklyAdvice(), {fib}=insights(), vet=currentVetItems(insights().vet,actualToday);
   let head='';
   if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>formatVetAlertHeadline(v,actualToday)).join('. '))}. <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
   if (adv.applied) head += `<div class="note warn"><b>This week’s ration advice is waiting · ${fmtShortYear(adv.weekStart)}</b>${esc(`${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g (${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}).`)} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
@@ -1892,7 +1992,7 @@ const BOWLS=['cleared','left','refused'];
 const bowlLabel=k=>k==='left'?'Left some':k?k[0].toUpperCase()+k.slice(1):'';
 function refreshTodoCard(){
   const current=S.tab==='today'&&$('#main [data-todo]');
-  if(!current)return;
+  if(!current?.isEqualNode)return;
   const template=document.createElement('template');template.innerHTML=todoCard(current.dataset.todo);
   const next=template.content.firstElementChild;
   if(next.isEqualNode(current))return;
@@ -1901,18 +2001,33 @@ function refreshTodoCard(){
   current.replaceWith(next);
   if(inside)refocus(focus&&document.getElementById(focus)?focus:next.id);
 }
+const UNSAVED_LABELS={weight:'Weight',walkMin:'Walk minutes',walkKm:'Walk distance',activeMin:'Active minutes',treats:'Treats',
+  notes:'Notes',darfFed:'Grams fed',mealamount:'Supplement amount',feeding:'Feeding time'};
+// Typed but not yet saved for this screen's dates: visible dirty fields and hidden drafts.
+function unsavedEntries(today){
+  const dates=new Set([today,shiftDate(today,-1)]),out=new Map();
+  for(const form of $$('#main [data-dirty]')){
+    const input=$('input,textarea',form),key=form.dataset.key||'feeding';
+    if(input&&dates.has(form.dataset.date)&&UNSAVED_LABELS[key])out.set(input.id,{id:input.id,key,date:form.dataset.date});
+  }
+  if(S.user&&draftUser===S.user.uid)for(const f of draftFields)
+    if(dates.has(f.date)&&UNSAVED_LABELS[f.key]&&!out.has(f.id))out.set(f.id,{id:f.id,key:f.key,date:f.date});
+  if(stoolDraft&&dates.has(S.adding))out.set('stool',{id:'stool',key:'stool',date:S.adding});
+  return [...out.values()];
+}
 function todoCard(today){
   const miss=missingFor(today), last=trackingMeal(today), meal=plannedMeal(today);
+  const unsaved=unsavedEntries(today).map(u=>`<button class="chip unsaved-chip" id="todo-${today}-unsaved-${esc(u.id)}" data-act="jump" data-k="unsaved" data-field="${esc(u.id)}" data-date="${today}">${u.key==='stool'?'Stool':UNSAVED_LABELS[u.key]}${u.date!==today?` (${fmtShort(u.date)})`:''} typed, not saved</button>`).join('');
   // The evening meal's state belongs to this list too, but not to missingFor's
   // observation set, which History and its completeness note also use.
   const tonight=today===localToday()?'tonight’s':'the evening';
   if(!isFedMeal(meal))miss.push({k:'meal',t:meal.recipe?`${tonight} meal not fed yet`:`${tonight} recipe not chosen`});
-  if(!miss.length)return `<div class="note good" id="todo-${today}" data-todo="${today}" tabindex="-1"><b>Core observations recorded</b>Stools, weight and condition are recorded, and ${tonight} meal is marked as fed. You can keep editing throughout the day.</div>`;
+  if(!miss.length&&!unsaved)return `<div class="note good" id="todo-${today}" data-todo="${today}" tabindex="-1"><b>Core observations recorded</b>Stools, weight and condition are recorded, and ${tonight} meal is marked as fed. You can keep editing throughout the day.</div>`;
   // A confirmed (Fed) meal can take its result here in one tap. A planned-only
   // meal still opens History, where its feeding time is recorded first.
   const prompt=last&&!last.bowl?`<div class="bowl-prompt" role="group" aria-labelledby="bowl-prompt-${last.date}"><p class="inline-lab" id="bowl-prompt-${last.date}">Last night’s bowl · ${esc(RECIPES.find(r=>r.id===last.recipe)?.short||last.recipe)}, fed ${esc(last.fedAt)}</p><div class="seg">${BOWLS.map(k=>`<button id="bowl-prompt-${last.date}-${k}" ${choice(false)} data-act="bowl" data-k="${k}" data-date="${last.date}">${bowlLabel(k)}</button>`).join('')}</div></div>`:'';
   const links=miss.filter(x=>!(prompt&&x.k==='bowl')).map(x=>`<button class="chip" id="todo-${today}-${x.k}" data-act="jump" data-k="${x.k}" data-date="${today}">${x.t}</button>`).join('');
-  return `<section class="card sec todo" id="todo-${today}" data-todo="${today}" tabindex="-1" aria-labelledby="todo-title-${today}"><h3 class="lab" id="todo-title-${today}">Still to log</h3>${links?`<div class="chips">${links}</div>`:''}${prompt}</section>`;
+  return `<section class="card sec todo" id="todo-${today}" data-todo="${today}" tabindex="-1" aria-labelledby="todo-title-${today}"><h3 class="lab" id="todo-title-${today}">Still to log</h3>${unsaved?`<div class="chips unsaved-chips">${unsaved}</div>`:''}${links?`<div class="chips">${links}</div>`:''}${prompt}</section>`;
 }
 
 function row(k,v){ return `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`; }
@@ -2270,6 +2385,15 @@ function mealContext(iso,b,caution=true){
       <p class="sub">Regime: Pro-Fibre ${fibreGOn(iso,s)} g · oil ${oilMlOn(iso,s)} ml${next?` · changes to ${next.ml} ml in ${toDay(next.from)-toDay(iso)} days`:''}</p>`+
       (last6.length?`<p class="sub">Last six: ${esc(last6.join(', '))}</p>`:'')+calculation+'</details>';
 }
+// Same markup apart from disclosure state: keep the live node, so a tap in progress
+// or a screen-reader cursor on it is undisturbed (CR-08).
+function sameMarkup(current,html,outer=false){
+  if(!current)return false;
+  const next=document.createElement('template'),live=document.createElement('template');
+  next.innerHTML=html;live.innerHTML=outer?current.outerHTML:current.innerHTML;
+  for(const root of [next.content,live.content])for(const d of root.querySelectorAll('details[open]'))d.removeAttribute('open');
+  return next.innerHTML===live.innerHTML;
+}
 function refreshMealPlans(){
   // An all-day page can contain an activity draft alongside changing meal controls.
   // Refresh complete editors only when they contain no unfinished input of their own.
@@ -2278,28 +2402,29 @@ function refreshMealPlans(){
   for(const editor of $$('[data-meal-editor]')){
     if(editor.querySelector('[data-dirty]'))continue;
     const iso=editor.dataset.mealEditor,live=editor.dataset.mealLive==='true',previous=editor.dataset.mealPrevious==='true';
-    replaceRenderedHtml(editor,live?liveMealEditor(iso):mealEditor(iso,false,'',previous,
-      previous?trackingMeal(shiftDate(iso,1)):null),true);
+    const html=live?liveMealEditor(iso):mealEditor(iso,false,'',previous,previous?trackingMeal(shiftDate(iso,1)):null);
+    if(!sameMarkup(editor,html,true))replaceRenderedHtml(editor,html,true);
   }
   // Inside an editor with a draft, these fragments contain no editable inputs.
   for(const el of $$('[data-meal-plan]')){
     const iso=el.dataset.mealPlan, html=el.hasAttribute('data-meal-brief')?todayMealAmounts(iso):mealPlanDetails(iso);
-    if(el.innerHTML!==html) el.innerHTML=html;
+    if(el.innerHTML!==html&&!sameMarkup(el,html)) el.innerHTML=html;
     const m=plannedMeal(iso);
     for(const [k,label] of Object.entries(MEAL_FLAGS)){
       const id='meal-'+k+'-'+iso, control=document.getElementById(id);
-      if(control) control.outerHTML=switchRow(id,label,m[k],mealFlagDetail(m,k,isEditablePlan(iso,m)),`data-act="extra" data-k="${k}" data-date="${iso}"`);
+      const next=switchRow(id,label,m[k],mealFlagDetail(m,k,isEditablePlan(iso,m)),`data-act="extra" data-k="${k}" data-date="${iso}"`);
+      if(control&&!sameMarkup(control,next,true)) control.outerHTML=next;
     }
   }
   for(const el of $$('[data-meal-context]')){
-    const html=todayMealContext(el.dataset.mealContext);if(el.innerHTML!==html)el.innerHTML=html;
+    const html=todayMealContext(el.dataset.mealContext);if(el.innerHTML!==html&&!sameMarkup(el,html))el.innerHTML=html;
   }
   for(const el of $$('[data-live-unfeed]')){
-    const iso=el.dataset.liveUnfeed,html=liveUnfeedControl(iso,plannedMeal(iso));if(el.innerHTML!==html)el.innerHTML=html;
+    const iso=el.dataset.liveUnfeed,html=liveUnfeedControl(iso,plannedMeal(iso));if(el.innerHTML!==html&&!sameMarkup(el,html))el.innerHTML=html;
   }
   for(const el of $$('[data-live-feeding]')){
     const iso=el.dataset.liveFeeding,m=plannedMeal(iso),disabled=!isFedMeal(m);
-    el.innerHTML=liveFeedingControls(iso,m);
+    const feeding=liveFeedingControls(iso,m);if(!sameMarkup(el,feeding))el.innerHTML=feeding;
     for(const button of $$('[data-act="bowl"]',el.closest('[data-meal-editor]')))button.disabled=disabled;
     document.querySelector(`[data-bowl-help="${iso}"]`)?.classList.toggle('hide',!disabled);
   }
@@ -2681,6 +2806,30 @@ function appReadinessSection(){
   const text=!app.available?'Offline opening is not supported in this browser.':ready?'App files are ready for offline opening.':app.offlineReady===false?'App files are not yet ready for offline opening.':'Offline opening has not been confirmed yet.';
   return `<div class="review-subsec"><h4 class="lab">App updates &amp; offline access</h4><p class="chart-summary" role="status">${text}</p><p class="sub">Keep signed in to use records already available on this device. Record syncing is shown separately at the top of the screen.</p>${app.message?`<p class="sub">${esc(app.message)}</p>`:''}<div class="btnrow">${app.updateReady?`<button class="btn sm" id="settings-update-app" data-shell-act="update" ${app.busy?'disabled':''}>Update app</button>`:''}<button class="btn ghost sm" id="settings-check-offline" data-shell-act="check" ${!app.available||app.busy?'disabled':''}>${app.busy?'Checking offline access…':'Check offline access'}</button></div></div>`;
 }
+const clockText=ms=>{const d=new Date(ms);if(!Number.isFinite(d.getTime()))return '';
+  const p=Object.fromEntries(localClock.formatToParts(d).map(x=>[x.type,x.value])),iso=`${p.year}-${p.month}-${p.day}`;
+  return `${p.hour}:${p.minute}${iso===localToday()?' today':' on '+fmtShortYear(iso)}`;};
+// Sync & storage (CR-05, FR-04): what is waiting, what the server last confirmed,
+// whether storage is protected, and an older Undo once it leaves the pinned area.
+function syncSectionBody(){
+  let queued=[];try{queued=queuedWrites();}catch{}
+  const n=queued.length+unreadableOutbox.length;
+  const oldest=queued.map(([key])=>Number(queueOrder(key).split('-')[0])).filter(Number.isFinite).sort((a,b)=>a-b)[0];
+  const waiting=n?`<b>${n} change${n===1?'':'s'} waiting</b> on this device${oldest?`, the oldest saved at ${clockText(oldest)}`:''}. ${n===1?'It syncs':'They sync'} automatically when there is signal.`:'No changes are waiting on this device.';
+  const confirmed=S.lastConfirmed?`Last confirmed with the server at ${clockText(S.lastConfirmed)}.`:'Not yet confirmed with the server on this device.';
+  const storage={persisted:'Storage is protected: iOS will not clear this app’s saved data automatically.',
+    'best-effort':'Storage is not protected: iOS may clear this app’s data if the phone runs short of space. Keep the app on the Home Screen and save a Full backup regularly.',
+    unsupported:'Storage protection cannot be checked in this browser.',unknown:'Storage protection could not be checked.'}[S.storageProtection]||'Checking storage protection…';
+  const old=S.undo&&!undoSticky(S.undo)&&!S.undoBusy?`<div class="review-subsec"><h5 class="lab">Recently removed</h5>${undoNote(S.undo)}</div>`:'';
+  return `<p class="chart-summary" id="settings-sync-status">${esc(S.status)}</p><p class="sub">${waiting}</p><p class="sub">${confirmed}</p><p class="sub">${storage}</p>`+
+    (n&&!unreadableOutbox.length?`<div class="btnrow"><button class="btn ghost sm" id="settings-retry-sync" data-act="retrysync">Retry sync now</button></div>`:'')+old;
+}
+function refreshSyncSection(){
+  const body=$('#settings-sync-body');if(!body||body.id!=='settings-sync-body')return;
+  const html=syncSectionBody();if(body.innerHTML===html)return;
+  const focused=body.contains?.(document.activeElement)?document.activeElement.id:null;
+  body.innerHTML=html;if(focused)refocus(focused);
+}
 function viewSettings(){
   const s=S.settings, today=localToday();
   const reg=(s.regimeChanges||[]).length
@@ -2696,6 +2845,7 @@ function viewSettings(){
     panel('Account',`
       ${row(esc(S.user?.email||''),'<button class="link" id="signout-btn" data-act="signout">Sign out</button>')}
       <p class="sub">Version ${APP_VERSION}</p>
+      <div class="review-subsec" id="settings-sync" tabindex="-1"><h4 class="lab">Sync &amp; storage</h4><div id="settings-sync-body">${syncSectionBody()}</div></div>
       ${appReadinessSection()}`,'settings-account')+
     panel('Appearance',`
       <div class="seg" role="group" aria-label="Appearance">${['system','light','dark'].map(t=>`<button id="theme-${t}" ${choice((s.theme||'system')===t)} data-act="theme" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join('')}</div>`,'settings-appearance')+
@@ -2849,10 +2999,33 @@ function exportMonthMd(ym=localToday().slice(0,7)){
   isos.filter(i=>(S.days[i]||{}).notes).forEach(i=>L.push(`- **${fmtShort(i)}**: ${S.days[i].notes}`));
   download(`Murphy_Log_${ym}.md`, L.join('\n'), 'text/markdown;charset=utf-8');
 }
+// A raw copy of everything still queued, including entries the app cannot read (CR-09).
+function exportOutboxRecovery(){
+  let queued=[];try{queued=queuedWrites();}catch{}
+  const quarantinePrefix=`murphy-outbox-quarantine:${S.user.uid}:`,setAside=[];
+  for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key?.startsWith(quarantinePrefix))setAside.push({key,raw:localStorage.getItem(key)});}
+  download(`Murphy_Log_outbox_recovery_${localToday()}.json`,JSON.stringify({exported:new Date().toISOString(),version:APP_VERSION,
+    unreadable:unreadableOutbox,setAside,pending:queued.map(([key])=>({key,raw:localStorage.getItem(key)}))},null,2),'application/json');
+}
+// Copy first, verify, then remove the original: an interrupted set-aside never loses the entry.
+function setAsideUnreadable(){
+  try{
+    for(const {key,raw} of unreadableOutbox){
+      const target=`murphy-outbox-quarantine:${S.user.uid}:${queueOrder(key)}`;
+      localStorage.setItem(target,JSON.stringify({key,raw,setAsideAt:new Date().toISOString()}));
+      if(JSON.parse(localStorage.getItem(target)||'null')?.raw!==raw)throw Error('The copy could not be verified');
+      localStorage.removeItem(key);
+    }
+    queuedWrites();replayQueuedWrites();return true;
+  }catch(e){
+    S.banner={kind:'bad',title:'Could not set the change aside',text:String(e.message||e)+'. It is still in place and nothing was removed.'};render();return false;
+  }
+}
 function exportAll(){
   download(`Murphy_Log_backup_${localToday()}.json`,
     JSON.stringify({ exported:new Date().toISOString(), version:APP_VERSION,
-      settings:S.settings, days:S.days, changes:S.changes }, null, 2),
+      settings:S.settings, days:S.days, changes:S.changes,
+      ...(unreadableOutbox.length?{unreadableOutbox}:{}) }, null, 2),
     'application/json');
 }
 function validateBackup(data){
@@ -3173,6 +3346,28 @@ function loadDrafts(){
     }
   }catch{} // Saved records and the outbox remain usable if draft storage is denied.
 }
+// A Home Screen cold launch starts a new session, so its earlier draft would wait
+// behind "Restore entries". When this is the only open window (it holds the Web
+// Lock below), nothing else can own that draft: restore it automatically, still
+// unsaved, still needing Save (CR-07). Without Web Locks, or with another window
+// open, the existing prompt remains.
+let soleWindow=false;
+try{
+  navigator.locks?.request('murphy-window',{ifAvailable:true},lock=>{
+    if(!lock)return;
+    soleWindow=true;
+    if(S.user&&S.ready&&draftRecovery)restoreRecoveredDraft(true);
+    return new Promise(()=>{});
+  })?.catch?.(()=>{});
+}catch{}
+function restoreRecoveredDraft(automatic=false){
+  if(!draftRecovery)return;
+  persistDrafts();
+  const recovery=draftRecovery;draftRecovery=null;draftTransfer=recovery;
+  stageDraft(recovery.data,true);render(true);persistDrafts();
+  if(automatic){S.banner={kind:'plain',source:'draft',title:'Unsaved entries restored',
+    text:'Entries you typed before the app closed are back, marked Unsaved changes. Press Save on each one to add it to the log.'};renderFeedback();}
+}
 function hiddenDrafts(){
   if(!S.user||draftUser!==S.user.uid)return {fields:[],stools:[]};
   return {fields:draftFields.filter(f=>{
@@ -3233,7 +3428,7 @@ function markInputDirty(input){
   const form=input.closest('[data-form],[data-feeding]');
   if(!form||form.hasAttribute('data-dirty'))return;
   form.setAttribute('data-dirty','');
-  syncDraftMarkers();
+  syncDraftMarkers();refreshTodoCard();
   if(form.hasAttribute('data-feeding'))return;
   form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
   if(form.dataset.key==='weight'){
@@ -3288,7 +3483,7 @@ function finishInput(form,keep){
   clearSaveError('form:'+input.id);
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
   form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
-  syncDraftMarkers();
+  syncDraftMarkers();refreshTodoCard();
   persistDrafts();
   if(form.dataset.key==='weight'){
     const toggle=document.getElementById('weight-missed-'+form.dataset.date);
@@ -3345,19 +3540,18 @@ document.addEventListener('click', async (ev)=>{
   if(S.erasing&&['saveinput','bcs','event','missed','savestool','delstool','extra','fed','savefeedingtime','unfeed','useplandarf','bowl','applyadv','refuseadv','applyfibre','setfibre','addregime','delregime','delchange','undo','theme','signout'].includes(a)){
     eraseBlocksChanges();return;
   }
+  // Signing in needs signal: warn before leaving with unsynced work or no connection (CR-06).
+  if(a==='signout'){
+    const n=pendingCount();let offline=false;try{offline=navigator.onLine===false;}catch{}
+    if((n||offline)&&!confirm((n?`${n} change${n===1?'':'s'} saved on this device ${n===1?'has':'have'} not synced yet. ${n===1?'It stays':'They stay'} on this device, but`:'You appear to be offline.')+' you will need signal to sign back in before you can log anything. Sign out anyway?'))return;
+  }
   // Routine navigation keeps drafts. Only deliberate destructive exits discard them.
   if (['signout','erase'].includes(a)&&!leaveDraft()) return;
   const d=S.days[iso]||{};
 
   if (a==='signin'){ return doSignIn(); }
   if(a==='dismissdraft'){draftRecovery=null;renderFeedback();return;}
-  if(a==='recoverdraft'){
-    if(!draftRecovery)return;
-    persistDrafts();
-    const recovery=draftRecovery;draftRecovery=null;draftTransfer=recovery;
-    stageDraft(recovery.data,true);render(true);persistDrafts();
-    return;
-  }
+  if(a==='recoverdraft'){restoreRecoveredDraft();return;}
   if(a==='resumedraft'){
     const resumeTab=normalizeTab(el.dataset.tab);
     navigateTo(resumeTab,{date:iso,stoolId:el.dataset.id});
@@ -3392,6 +3586,16 @@ document.addEventListener('click', async (ev)=>{
     try{localStorage.removeItem(deviceKey('undo'));S.undo=null;render();}
     catch(e){S.banner={kind:'warn',title:'Recovery kept',text:'The Undo copy could not be dismissed on this device. It remains available.'};render();}
     return;
+  }
+  if (a==='jump'&&el.dataset.k==='unsaved'){
+    // Land on the entry's Save control, opening its fold; the value is still a draft.
+    const id=el.dataset.field;
+    if(id==='stool'){$('#main [data-act="savestool"]')?.focus();return;}
+    const form=document.getElementById(id)?.closest('[data-form],[data-feeding]');
+    if(!form){const f=draftFields.find(x=>x.id===id);if(f)navigateTo('day',{date:f.date});return;}
+    for(let p=form.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS')p.open=true;
+    const save=$('[data-act="saveinput"]',form)||document.getElementById(id);
+    save.focus({preventScroll:true});save.scrollIntoView({block:'center',behavior:'instant'});return;
   }
   if (a==='jump'){ const k=el.dataset.k;
     // The card's own date: a recovered draft can show an earlier day after midnight.
@@ -3432,7 +3636,21 @@ document.addEventListener('click', async (ev)=>{
     clearSaveError('feeding:'+input.id);
     input.value=input.defaultValue; form.removeAttribute('data-dirty'); persistDrafts();render();focusAfterRender('#'+input.id);return;
   }
-  if (a==='retrysync'){ flushWrites(); return; }
+  if (a==='retrysync'){ retryFailures=0;retryAfter=0;flushWrites(); return; }
+  if (a==='syncdetails'){
+    navigateTo('settings',{target:'#settings-sync'});
+    // The sticky notice height settles a frame later; scroll again so the heading clears it.
+    requestAnimationFrame(()=>requestAnimationFrame(()=>$('#settings-sync')?.scrollIntoView({block:'start',behavior:'instant'})));
+    return;
+  }
+  if (a==='outboxrecovery'){ exportOutboxRecovery(); return; }
+  if (a==='outboxsetaside'){
+    if(!unreadableOutbox.length)return;
+    if(!confirm('Set the unreadable saved change aside? It is moved, not deleted: it stays on this device and in recovery files. Changes saved after it will then sync.'))return;
+    if(setAsideUnreadable()){S.banner={kind:'plain',title:'Set aside on this device',text:'The unreadable change is kept for recovery. Other changes can sync now.'};
+      setStatus(recordStatus.text,recordStatus.cls);render();void flushWrites();}
+    return;
+  }
   if (a==='missed'){
     if(el.disabled||$(`[data-form][data-key="weight"][data-date="${iso}"][data-dirty]`)) return;
     const focus=el.id;
@@ -3497,7 +3715,15 @@ document.addEventListener('click', async (ev)=>{
       $('#main [data-act="stooltype"]')?.focus();return;
     }
     const time=$('#st-t'), dateInput=$('#st-date');
-    if (!time.reportValidity()||!dateInput.reportValidity()||!validDate(dateInput.value)||dateInput.value>localToday()) return;
+    // Say what is wrong beside the form; a native bubble is easy to miss on iPhone (AG-14).
+    const valid=input=>typeof input.checkValidity==='function'?input.checkValidity():input.reportValidity();
+    const whenError=!valid(time)?['Enter the time of this stool.',time]:
+      !valid(dateInput)||!validDate(dateInput.value)||dateInput.value>localToday()?['Choose a date on or before today.',dateInput]:null;
+    if(whenError){
+      const error=$('#st-error');if(error){error.textContent=whenError[0];error.classList.remove('hide');}
+      whenError[1].setAttribute?.('aria-invalid','true');whenError[1].focus?.({preventScroll:true});return;
+    }
+    time.removeAttribute?.('aria-invalid');dateInput.removeAttribute?.('aria-invalid');
     if(stoolOriginal&&!(S.days[S.adding]?.stools||[]).some(s=>s.id===stoolOriginal.id)){
       storeError(Error('This stool was removed or moved elsewhere. Cancel this draft and review its saved date.'),'stool:'+S.adding+':'+stoolDraft.id);return;
     }
@@ -3663,7 +3889,7 @@ document.addEventListener('click', async (ev)=>{
       await flushWrites();
       // All queue types must finish first: a later replay must not recreate a
       // record the user has just explicitly erased.
-      if(queuedWrites().length){
+      if(queuedWrites().length||unreadableOutbox.length){
         S.banner={kind:'warn',source:'sync',retry:true,title:'Sync before erasing',text:'Some confirmed entries are still waiting to sync. Nothing has been erased. Connect and retry sync before erasing the log.'};
         return;
       }
@@ -3772,7 +3998,15 @@ $('#em').addEventListener('keydown', e=>{ if (e.key==='Enter'){ e.preventDefault
 // iOS applies :active only when a touch listener exists; this gives taps visible feedback.
 document.addEventListener('touchstart',()=>{},{passive:true});
 
+// The sign-in form appears only once Auth reports no signed-in user (CR-01); the
+// shell offers it after a few seconds if Auth never reports at all.
+function revealSignIn(){
+  for(const id of ['gate-form','gate-help'])$('#'+id).classList.remove('hide');
+  $('#gate-opening').classList.add('hide');
+}
 onAuthStateChanged(auth, (u)=>{
+  window.appAuthKnown=true;
+  if(!u)revealSignIn();
   S.user=u;
   $('#gate').classList.toggle('hide', !!u);
   $('#app').classList.toggle('hide', !u);
@@ -3806,7 +4040,7 @@ function onResumeOrReconnect(){
   resyncIfPending();
 }
 setInterval(refreshLocalDay,60000);
-setInterval(resyncIfPending,15000);
+setInterval(()=>{if(Date.now()>=retryAfter)resyncIfPending();},15000);
 window.addEventListener('focus',onResumeOrReconnect);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)persistDrafts();else onResumeOrReconnect();});
 window.addEventListener('pagehide',persistDrafts);

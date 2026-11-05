@@ -6,6 +6,8 @@
 
 **This PR is findings only.** It changes no application code, Firebase SDK import, configuration, initialisation, Auth flow, Firestore collection, schema, transaction, listener, service worker or release identifier. Every recommendation below can be built without touching the Firebase integration. Where one comes close (CR-09, CR-11), the boundary is stated.
 
+> **Revision, 5 November 2026 (after independent review).** [Codex](https://github.com/murphys-logs/murphys-logs/pull/15#pullrequestreview-5777910770) and [Antigravity](https://github.com/murphys-logs/murphys-logs/pull/15#issuecomment-6646067302) reviewed this document at `3d26a11`. Their corrections are marked **Correction** below, and every point is dispositioned in [review-reconciliation.md](review-reconciliation.md). PR #15 now also **implements the agreed fixes as app 3.10.0**. The findings and line links below still describe 3.9.2. The probes reproduce against 3.9.2 via `APP_HTML`, and [`tests/offline-friction.browser.cjs`](../../../tests/offline-friction.browser.cjs) checks the fixed behaviour. Firebase imports, configuration, Auth calls, collections, schemas, listeners and transaction callbacks are unchanged.
+
 ## Bottom line for poor-signal use
 
 For one person on one iPhone, **the normal path is sound.** Every confirmed tap or Save is written synchronously to a per-account `localStorage` outbox ([`write`, L1202–1218](https://github.com/murphys-logs/murphys-logs/blob/5590437056ed12a3210f69029fef33e8379c6060/index.html#L1202-L1218)) before the UI reports "saved on this device". The outbox is replayed over the cached Firestore snapshot on every launch and drained in order when connectivity allows. The service worker serves a version-checked shell and the pinned SDK modules from cache, so an installed app opens with no signal. My probes confirm that queued entries survive a relaunch, a change of day and even sign-out (CR-03, CR-05, CR-06).
@@ -30,10 +32,10 @@ Priorities follow the earlier review's scale. P1: silent loss or corruption, or 
 | CR-11 | P2 | The outbox relies on `localStorage` alone; WebKit's commit timing on a force-quit or crash is unverified | Source and platform; not reproduced |
 | CR-02 | P2 | One historical Blood record keeps a red banner at the top of Today and the Review attention dot on permanently | Reproduced |
 | CR-03 | P2 | A delete's Undo notice never expires. It reappears in the sticky region across relaunches and days, which adds to CL-05 crowding | Reproduced and measured |
-| CR-10 | P2 | The `black-translucent` status-bar style draws white status-bar text, which is likely unreadable over the light theme's `#f4f4f4` top bar (including the signal indicator) | Source and Apple's documented behaviour; device check needed |
+| CR-10 | P2 if reproduced | The `black-translucent` status bar may be unreadable over the light theme's `#f4f4f4` top bar | **Correction:** not established; device check needed (see below) |
 | CR-09 | P3 | One unparsable outbox entry stops replay at launch. Every saved record disappears from the screen and the status says "Not saved" | Reproduced; no current code path writes such an entry |
 | CR-01 | P3 | A signed-in cold launch first shows the sign-in form, enabled, until Auth restores the session | Reproduced (timing depends on the device) |
-| CR-04 | P3 | A launch with no signal reports "Cached; checking sync" indefinitely; offline wording appears only after a later `offline` event | Reproduced |
+| CR-04 | ~~P3~~ withdrawn | ~~A launch with no signal reports "Cached; checking sync" indefinitely~~. **Correction:** this was a harness artefact (a withheld Web Lock). It is replaced by Codex's CX-01 (cache-only "Synced") | Disputed by Codex; withdrawn |
 | CR-08 | P3 | While any draft is open, each deferred render replaces Today's "Mark as fed" button node even when its markup is unchanged | Reproduced |
 
 ### CR-07: typed-but-unsaved values come back only behind a prompt
@@ -71,6 +73,8 @@ Priorities follow the earlier review's scale. P1: silent loss or corruption, or 
 
 ### CR-11: `localStorage` is the only durable copy while offline
 
+> **Correction (Codex):** do **not** build the "union of both stores" proposed below. An acknowledgement that removes an entry from one store but not the other would replay stale work over newer values. A second store needs stable operation IDs, crash-safe acknowledgements or tombstones, writer coordination, migration and interruption tests. WebKit's `SQLiteStorageArea` does batch commits on a 500 ms timer, but no iPhone loss was measured. Not implemented in 3.10.0; storage protection (FR-04) is.
+
 **Where:** [L1211](https://github.com/murphys-logs/murphys-logs/blob/5590437056ed12a3210f69029fef33e8379c6060/index.html#L1211). While `navigator.onLine===false`, `flushWrites` returns early, so Firestore's own IndexedDB mutation queue never sees the write. The `localStorage` entry is the only copy.
 
 **Risk (not reproduced):** WebKit hands `localStorage` writes to its storage process and commits them to SQLite in batches. A force-quit (swipe up), a crash or a jetsam kill moments after a tap may lose the newest entries before they reach disk, even though the UI already said "saved on this device". The window is probably short, and I have not measured it on a device. Together with FR-04 (no `navigator.storage.persist()`), the outbox's durability is assumed rather than verified.
@@ -94,6 +98,8 @@ Priorities follow the earlier review's scale. P1: silent loss or corruption, or 
 **Recommendation:** keep the durable recovery copy, but show the sticky notice for one session or a short time (for example until the next launch, or 10 minutes). After that, offer it from a quieter place: the status sheet from CR-05, or a "Recently removed" row in History for that date. Fold this into CL-05's notice consolidation.
 
 ### CR-10: status-bar text is likely invisible in the light theme
+
+> **Correction (Codex):** Apple's archived meta-tag reference describes the background and geometry, not an explicit white foreground. A June 2026 WebKit comment calls `black-translucent` deprecated and suggests removing the key so the bar follows the page colour. That makes both the "white text" attribution and the constant dark strip below unestablished. Test light, dark and system appearance on the owner's iOS version before choosing a fix. Not changed in 3.10.0.
 
 **Where:** [L12](https://github.com/murphys-logs/murphys-logs/blob/5590437056ed12a3210f69029fef33e8379c6060/index.html#L12) `apple-mobile-web-app-status-bar-style="black-translucent"`, with the top bar painting `--paper` under the safe area ([L98–103](https://github.com/murphys-logs/murphys-logs/blob/5590437056ed12a3210f69029fef33e8379c6060/index.html#L98-L103)). In the light theme, `--paper` is `#f4f4f4`, and that theme is the default whenever iOS itself is in light mode.
 
@@ -119,11 +125,15 @@ Priorities follow the earlier review's scale. P1: silent loss or corruption, or 
 
 **Recommendation:** start with a neutral "Opening Murphy's Logs…" state, and reveal the form only once `onAuthStateChanged` reports no user, or after a timeout of a few seconds as a fallback. This is presentation only and leaves the Auth calls unchanged.
 
-### CR-04: an offline launch never says it is offline
+### CR-04: an offline launch never says it is offline (withdrawn)
+
+> **Correction (Codex):** with real Web Locks, the empty-queue flush at launch reaches the offline status without an `offline` event. Only the probe's permanently withheld lock kept "Cached; checking sync". The related real defect is **CX-01**: an empty outbox plus cache-only snapshots reported "Synced". 3.10.0 fixes CX-01 and also words the offline launch explicitly.
 
 **Where:** [L1518](https://github.com/murphys-logs/murphys-logs/blob/5590437056ed12a3210f69029fef33e8379c6060/index.html#L1518). The `offline` listener ([L3784](https://github.com/murphys-logs/murphys-logs/blob/5590437056ed12a3210f69029fef33e8379c6060/index.html#L3784)) fires only on a transition. **Reproduce:** launch with `navigator.onLine===false` and nothing pending. **Actual:** "Cached; checking sync" persists. **Recommendation:** at launch, and in `received()`, use the same offline wording as the `offline` handler: *Offline · showing saved records*. Merge this into the CR-05 chip.
 
 ### CR-08: Mark as fed is rebuilt on every deferred render
+
+> **Correction (Codex):** the leaf assignment is not the only cause. `refreshMealPlans` first replaces the whole meal editor, and the supplement switches are replaced too, so 3.10.0 guards every one of those replacements. Codex's Chromium touch control did not swallow a tap, so lost taps and VoiceOver movement remain unverified.
 
 **Where:** [`refreshMealPlans`, L2300–2305](https://github.com/murphys-logs/murphys-logs/blob/5590437056ed12a3210f69029fef33e8379c6060/index.html#L2300-L2305) assigns `innerHTML` unconditionally, unlike the neighbouring fragments, which compare first. **Reproduce:** start typing a weight, then trigger a render. **Actual:** the button's markup is identical, but it is a new node. A sync or metadata snapshot that arrives between touchstart and touchend can swallow a tap on the main evening action, and it can move VoiceOver's cursor. **Recommendation:** compare before replacing, as in the surrounding loops.
 
@@ -144,7 +154,7 @@ I ran the three probe scripts from 4 November against the current `main`. They a
 
 ## Recommended order of work
 
-Everything here leaves the Firebase integration unchanged.
+Everything here leaves the Firebase integration unchanged. **Correction (Codex):** as recorded on 4 November, changing helpers used inside transaction callbacks (for example `stoolMerge`) *would* change integration behaviour. None of the 3.10.0 fixes touch them.
 
 1. **Quick, high-value UI fixes:** a sign-out guard (CR-06); a sync status chip with pending count and offline wording (CR-05, CR-04); a launch splash instead of the sign-in flash (CR-01); a node-stable Mark as fed (CR-08).
 2. **Calmer Today:** limit the Today vet banner and the dot to items in the window or not yet acknowledged (CR-02, after the owner decides the policy); an Undo that expires, plus one consolidated notice tray (CR-03 with CL-05).

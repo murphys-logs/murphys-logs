@@ -82,11 +82,11 @@ test('worker rejects outdated release shell from older cache to trigger installe
   await Promise.all(event.lifetime);
 });
 
-test('installed-client upgrade stages 3.9.2 cache, serves new shell, and purges 3.9.1 on activation', async () => {
+test('installed-client upgrade stages 3.10.0 cache, serves new shell, and purges 3.9.2 on activation', async () => {
   const events = {}, cacheStorage = new Map();
   const cachePrefix = 'murphy.logs:' + encodeURIComponent(base) + ':';
-  const oldCacheName = cachePrefix + '3.9.1';
-  const newCacheName = cachePrefix + '3.9.2';
+  const oldCacheName = cachePrefix + '3.9.2';
+  const newCacheName = cachePrefix + '3.10.0';
 
   const makeCache = () => {
     const entries = new Map();
@@ -136,7 +136,7 @@ test('installed-client upgrade stages 3.9.2 cache, serves new shell, and purges 
     fetch: async req => {
       const url = typeof req === 'string' ? req : req.url;
       if (url === base + 'index.html') {
-        return new Response(makeShell('3.9.2'), { headers: { 'content-type': 'text/html; charset=utf-8' } });
+        return new Response(makeShell('3.10.0'), { headers: { 'content-type': 'text/html; charset=utf-8' } });
       }
       if (SDK_URLS.includes(url)) {
         return new Response('/* synthetic SDK module */', { headers: { 'content-type': 'application/javascript' } });
@@ -147,16 +147,16 @@ test('installed-client upgrade stages 3.9.2 cache, serves new shell, and purges 
 
   vm.runInNewContext(source, context);
 
-  // Pre-existing installed 3.9.1 cache
+  // Pre-existing installed 3.9.2 cache
   const oldCache = await cachesMock.open(oldCacheName);
-  await oldCache.put(base + 'index.html', new Response(makeShell('3.9.1'), { headers: { 'content-type': 'text/html; charset=utf-8' } }));
+  await oldCache.put(base + 'index.html', new Response(makeShell('3.9.2'), { headers: { 'content-type': 'text/html; charset=utf-8' } }));
   for (const url of SDK_URLS) {
-    await oldCache.put(url, new Response('/* 3.9.1 sdk */', { headers: { 'content-type': 'application/javascript' } }));
+    await oldCache.put(url, new Response('/* 3.9.2 sdk */', { headers: { 'content-type': 'application/javascript' } }));
   }
   await oldCache.put(base + 'manifest.webmanifest', new Response('{}', { headers: { 'content-type': 'application/manifest+json' } }));
   await oldCache.put(base + 'icon-180.png', new Response('png', { headers: { 'content-type': 'image/png' } }));
 
-  // Stage 3.9.2 release via install event
+  // Stage 3.10.0 release via install event
   let installWait;
   events.install({ waitUntil: p => { installWait = p; } });
   await installWait;
@@ -164,9 +164,9 @@ test('installed-client upgrade stages 3.9.2 cache, serves new shell, and purges 
   // Verify staging preserves old cache and creates new release cache
   const stagedKeys = await cachesMock.keys();
   assert.ok(stagedKeys.includes(oldCacheName), 'Old cache preserved while staging');
-  assert.ok(stagedKeys.includes(newCacheName), 'New 3.9.2 cache staged');
+  assert.ok(stagedKeys.includes(newCacheName), 'New 3.10.0 cache staged');
 
-  // Verify fetch serves 3.9.2 shell
+  // Verify fetch serves 3.10.0 shell
   let serveResp;
   events.fetch({
     request: new Request(base + 'index.html', { method: 'GET' }),
@@ -175,9 +175,9 @@ test('installed-client upgrade stages 3.9.2 cache, serves new shell, and purges 
   });
   const served = await serveResp;
   assert.equal(served.status, 200);
-  assert.match(await served.text(), /APP_VERSION = "3\.9\.2"/);
+  assert.match(await served.text(), /APP_VERSION = "3\.10\.0"/);
 
-  // Activate 3.9.2 release
+  // Activate 3.10.0 release
   let activateWait;
   events.activate({ waitUntil: p => { activateWait = p; } });
   await activateWait;
@@ -186,5 +186,5 @@ test('installed-client upgrade stages 3.9.2 cache, serves new shell, and purges 
   const activeKeys = await cachesMock.keys();
   assert.ok(!activeKeys.includes(oldCacheName), 'Old cache removed on activation');
   assert.ok(activeKeys.includes(newCacheName), 'New cache retained');
-  assert.ok(clientMessages.some(m => m.type === 'MURPHY_STATUS' && m.version === '3.9.2' && m.offlineReady === true));
+  assert.ok(clientMessages.some(m => m.type === 'MURPHY_STATUS' && m.version === '3.10.0' && m.offlineReady === true));
 });

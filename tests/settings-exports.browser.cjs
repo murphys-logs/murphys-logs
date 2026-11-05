@@ -295,7 +295,7 @@ async function main() {
       ]);
       assert.equal(jsonDownload.suggestedFilename(), 'Murphy_Log_backup_2026-11-01.json');
       const backupObj = JSON.parse(await readDownloadText(jsonDownload));
-      assert.equal(backupObj.version, '3.9.2');
+      assert.equal(backupObj.version, '3.10.0');
       assert.ok(backupObj.days['2025-12-30'] && backupObj.days['2026-10-31'] && backupObj.days['2026-11-01']);
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'exports write nothing to outbox');
 
@@ -456,8 +456,11 @@ async function main() {
       assert.equal(dialogs[1].type, 'prompt');
       assert.ok(await page.evaluate(() => Object.keys(testApp.S.days).length > 0), 'wrong ERASE prompt leaves days untouched');
 
-      // Sign out has NO new sign-out guard when no input drafts are open (invokes signOut directly, which our stub blocks cleanly):
+      // CR-06: with changes still waiting to sync, Sign out asks first; declining keeps the session.
       dialogs.length = 0;
+      nextDialogResponse = false;
+      const pendingBeforeSignOut = await page.evaluate(() => testApp.queuedWrites().length);
+      assert.ok(pendingBeforeSignOut > 0, 'this scenario has unsynced changes (the sync lock is never granted)');
       const signOutOutcome = await page.evaluate(async () => {
         try {
           document.getElementById('signout-btn').click();
@@ -467,15 +470,20 @@ async function main() {
           return String(e);
         }
       });
-      assert.equal(dialogs.length, 0, 'Sign out must not add a new confirmation guard when no drafts are open');
+      assert.equal(dialogs.length, 1, 'Sign out confirms when changes have not synced');
+      assert.equal(dialogs[0].type, 'confirm');
+      assert.match(dialogs[0].message, /not synced yet[\s\S]*need signal to sign back in/);
       assert.ok(signOutOutcome);
+      assert.ok(errors.every(msg => !/Unexpected backend operation/.test(msg)), 'declining the guard never calls signOut');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), pendingBeforeSignOut, 'pending changes are untouched');
+      nextDialogResponse = true;
       // Clear expected unhandledrejection error from forbidden signOut stub call so pageErrors check stays strict for real bugs:
       const unexpectedErrors = errors.filter(msg => !/Unexpected backend operation/.test(msg));
       errors.length = 0;
       errors.push(...unexpectedErrors);
 
       await context.close();
-      passed++; console.log('PASS Settings preserves theme, Pro-Fibre confirm, diet/adjustment Undo, Advanced drafts, self-tests, double-confirmed Erase and direct Sign out');
+      passed++; console.log('PASS Settings preserves theme, Pro-Fibre confirm, diet/adjustment Undo, Advanced drafts, self-tests, double-confirmed Erase and guarded Sign out with unsynced changes');
     }
 
     // 4. Offline, failed local save in Advanced, forced-colors, and 200% text scaling at 375x667
