@@ -796,17 +796,28 @@ function windowMean(weights, endDay, len){
   return { n:seen.size, mean:seen.size?sum/seen.size:null, from:toIso(start), to:toIso(endDay) };
 }
 
-/* Weekly ration rule: two completed windows, inclusive threshold, condition hold before caps. */
+function fiveEntryWeightMean(weights, iso){
+  const valid = (weights||[]).filter(w => w && Number.isFinite(w.kg) && w.kg > 0 && w.weightMissed !== true && w.missed !== true && (!iso || w.date <= iso));
+  const entries = valid.slice(-5);
+  const n = entries.length;
+  const mean = n ? entries.reduce((acc, w) => acc + w.kg, 0) / n : null;
+  return { n, mean, from: n ? entries[0].date : null, to: n ? entries.at(-1).date : null };
+}
+
+/* Weekly ration rule: Body Condition Score (BCS) is the sole deciding factor for DARF adjustments. */
 function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustmentWeek=null,
   bcs7dMean=null, regimeChanges=[], settings={} } = {}){
   const cfg = { ...DEFAULTS, ...settings };
   const thisWeek = mondayOf(asOf), endDay = thisWeek - 1;
   const current = windowMean(weights, endDay, cfg.windowDays);
   const previous = windowMean(weights, endDay - cfg.windowDays, cfg.windowDays);
+  const pct = (current.mean != null && previous.mean != null) ? ((current.mean - previous.mean) / previous.mean) * 100 : null;
+
   const out = { asOf, weekStart:toIso(thisWeek),
     currentWindow:[current.from,current.to], previousWindow:[previous.from,previous.to],
     previousMean:previous.mean, currentMean:current.mean, previousN:previous.n, currentN:current.n,
-    percentChange:null, fullCorrectionG:null, rawStepG:null,
+    percentChange:pct, fullCorrectionG:null, rawStepG:null,
+    bcs:bcs7dMean,
     adjustmentG:0, applied:false, limitedBy:null, held:false, reason:'' };
 
   if (lastAdjustmentWeek && mondayOf(lastAdjustmentWeek) >= thisWeek){
@@ -816,46 +827,41 @@ function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustm
     const hit=(regimeChanges||[]).find(d=>{const n=toDay(d);return n>=lo&&n<=hi;});
     if (hit){ out.reason = `Ration changed on ${fmtDate(hit)} inside these windows; the comparison is confounded, so hold.`; return out; }
   }
-  if (previous.n < cfg.minWeighIns || current.n < cfg.minWeighIns){
-    out.reason = `Weigh-ins: ${previous.n} earlier, ${current.n} later; at least ${cfg.minWeighIns} per week required.`;
-    return out;
-  }
-  const pct = ((current.mean - previous.mean) / previous.mean) * 100;
-  out.percentChange = pct;
-  const perPct = (0.01 * current.mean * cfg.kcalPerKgTissue) / (cfg.windowDays * cfg.kcalPerGDarf);
-  out.fullCorrectionG = -pct * perPct;
-  out.rawStepG = out.fullCorrectionG * cfg.damping;
 
-  // Allow only floating-point roundoff at the inclusive threshold.
-  if (Math.abs(pct) + 1e-10 < cfg.deadbandPct){
-    out.reason = `${pct>=0?'+':''}${pct.toFixed(2)}% is within the ±${cfg.deadbandPct}% deadband: hold.`;
+  // BCS is the sole deciding factor for changing DARF ration. Weight trends are decoupled.
+  if (bcs7dMean === null || !Number.isFinite(bcs7dMean)){
+    out.reason = 'No Body Condition Score (BCS) recorded in the assessment period: ration held.';
     return out;
   }
-  let step = Math.round(out.rawStepG);
 
-  // Apply condition hold before caps.
-  if (step < 0 && bcs7dMean !== null && bcs7dMean <= cfg.bcsHoldAtOrBelow){
-    out.held = true;
-    out.reason = `Weight up ${pct.toFixed(2)}%; mean condition ${bcs7dMean.toFixed(1)} is at or below ${cfg.bcsHoldAtOrBelow}: hold the reduction.`;
+  const bcs = bcs7dMean;
+  const target = cfg.bcsTarget ?? 5.0;
+  if (Math.abs(bcs - target) < 0.05){
+    out.reason = `Body condition score is ideal (${bcs.toFixed(1)} / 9): hold current ration.`;
     return out;
   }
+
+  const bcsDelta = target - bcs;
+  const rawStep = bcsDelta * 10;
+  out.rawStepG = rawStep;
+  let step = Math.round(rawStep);
+
   const direction = Math.sign(step);
-  if (Math.abs(step) > cfg.maxStepG){ step = Math.sign(step)*cfg.maxStepG; out.limitedBy='maxStepG'; }
+  if (Math.abs(step) > cfg.maxStepG){ step = Math.sign(step) * cfg.maxStepG; out.limitedBy = 'maxStepG'; }
   const projected = currentOffsetG + step;
   if (Math.abs(projected) > cfg.maxCumulativeG){
-    step = Math.trunc(Math.sign(projected)*cfg.maxCumulativeG - currentOffsetG);
+    step = Math.trunc(Math.sign(projected) * cfg.maxCumulativeG - currentOffsetG);
     if (Math.sign(step) !== direction) step = 0;   // Never reverse advice.
     out.limitedBy = 'maxCumulativeG';
   }
   if (step === 0){
-    out.reason = `${pct>=0?'+':''}${pct.toFixed(2)}% calls for a change, but the ±${cfg.maxCumulativeG} g cumulative cap is reached.`;
+    out.reason = `Mean condition score ${bcs.toFixed(1)} calls for a change, but the ±${cfg.maxCumulativeG} g cumulative cap is reached.`;
     return out;
   }
+
   out.adjustmentG = step; out.applied = true;
-  out.reason = `${fmtDate(current.from)} to ${fmtDate(current.to)} averaged ${current.mean.toFixed(2)} kg against `
-    + `${previous.mean.toFixed(2)} kg the week before, ${pct>0?'+':''}${pct.toFixed(2)}%. `
-    + `Undamped: ${Math.abs(out.fullCorrectionG).toFixed(0)} g DARF; damped: `
-    + `${step>0?'up':'down'} ${Math.abs(step)} g`
+  out.reason = `Mean condition score ${bcs.toFixed(1)} is ${bcs > target ? 'above' : 'below'} ideal (${target.toFixed(1)}): `
+    + `${step > 0 ? 'increase' : 'reduce'} DARF by ${Math.abs(step)} g`
     + (out.limitedBy ? ` and held at the ${out.limitedBy==='maxStepG'?'single-step':'cumulative'} cap.` : '.');
   return out;
 }
@@ -1803,7 +1809,7 @@ function weightOverview(iso){
   return cached('weightOverview:'+iso,()=>{
     const weights=weightsList().filter(w=>validDate(w.date)&&w.date<=iso);
     const conditions=Object.entries(S.days).filter(([date,d])=>validDate(date)&&date<=iso&&Number.isFinite(d.bcs)&&d.bcs>=1&&d.bcs<=9).sort(([a],[b])=>a.localeCompare(b));
-    return {latest:weights.at(-1)||null,mean:windowMean(weights,toDay(iso),7),
+    return {latest:weights.at(-1)||null,mean:fiveEntryWeightMean(weights,iso),
       condition:conditions.length?{date:conditions.at(-1)[0],value:conditions.at(-1)[1].bcs}:null,
       conditionMean:bcsMean(S.days,iso,7)};
   });
@@ -1813,8 +1819,8 @@ function readingDate(date,asOf){
   return `${fmtDate(date)} ${date.slice(0,4)}${age>0?` · ${age} day${age===1?'':'s'} ago`:''}`;
 }
 function weightMeanContent(mean){
-  return mean.mean===null?'<p class="sub">7-day mean unavailable · no readings.</p>':
-    `<div class="weight-mean" data-weight-mean><b>7-day mean ${weightNumber(mean.mean)} kg</b> · ${mean.n} reading${mean.n===1?'':'s'}<br>${weightStatus(mean.mean)}</div>`;
+  return mean.mean===null?'<p class="sub">5-entry mean unavailable · no readings.</p>':
+    `<div class="weight-mean" data-weight-mean><b>5-entry mean ${weightNumber(mean.mean)} kg</b> · ${mean.n} reading${mean.n===1?'':'s'}<br>${weightStatus(mean.mean)}</div>`;
 }
 function weightConditionContent(iso,heading=true){
   const d=S.days[iso]||{}, {latest,mean,condition,conditionMean}=weightOverview(iso);
@@ -2353,7 +2359,7 @@ function weightHint(iso,brief=false){
 }
 function weightHintContent(iso,brief=false){
   const d=S.days[iso]||{};
-  const m=windowMean(weightsList(),toDay(iso),7);
+  const m=fiveEntryWeightMean(weightsList(),iso);
   const kg=recordedWeight(d);
   let extra='';
   if (kg!==null && m.mean && Math.abs(kg-m.mean)/m.mean>0.05)
@@ -2586,7 +2592,7 @@ function viewReview(){
   const rationDateInfo = rationAlertDateText(adv, s.regimeChanges||[]);
   let advResult;
   if (adv.applied){
-    advResult = `<div class="note warn"><b>${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g on every recipe</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${adv.percentChange>=0?'+':''}${adv.percentChange.toFixed(2)}% weekly weight change (${adv.currentMean.toFixed(2)} kg vs ${adv.previousMean.toFixed(2)} kg).</p></div>
+    advResult = `<div class="note warn"><b>${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g on every recipe</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${esc(adv.reason)}</p></div>
       <div class="btnrow"><button class="btn sm" data-act="applyadv">Apply</button>
       <button class="btn ghost sm" data-act="refuseadv">Keep current ration this week</button></div>`;
   } else if (adv.held){
@@ -3251,31 +3257,30 @@ function selfTest(){
   ok('adjustment applies', bowlFor('2026-09-14','lamb',s,[{date:'2026-09-14',deltaG:-5}],{}).darfG, 118);
   ok('ration floor', bowlFor('2026-09-14','duck',s,[{date:'2026-09-14',deltaG:-200}],{}).darfG, s.darfMinG);
 
-  L.push('WEEKLY RULE');
-  const at=(p2)=>adjust([...prev,...ser('2026-09-07',7,+(18.80*(1+p2/100)).toFixed(3))]).adjustmentG;
-  ok('1.0% gain reduces ration by 5 g', adjust([...prev,...ser('2026-09-07',7,18.988)]).adjustmentG, -5);
-  ok('1.1% gives 6 g', at(1.1), -6);
-  ok('1.8% gives 9 g', at(1.8), -9);
-  ok('3.0% capped at 15 g', at(3.0), -15);
-  ok('0.74% does nothing', adjust([...prev,...ser('2026-09-07',7,18.939)]).applied, false);
-  ok('4 weigh-ins not enough', adjust([...ser('2026-08-31',4,18.80),...ser('2026-09-07',4,18.988)]).applied, false);
-  ok('5 weigh-ins enough', adjust([...ser('2026-08-31',5,18.80),...ser('2026-09-07',5,18.988)]).applied, true);
+  L.push('BCS-EXCLUSIVE RATION RULE');
+  ok('BCS 5.5 reduces by 5 g', adjust([],{bcs7dMean:5.5}).adjustmentG, -5);
+  ok('BCS 6.0 reduces by 10 g', adjust([],{bcs7dMean:6.0}).adjustmentG, -10);
+  ok('BCS 7.0 capped at 15 g reduction', adjust([],{bcs7dMean:7.0}).adjustmentG, -15);
+  ok('BCS 4.5 increases by 5 g', adjust([],{bcs7dMean:4.5}).adjustmentG, 5);
+  ok('BCS 4.0 increases by 10 g', adjust([],{bcs7dMean:4.0}).adjustmentG, 10);
+  ok('BCS 3.0 capped at 15 g increase', adjust([],{bcs7dMean:3.0}).adjustmentG, 15);
+  ok('BCS 5.0 ideal holds ration', adjust([],{bcs7dMean:5.0}).applied, false);
 
-  L.push('CONDITION HOLD');
+  L.push('WEIGHT DECOUPLING');
   const up=[...prev,...ser('2026-09-07',7,+(18.80*1.015).toFixed(3))];
   const dn=[...prev,...ser('2026-09-07',7,+(18.80*0.985).toFixed(3))];
-  ok('BCS 4.3 holds', adjust(up,{bcs7dMean:4.3}).held, true);
-  ok('BCS 5.0 holds', adjust(up,{bcs7dMean:5.0}).held, true);
-  ok('BCS 5.07 releases', adjust(up,{bcs7dMean:5.07}).applied, true);
-  ok('increases never held', adjust(dn,{bcs7dMean:4.3}).applied, true);
+  ok('weight gain with ideal BCS does not reduce', adjust(up,{bcs7dMean:5.0}).applied, false);
+  ok('weight drop with ideal BCS does not increase', adjust(dn,{bcs7dMean:5.0}).applied, false);
+  ok('missing BCS holds changes', adjust(up,{bcs7dMean:null}).applied, false);
+  ok('weight gain with BCS 5.5 still reduces', adjust(up,{bcs7dMean:5.5}).adjustmentG, -5);
 
   L.push('FIX 1, the clamp never reverses');
-  [45,50,60].forEach(o=>ok(`offset ${o}`, adjust(dn,{currentOffsetG:o}).adjustmentG>=0, true));
-  L.push('FIX 2, the hold outranks the cap');
-  ok('reports the hold', adjust(up,{currentOffsetG:-40,bcs7dMean:4.3}).held, true);
+  [45,50,60].forEach(o=>ok(`offset ${o}`, adjust(dn,{bcs7dMean:4.5,currentOffsetG:o}).adjustmentG>=0, true));
+  L.push('FIX 2, ideal BCS holds');
+  ok('reports ideal BCS hold', adjust(up,{currentOffsetG:-40,bcs7dMean:5.0}).applied, false);
   L.push('CLAMP, normal');
-  ok('offset 35 to +5', adjust(dn,{currentOffsetG:35}).adjustmentG, 5);
-  ok('offset 40 nothing', adjust(dn,{currentOffsetG:40}).applied, false);
+  ok('offset 35 to +5', adjust(dn,{bcs7dMean:4.5,currentOffsetG:35}).adjustmentG, 5);
+  ok('offset 40 nothing', adjust(dn,{bcs7dMean:4.5,currentOffsetG:40}).applied, false);
   L.push('WEEK KEYING');
   ok('Monday of a Sunday', toIso(mondayOf('2026-09-20')), '2026-09-14');
   ok('already fired', adjust(up,{lastAdjustmentWeek:'2026-09-16',bcs7dMean:6}).applied, false);
@@ -3643,7 +3648,7 @@ async function confirmInput(form){
   if(k==='mealamount'&&(!['oilMl','fibreG'].includes(setting)||n!==null&&(!Number.isFinite(n)||n<0))){fieldError(el,'Enter zero or a positive amount, or leave this blank for not recorded.');return;}
   if (k!=='notes' && v!=='' && !Number.isFinite(n)) return;
   if (k==='weight'&&n!==null){
-    const m=windowMean(weightsList(),toDay(iso)-1,7);
+    const m=fiveEntryWeightMean(weightsList().filter(w=>w.date<iso));
     if (m.mean&&Math.abs(n-m.mean)/m.mean>.05&&!confirm(`${n} kg differs by over 5% from the recent mean. Keep it?`)) return;
   }
   const patch=k==='notes'?{notes:v}:k==='weight'?{weight:n,weightMissed:false,weightBeforeMissed:null}:k==='darfFed'?{meal:{darfFed:n}}:{[k]:n};
@@ -3807,6 +3812,18 @@ document.addEventListener('click', async (ev)=>{
   if (a==='openstool'||a==='editstool'){
     persistDrafts();
     const old=(d.stools||[]).find(x=>x.id===el.dataset.id);
+    const type=Number(el.dataset.b);
+    // Instant stool logging: tapping a rating on the quick-log row immediately saves the log entry.
+    if(a==='openstool'&&type&&BRISTOL[type]&&!old){
+      if(stoolDraft)clearSaveError('stool:'+S.adding+':'+stoolDraft.id);
+      const newStool={id:'s'+crypto.randomUUID(),time:nowHHMM(),bristol:type,mucus:false,blood:false};
+      const list=S.days[iso]?.stools||[];
+      S.adding=null;stoolDraft=null;stoolOriginal=null;
+      await saveDay(iso,{stools:[...list,newStool]});
+      persistDrafts();render(true);
+      focusAfterRender(`[data-act="editstool"][data-id="${CSS.escape(newStool.id)}"][data-date="${iso}"]`);
+      return;
+    }
     // New-entry buttons honour the tapped type; hidden new drafts have their own resume links.
     const previous=old&&draftStools.find(s=>s.date===iso&&s.record.id===old.id);
     if(previous){
@@ -3816,7 +3833,6 @@ document.addEventListener('click', async (ev)=>{
     stoolReturnFocus=el.id?'#'+CSS.escape(el.id):old?`[data-act="editstool"][data-id="${CSS.escape(old.id)}"][data-date="${iso}"]`:`[data-act="openstool"][data-date="${iso}"]`;
     stoolOriginal=old?{...old}:null;
     // A quick-log type arrives preselected, so Save is the only remaining tap.
-    const type=Number(el.dataset.b);
     stoolDraft=old?{...old}:{id:'s'+crypto.randomUUID(),time:nowHHMM(),mucus:false,blood:false,...(BRISTOL[type]?{bristol:type}:{})};
     S.adding=iso;activeStoolKey=null;
     pendingDraft={fields:draftFields,expanded:draftExpanded};
@@ -3834,9 +3850,40 @@ document.addEventListener('click', async (ev)=>{
   }
   if (a==='stooltype'){
     if (!stoolDraft) return;
-    stoolDraft.bristol=Number(el.dataset.b);
+    const type=Number(el.dataset.b);
+    if (!type||!BRISTOL[type]) return;
+    stoolDraft.bristol=type;
     $('#st-error')?.classList.add('hide');
-    $$('#main [data-act="stooltype"]').forEach(b=>{const on=Number(b.dataset.b)===stoolDraft.bristol;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)}); scheduleDrafts();return;
+    // Instant stool logging: tapping the rating immediately saves the log entry.
+    const timeInput=$('#st-t'), dateInput=$('#st-date');
+    const timeVal=(timeInput&&timeInput.value)?timeInput.value:(stoolDraft.time||nowHHMM());
+    const dateVal=(dateInput&&dateInput.value)?dateInput.value:(S.adding||localToday());
+    const originalDate=S.adding||dateVal;
+    const moving=dateVal!==originalDate&&!!stoolOriginal;
+    const edited={...stoolDraft,bristol:type,time:timeVal};
+    const list=S.days[dateVal]?.stools||[];
+    const changes=stoolOriginal?Object.fromEntries(['time','bristol','mucus','blood'].filter(k=>edited[k]!==stoolOriginal[k]).map(k=>[k,edited[k]])):{};
+    const next=stoolOriginal&&!moving?{...list.find(s=>s.id===stoolOriginal.id),...changes,bristol:type}:edited;
+    const st=list.some(x=>x.id===next.id)?list.map(x=>x.id===next.id?next:x):[...list,next];
+    const saved=moving?moveStool(originalDate,dateVal,next,stoolOriginal):saveDay(dateVal,{stools:st});
+    const failureScope=lastSaveFailure;
+    if (await saved){
+      clearSaveError('stool:'+originalDate+':'+next.id);
+      S.adding=null;stoolDraft=null;stoolOriginal=null;
+      persistDrafts();
+      const otherDrafts=!!$('#main [data-dirty]'), moved=dateVal!==originalDate;
+      const follow=moved&&!otherDrafts&&S.tab==='day';
+      if(follow){
+        navigateTo('day',{date:dateVal,target:`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${dateVal}"]`});return;
+      }
+      if(moved)S.banner={kind:'plain',title:`Stool saved for ${fmtDate(dateVal)}`,view:dateVal,
+        text:(otherDrafts?'Your other unfinished entries stay open. ':'')+'The stool is listed on that date in History.'};
+      if(otherDrafts)refreshStoolLog(originalDate);else render(true);
+      focusAfterRender(moved&&!follow?'#add-stool-'+originalDate:`[data-act="editstool"][data-id="${CSS.escape(next.id)}"][data-date="${dateVal}"]`);
+    } else {
+      bindSaveError('stool:'+originalDate+':'+next.id,failureScope);
+    }
+    return;
   }
   if (a==='tog-mucus'||a==='tog-blood'){
     if (!stoolDraft) return; const k=a.slice(4);
@@ -3920,7 +3967,7 @@ document.addEventListener('click', async (ev)=>{
       const form=el.closest('[data-feeding]'), input=$('input',form);
       if (!input.reportValidity()||!isFedMeal({recipe:r,fedAt:input.value})) return;
       el.disabled=true;
-      const saved=saveMeal(iso,{fedAt:input.value,...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})});
+      const saved=saveMeal(iso,{fedAt:input.value,bowl:meal.bowl??'cleared',...(isEditablePlan(iso,meal)?{darfFed:meal.darfFed??meal.darfPlanned}:{})});
       const failureScope=lastSaveFailure;
       if (await saved){
         clearSaveError('feeding:'+input.id);
@@ -3931,8 +3978,8 @@ document.addEventListener('click', async (ev)=>{
     if (a!=='fed'||isFedMeal(meal)||iso!==localToday()) return;
     const b=bowlFor(iso,r,S.settings,S.changes,meal);
     if (!b) return;
-    // Mark as fed gives way to the fed time; keep focus on that confirmation.
-    if(await saveMeal(iso,{fedAt:nowHHMM(),darfFed:meal.darfFed??b.darfG})&&!document.getElementById(el.id))refocus('meal-fed-status-'+iso);
+    // Mark as fed sets fedAt and auto-clears the bowl with zero friction.
+    if(await saveMeal(iso,{fedAt:nowHHMM(),bowl:meal.bowl??'cleared',darfFed:meal.darfFed??b.darfG})&&!document.getElementById(el.id))refocus('meal-fed-status-'+iso);
     return;
   }
   if (a==='useplandarf'){
@@ -3945,7 +3992,7 @@ document.addEventListener('click', async (ev)=>{
   }
   if (a==='unfeed'){
     if (el.disabled) return; el.disabled=true;
-    if (await saveDay(iso,{meal:{fedAt:null}})){
+    if (await saveDay(iso,{meal:{fedAt:null,bowl:null}})){
       const input=el.closest('[data-feeding]')?.querySelector('input');if(input)clearSaveError('feeding:'+input.id);
       el.closest('[data-feeding]')?.removeAttribute('data-dirty');persistDrafts(); el.disabled=false; render();
       // Today's Undo Fed (under Edit meal) is replaced by Mark as fed.

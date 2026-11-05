@@ -79,7 +79,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
     download = (...args) => globalThis.testDownloads.push(args);
     globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, viewHistory, viewReview, viewSettings, navigateTo, normalizeTab, navDestination, formatAlertDates, formatVetAlertHeadline, rationAlertDateText, weeklyAdvice, insights, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
       exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, refreshSettingsReadOnly, APP_VERSION, downloads: globalThis.testDownloads,
-      weightAssessment, weightNumber, weightDeviation, weightOverview, weightMeanContent, weightHintContent, lineChart, toDay, computeDarfAdjustment,
+      weightAssessment, weightNumber, weightDeviation, weightOverview, fiveEntryWeightMean, weightMeanContent, weightHintContent, lineChart, toDay, computeDarfAdjustment,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; }, write, flushWrites, queuedWrites, saveDay, resyncIfPending, onResumeOrReconnect,
       pendingFlush: () => flushTask };
@@ -89,7 +89,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
   api.S.days = JSON.parse(JSON.stringify(days));
   const dispatch = async (name, event) => { for (const callback of listeners.get(name) || []) await callback(event); };
   const click = (act, data = {}, id = '') => {
-    const target = { id, dataset: { act, ...data }, disabled: false, closest: selector => selector === '#feedback' ? null : target,
+    const target = { id, dataset: { act, ...data }, disabled: false, querySelector: () => null, removeAttribute() {}, closest: selector => selector === '#feedback' ? null : target,
       focus() { document.activeElement = this; } };
     return dispatch('click', { target }).then(() => target);
   };
@@ -204,13 +204,16 @@ test('a quick-log row starts an entry from each Bristol type and remains the Und
   assert.deepEqual(types, [1, 2, 3, 4, 5, 6, 7]);
 });
 
-test('tapping a quick-log type opens a prefilled entry without a discard prompt', async () => {
+test('tapping a quick-log type immediately saves the entry without requiring a separate save tap', async () => {
   const h = makeHarness();
   await h.click('openstool', { date: TODAY, b: '4' }, `quick-stool-${TODAY}-4`);
-  assert.equal(h.api.S.adding, TODAY);
-  assert.equal(h.api.draft().bristol, 4);
-  assert.equal(h.api.draft().time, '10:00', 'time defaults to now (London)');
-  assert.equal(h.document.activeElement.selector, '#main [data-act="stooltype"].on', 'focus lands on the chosen type, not the time field');
+  const stools = h.api.S.days[TODAY]?.stools || [];
+  assert.equal(stools.length, 1, 'stool entry was immediately saved');
+  assert.equal(stools[0].bristol, 4);
+  assert.equal(stools[0].time, '10:00', 'time defaults to now (London)');
+  assert.equal(h.api.S.adding, null, 'no open draft remains');
+  assert.match(h.api.viewToday(), /data-act="editstool"/, 'saved stool provides inline Edit');
+  assert.match(h.api.viewToday(), /data-act="delstool"/, 'saved stool provides inline Delete');
   assert.deepEqual(h.confirms, []);
 });
 
@@ -1147,4 +1150,178 @@ test('AG-13: a failed background sync backs off the 15-second retry; lifecycle e
   await h.api.pendingFlush();
   assert.equal(attempts, 3, 'Retry sync bypasses the back-off');
   assert.equal(h.api.queuedWrites().length, 1, 'the entry stays queued throughout');
+});
+
+test('Zero-Friction Bowl Logging: Mark as fed sets status to served and auto-clears the bowl at current timestamp', async () => {
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'turkey' } } } });
+  await h.click('fed', { date: TODAY }, `meal-fed-action-${TODAY}`);
+  const meal = h.api.S.days[TODAY].meal;
+  assert.equal(meal.fedAt, '10:00', 'served at current timestamp');
+  assert.equal(meal.bowl, 'cleared', 'auto-cleared with zero confirmation prompts');
+  assert.equal(meal.recipe, 'turkey');
+  assert.ok(meal.darfFed > 0);
+  assert.equal(h.confirms.length, 0, 'no confirmation prompts');
+});
+
+test('Zero-Friction Bowl Logging: explicit feeding time sets served and auto-clears the bowl at entered timestamp', async () => {
+  const h = makeHarness({ days: { [YESTERDAY]: { meal: { recipe: 'beef' } } } });
+  h.api.S.tab = 'day';
+  h.api.S.cursor = YESTERDAY;
+  const timeInput = h.element(`#fed-time-${YESTERDAY}`);
+  timeInput.value = '19:45';
+  const feedingForm = {
+    querySelector: sel => sel === 'input' ? timeInput : null,
+    removeAttribute() {},
+  };
+  const target = {
+    id: `fed-save-${YESTERDAY}`,
+    dataset: { act: 'fed', date: YESTERDAY, fedTime: 'explicit' },
+    disabled: false,
+    querySelector: () => null,
+    closest: sel => sel === '#feedback' ? null : sel === '[data-feeding]' ? feedingForm : target,
+    focus() { h.document.activeElement = this; }
+  };
+  await h.dispatch('click', { target });
+  const meal = h.api.S.days[YESTERDAY].meal;
+  assert.equal(meal.fedAt, '19:45', 'served at entered timestamp');
+  assert.equal(meal.bowl, 'cleared', 'auto-cleared on explicit entry');
+});
+
+test('Zero-Friction Bowl Logging: user can edit bowl after the fact and Undo Fed clears served and bowl status', async () => {
+  const h = makeHarness({ days: { [TODAY]: { meal: { recipe: 'lamb', fedAt: '18:00', bowl: 'cleared', darfFed: 140 } } } });
+  // Tapping 'left' changes the bowl
+  await h.click('bowl', { date: TODAY, k: 'left' }, `bowl-${TODAY}-left`);
+  assert.equal(h.api.S.days[TODAY].meal.bowl, 'left');
+  // Tapping 'left' again unmarks bowl
+  await h.click('bowl', { date: TODAY, k: 'left' }, `bowl-${TODAY}-left`);
+  assert.ok(!h.api.S.days[TODAY].meal.bowl, 'bowl is unmarked');
+  // Undo Fed unmarks both served and bowl
+  await h.click('unfeed', { date: TODAY }, `meal-unfeed-${TODAY}`);
+  assert.ok(!h.api.S.days[TODAY].meal.fedAt, 'fedAt cleared');
+  assert.ok(!h.api.S.days[TODAY].meal.bowl, 'bowl cleared');
+});
+
+test('Instant Stool Logging: single tap on rating in open form immediately saves with selected timestamp', async () => {
+  const h = makeHarness({ days: { [TODAY]: { stools: [] } } });
+  h.api.S.adding = TODAY;
+  h.api.setDraft({ id: 's-edit-test', time: '08:15', bristol: 3, mucus: true, blood: false });
+  h.element('#st-t').value = '08:15';
+  h.element('#st-date').value = TODAY;
+  // Selecting rating 5 immediately saves without pressing Save
+  await h.click('stooltype', { b: '5' });
+  const stools = h.api.S.days[TODAY].stools || [];
+  assert.equal(stools.length, 1);
+  assert.equal(stools[0].bristol, 5);
+  assert.equal(stools[0].time, '08:15');
+  assert.equal(stools[0].mucus, true);
+  assert.equal(h.api.S.adding, null, 'draft is cleared');
+});
+
+test('Instant Stool Logging: saved entry is fully editable and deletable with Undo', async () => {
+  const h = makeHarness({ days: { [TODAY]: { stools: [{ id: 's-orig', time: '09:00', bristol: 4, mucus: false, blood: false }] } } });
+  // Delete inline
+  await h.click('delstool', { date: TODAY, id: 's-orig' });
+  assert.equal((h.api.S.days[TODAY].stools || []).length, 0);
+  assert.ok(h.api.S.undo && h.api.S.undo.kind === 'stool', 'Undo record is kept');
+  // Undo restores it
+  await h.click('undo');
+  assert.equal((h.api.S.days[TODAY].stools || []).length, 1);
+  assert.equal(h.api.S.days[TODAY].stools[0].id, 's-orig');
+});
+
+test('5-Entry Rolling Weight Average: strictly averages the previous 5 logged weights regardless of elapsed time', () => {
+  const h = makeHarness();
+  // Entries spread over multiple months and non-uniform intervals
+  const weights = [
+    { date: '2026-05-01', kg: 18.0 },
+    { date: '2026-06-15', kg: 18.2 },
+    { date: '2026-08-01', kg: 18.4 },
+    { date: '2026-09-10', kg: 18.6 },
+    { date: '2026-10-01', kg: 18.8 },
+    { date: '2026-10-28', kg: 19.0 },
+  ];
+  // As of 2026-10-28, previous 5 entries are 18.2, 18.4, 18.6, 18.8, 19.0 (sum = 93.0 / 5 = 18.6)
+  const result = h.api.fiveEntryWeightMean(weights, '2026-10-28');
+  assert.equal(result.n, 5);
+  assert.ok(Math.abs(result.mean - 18.6) < 1e-10);
+  assert.equal(result.from, '2026-06-15');
+  assert.equal(result.to, '2026-10-28');
+
+  // As of 2026-08-01, only 3 entries exist
+  const result3 = h.api.fiveEntryWeightMean(weights, '2026-08-01');
+  assert.equal(result3.n, 3);
+  assert.ok(Math.abs(result3.mean - ((18.0 + 18.2 + 18.4) / 3)) < 1e-10);
+
+  // Missing or non-positive weights are excluded
+  const dirtyWeights = [
+    { date: '2026-10-20', kg: 18.5 },
+    { date: '2026-10-21', kg: 0 },
+    { date: '2026-10-22', kg: 19.5, weightMissed: true },
+    { date: '2026-10-23', kg: 18.7 },
+  ];
+  const dirtyResult = h.api.fiveEntryWeightMean(dirtyWeights, '2026-10-28');
+  assert.equal(dirtyResult.n, 2);
+  assert.ok(Math.abs(dirtyResult.mean - 18.6) < 1e-10);
+
+  // UI label displays 5-entry mean
+  const html = h.api.weightMeanContent(result);
+  assert.match(html, /5-entry mean 18\.60 kg/);
+});
+
+test('BCS-Exclusive DARF Ration Adjustment: BCS is the sole deciding factor; weight deltas are decoupled', () => {
+  const { api } = makeHarness();
+  const settings = api.S.settings;
+
+  // Massive weight gain (+10%) with ideal BCS (5.0) -> NO ration change
+  const weightsGain = [
+    ...Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${String(12 + i).padStart(2, '0')}`, kg: 18.0 })),
+    ...Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${String(19 + i).padStart(2, '0')}`, kg: 19.8 })),
+  ];
+  const adjIdealBcs = api.computeDarfAdjustment({ weights: weightsGain, asOf: TODAY, bcs7dMean: 5.0, settings });
+  assert.equal(adjIdealBcs.applied, false, 'ideal BCS holds current ration despite 10% weight gain');
+  assert.equal(adjIdealBcs.adjustmentG, 0);
+  assert.match(adjIdealBcs.reason, /Body condition score is ideal \(5\.0 \/ 9\)/);
+
+  // Massive weight loss (-10%) with ideal BCS (5.0) -> NO ration change
+  const weightsLoss = [
+    ...Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${String(12 + i).padStart(2, '0')}`, kg: 19.8 })),
+    ...Array.from({ length: 7 }, (_, i) => ({ date: `2026-10-${String(19 + i).padStart(2, '0')}`, kg: 18.0 })),
+  ];
+  const adjIdealBcsLoss = api.computeDarfAdjustment({ weights: weightsLoss, asOf: TODAY, bcs7dMean: 5.0, settings });
+  assert.equal(adjIdealBcsLoss.applied, false, 'ideal BCS holds current ration despite 10% weight drop');
+  assert.equal(adjIdealBcsLoss.adjustmentG, 0);
+
+  // Overweight BCS (5.5, 6.0, 7.0) -> reduces DARF kibble ration
+  const adj55 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 5.5, settings });
+  assert.equal(adj55.applied, true);
+  assert.equal(adj55.adjustmentG, -5, 'BCS 5.5 (0.5 above ideal) reduces by 5 g');
+
+  const adj60 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 6.0, settings });
+  assert.equal(adj60.applied, true);
+  assert.equal(adj60.adjustmentG, -10, 'BCS 6.0 (1.0 above ideal) reduces by 10 g');
+
+  const adj70 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 7.0, settings });
+  assert.equal(adj70.applied, true);
+  assert.equal(adj70.adjustmentG, -15, 'BCS 7.0 capped at maxStepG (15 g reduction)');
+  assert.equal(adj70.limitedBy, 'maxStepG');
+
+  // Underweight BCS (4.5, 4.0, 3.0) -> increases DARF kibble ration
+  const adj45 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.5, settings });
+  assert.equal(adj45.applied, true);
+  assert.equal(adj45.adjustmentG, 5, 'BCS 4.5 (0.5 below ideal) increases by 5 g');
+
+  const adj40 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.0, settings });
+  assert.equal(adj40.applied, true);
+  assert.equal(adj40.adjustmentG, 10, 'BCS 4.0 (1.0 below ideal) increases by 10 g');
+
+  const adj30 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 3.0, settings });
+  assert.equal(adj30.applied, true);
+  assert.equal(adj30.adjustmentG, 15, 'BCS 3.0 capped at maxStepG (15 g increase)');
+  assert.equal(adj30.limitedBy, 'maxStepG');
+
+  // Missing BCS holds any ration change
+  const adjNull = api.computeDarfAdjustment({ weights: weightsGain, asOf: TODAY, bcs7dMean: null, settings });
+  assert.equal(adjNull.applied, false);
+  assert.equal(adjNull.adjustmentG, 0);
+  assert.match(adjNull.reason, /No Body Condition Score/);
 });
