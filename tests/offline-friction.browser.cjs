@@ -15,7 +15,7 @@ const TODAY = '2026-11-05';
 const shellScript = /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/i;
 assert.doesNotMatch(original.match(shellScript)[0], /type=["']module["']/i, 'The first script is the classic shell script');
 const expose = (_, body, end) => body + `
-  window.testApp={S,queuedWrites,render,renderFeedback,setStatus,subscribe,open:(tab,o)=>navigateTo(tab,o)};
+  window.testApp={S,queuedWrites,render,renderFeedback,setStatus,subscribe,flushWrites,open:(tab,o)=>navigateTo(tab,o)};
 ` + end;
 const sdk = s => s.replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/gi, '')
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
@@ -43,7 +43,7 @@ const stub = `
       {docChanges:()=>Object.entries(days).map(([id,v])=>({type:'added',doc:{id,data:()=>v}})),metadata}));
     return()=>{};
   };
-  export const setDoc=async(ref,data)=>{log('probe-writes',{col:ref.col,id:ref.id,data});};
+  export const setDoc=async(ref,data)=>{const f=fx();if(f.writeDelay)await new Promise(r=>setTimeout(r,f.writeDelay));log('probe-writes',{col:ref.col,id:ref.id,data});};
   export const signOut=async()=>{log('probe-signout',1);};
   const forbidden=()=>{throw Error('Unexpected backend operation');};
   export const signInWithEmailAndPassword=forbidden,deleteDoc=forbidden,runTransaction=forbidden;
@@ -465,6 +465,56 @@ async function main() {
       assert.deepEqual(out, { lastConfirmed: null, status: 'Cached; checking sync' });
       await ctx.close();
       passed++; console.log('PASS R6 a second account starts without the first account’s server confirmation');
+    }
+
+    // R6: a flush for account A finishing after switching to account B does not mark account B as synced; A -> B -> A recovers A's state.
+    {
+      const ctx = await context(native);
+      const page = await open(ctx, fixture({ days: {}, fromCache: false }));
+      await page.waitForFunction(() => testApp.S.lastConfirmed > 0);
+      const res = await page.evaluate(async () => {
+        // Queue an operation for probe-user and configure setDoc delay
+        localStorage.setItem('probe-fixture', JSON.stringify({ writeDelay: 120, days: {} }));
+        localStorage.setItem('murphy-outbox-v2:probe-user:1000-w', JSON.stringify({ col: 'days', id: '2026-11-05', patch: { notes: 'hello' } }));
+        const flushPromise = window.testApp.flushWrites();
+
+        // Switch to second-user while probe-user's flush is in flight
+        await new Promise(r => setTimeout(r, 30));
+        testApp.S.user = { uid: 'second-user', email: 'second@example.invalid' };
+        testApp.subscribe();
+
+        // Wait for the flush to finish
+        await flushPromise;
+
+        const secondUser = {
+          status: document.getElementById('state').textContent,
+          lastConfirmed: testApp.S.lastConfirmed,
+          itemKept: localStorage.getItem('murphy-outbox-v2:probe-user:1000-w')
+        };
+
+        // Switch back to probe-user (A -> B -> A)
+        localStorage.setItem('probe-fixture', JSON.stringify({ days: {}, fromCache: false }));
+        testApp.S.user = { uid: 'probe-user', email: 'probe@example.invalid' };
+        testApp.subscribe();
+        await new Promise(r => setTimeout(r, 300));
+
+        return {
+          secondUser,
+          probeUser: {
+            status: document.getElementById('state').textContent,
+            confirmed: testApp.S.lastConfirmed > 0
+          }
+        };
+      });
+      assert.deepEqual(res.secondUser, {
+        status: 'Cached; checking sync',
+        lastConfirmed: null,
+        itemKept: '{"col":"days","id":"2026-11-05","patch":{"notes":"hello"}}'
+      });
+      assert.equal(res.probeUser.status, 'Synced');
+      assert.equal(res.probeUser.confirmed, true);
+      await ctx.close();
+      passed++; console.log('PASS R6 a flush for account A finishing after switch to B does not mark B synced and A -> B -> A restores A');
     }
 
     // AG-14: an invalid stool date explains itself beside the form.

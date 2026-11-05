@@ -1477,6 +1477,7 @@ function flushWrites(){
         }
       }
     }
+    if(S.user?.uid!==uid) return;
     if(S.banner?.source==='sync') S.banner=null;
     retryFailures=0;retryAfter=0;
     if(acknowledged)noteServerConfirmed(uid);
@@ -1493,6 +1494,7 @@ function flushWrites(){
     try{
       if(navigator.locks)await navigator.locks.request('murphy-sync:'+uid,flush);else await flush();
     }catch(e){
+      if(S.user?.uid!==uid) return;
       // Poor signal: back off the periodic retry (15 s doubling to 5 min, with jitter).
       // Lifecycle events, Retry sync and new entries still try immediately.
       retryFailures++;

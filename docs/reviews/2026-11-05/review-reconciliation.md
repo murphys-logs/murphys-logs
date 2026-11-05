@@ -37,7 +37,7 @@ Still open from 4 November and not addressed here: AG-05, FR-01, FR-02, FR-03, A
 | R3 (P2) | Quarantine destination dropped the queue prefix, so equal suffixes collided and one payload was lost | The destination is `murphy-outbox-quarantine:<uid>:<encodeURIComponent(full original key)>`; a different envelope already there is never overwritten (a `~n` suffix is added instead). The full `{key,raw}` envelope is verified before each source is removed. A partial failure reports how many were moved and that the rest are still in place |
 | R4 (P2) | After the last set-aside, the recovery route disappeared and Full backup omitted quarantine | Sync & storage shows the set-aside count and **Save recovery file** whenever quarantine exists. Recovery files and **Full backup** (`setAsideOutbox`) include every set-aside envelope; set-aside entries are never replayed or sent |
 | R5 (P3) | The pinned Undo stayed until some other render | A timer redraws at expiry, and resume (focus or visibility) re-evaluates notices. The durable Undo is untouched |
-| R6 (P3) | "Last confirmed" could carry over to another account on a same-page switch | `subscribe()` clears it; `noteServerConfirmed(uid)` ignores evidence from a previous account's flush or listener; it reloads from that account's own device key |
+| R6 (P3) | "Last confirmed" could carry over to another account on a same-page switch; a flush for A finishing after switch to B updated B's status | `subscribe()` clears it; `noteServerConfirmed(uid)` ignores evidence from a previous account's flush or listener; `flushTask` returns early if the active user switched; it reloads from that account's own device key |
 | R7 (P3) | The Sync & storage age ignored held entries and always promised automatic sending | The age includes unreadable entries' key timestamps. When sending is held, the text says so and offers the recovery actions instead of "syncs automatically"; Retry is hidden while it can't help |
 | R1 / duplicated sessions (Codex verification) | A duplicated tab inherited sessionStorage and activated or overwrote a live tab's draft without checking ownership | Each document now writes to a fresh session key. The inherited session is only a recovery candidate, subject to the owner lock; the failing duplicate-tab regression now preserves both unsaved values |
 | R1 / missing ownership evidence (Codex verification) | A live writer whose owner-lock request rejected still wrote a draft that another window automatically moved; legacy writers never held these locks | A local draft records `ownerLock:true` only after its writer holds the lock. Automatic recovery requires that evidence and the candidate's lock; legacy, unverified v2, unavailable and rejected ownership cases retain the explicit Restore prompt and Save |
@@ -58,14 +58,14 @@ Each change below reflects deliberate new behaviour, not a loosened check:
 - `history-review.browser.cjs`: CC-D1's bounded-banner check moves its latest Blood date inside the vet window, so the compact multi-date banner is still tested (CR-02).
 - `settings-exports.browser.cjs`: the old "Sign out must not add a guard" assertion now checks the CR-06 guard. With unsynced changes, one confirmation appears; declining never calls `signOut` and keeps the queue. The no-pending case is covered in the new suite. The backup version moves to 3.10.0.
 - `sw-assets.test.cjs`: the upgrade scenario becomes 3.9.2 → 3.10.0.
-- New `offline-friction.browser.cjs`: **13 scenarios** covering CR-01 to CR-03, CR-05 to CR-09, CX-01 with the CR-04 wording, FR-04, AG-14 and R1–R7. These include controls for the in-window Blood alarm, the no-pending sign-out, and the prompt path when another window may own the draft. R1 uses real Web Locks with a live second window.
+- New `offline-friction.browser.cjs`: **24 scenarios** covering CR-01 to CR-03, CR-05 to CR-09, CX-01 with the CR-04 wording, FR-04, AG-14, R1–R7, Codex's additional R1 draft ownership edge cases, and Antigravity's account-switch in-flight flush isolation. These include controls for the in-window Blood alarm, the no-pending sign-out, and the prompt path when another window may own the draft. R1 uses real Web Locks with a live second window.
 
 ## Validation at the new head
 
 | Check | Result |
 |---|---|
-| `node --test --experimental-test-isolation=none tests/*.test.cjs` (Node 22.23.4) | **180/180 pass** |
-| Six browser suites (pre-installed Chromium) | **82/82 pass** (21 + 6 + 26 + 13 + 5 + 11); no page errors or external requests |
+| `node --test --experimental-test-isolation=none tests/*.test.cjs` (Node 22.23.4 / Node 20.18.0) | **200/200 pass** |
+| Six browser suites (pre-installed Chromium) | **93/93 pass** (21 + 6 + 26 + 24 + 5 + 11); no page errors or external requests |
 | `APP_HTML=<3.9.2 index.html> node docs/reviews/2026-11-05/reproduce-friction.cjs` | 9/9 probes still reproduce on the baseline |
 | The same probes against 3.10.0 | Fail at CR-01, as expected for fixed behaviour |
 
