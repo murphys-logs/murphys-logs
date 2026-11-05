@@ -804,7 +804,13 @@ test('Today alert banners use actual current date on recovered drafts and keep m
   // Current advice & vet historical classification use localToday() (1 Nov 2026), not 20 Oct 2026, with clean punctuation:
   assert.match(todayHtml, /<b>Pro-Fibre · 1 Nov 2026 · dose since 16 Oct 2026<\/b>15 clean days\. Step Pro-Fibre from 2\.5 g to 5 g\. <button/);
   assert.doesNotMatch(todayHtml, /Pro-Fibre · 20 Oct 2026|\.\s*\(dose since/);
-  assert.match(todayHtml, /Blood recorded \(Historical · 30 July 2026\)/);
+  // CR-02: a vet item whose dates are all outside the vet window stays in Review
+  // but no longer raises Today's banner; one inside the window still does.
+  assert.doesNotMatch(todayHtml, /Blood recorded/);
+  assert.match(h.api.viewReview(), /Blood recorded/);
+  h.api.S.days = { ...h.api.S.days, '2026-10-30': { stools: [{ id: 'b-oct30', time: '08:00', bristol: 4, mucus: false, blood: true }] } };
+  assert.match(h.api.viewToday(), /Blood recorded \(latest 30 Oct 2026 · 2 dates\)/);
+  h.api.S.days = days;
 
   // 10 historical blood dates summarize to latest + count on Today while Review keeps all 10 dates:
   const blood10 = ['2025-11-01', '2025-12-01', '2025-12-31', '2026-01-30', '2026-03-01', '2026-03-31', '2026-04-30', '2026-05-30', '2026-06-29', '2026-07-29'];
@@ -822,12 +828,12 @@ test('release identifiers stay aligned across HTML shell, module and service wor
   const htmlVer = html.match(/<html[^>]*data-version="([^"]+)"/)?.[1];
   const swVer = swSource.match(/const VERSION = '([^']+)'/)?.[1];
   const h = makeHarness();
-  assert.equal(htmlVer, '3.9.2');
+  assert.equal(htmlVer, '3.10.0');
   assert.equal(h.api.APP_VERSION, htmlVer);
   assert.equal(swVer, htmlVer);
 });
 
-test('Settings groups Account, Appearance, Feeding plan, Backup & export, and Advanced without adding import preview or sign-out guard', () => {
+test('Settings groups Account, Appearance, Feeding plan, Backup & export, and Advanced without adding import preview', () => {
   const h = makeHarness({
     now: '2026-11-01T12:00:00Z',
     days: { '2026-10-20': { notes: 'Oct entry' } },
@@ -940,7 +946,7 @@ test('Settings monthly export handles 1 November and year/leap boundaries, expor
   // Separate Full backup exports everything as JSON:
   await h.click('exportall');
   assert.equal(h.api.downloads[3][0], 'Murphy_Log_backup_2026-11-01.json');
-  assert.match(h.api.downloads[3][1], /"version": "3\.9\.2"/);
+  assert.match(h.api.downloads[3][1], /"version": "3\.10\.0"/);
   assert.equal(h.storage.size, 0, 'selecting months, formats and exporting writes nothing to storage');
 
   // Empty-account check on 1 November, 1 January and leap-year 1 March:
@@ -1119,4 +1125,26 @@ test('offline save stores to durable outbox with calm status, suppresses raw SDK
   await h.api.pendingFlush();
   assert.equal(getOutbox().length, 0, 'Outbox queue drained by online event');
   assert.equal(h.api.S.status, 'Synced');
+});
+
+test('AG-13: a failed background sync backs off the 15-second retry; lifecycle events and Retry sync still try at once', async () => {
+  let attempts = 0;
+  const unavailable = async () => { attempts++; const e = new Error('Failed to get document because the client is offline.'); e.code = 'unavailable'; throw e; };
+  const h = makeHarness({ days: { [TODAY]: { stools: [] } }, firebaseOverrides: { doc: (_db, col, id) => ({ col, id }), runTransaction: unavailable } });
+  h.api.S.ready = true;
+  await h.api.saveDay(TODAY, { stools: [{ id: 's-backoff', time: '09:15', bristol: 4, mucus: false, blood: false }] });
+  await h.api.pendingFlush();
+  assert.equal(attempts, 1);
+  assert.equal(h.api.S.status, 'Saved locally; retry sync');
+  const periodic = h.intervals.find(i => i.ms === 15000);
+  periodic.callback();
+  assert.equal(h.api.pendingFlush(), null, 'the periodic retry waits out the back-off (the test clock is fixed)');
+  for (const cb of h.windowListeners.get('focus') || []) cb();
+  assert.ok(h.api.pendingFlush(), 'returning to the app still retries immediately');
+  await h.api.pendingFlush();
+  assert.equal(attempts, 2);
+  await h.click('retrysync');
+  await h.api.pendingFlush();
+  assert.equal(attempts, 3, 'Retry sync bypasses the back-off');
+  assert.equal(h.api.queuedWrites().length, 1, 'the entry stays queued throughout');
 });

@@ -427,6 +427,9 @@ async function main() {
       });
       await loadSyntheticDays(page, buildFixtureDays(), { theme: 'dark' });
 
+      // This old v2 draft has no owner-lock evidence, so recovery requires consent.
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1);
+      await page.locator('[data-act="recoverdraft"]').click();
       // Legacy 'status' draft normalizes to 'review' without losing cursor or hidden draft link
       assert.equal(await page.evaluate(() => testApp.S.tab), 'review');
       assert.equal(await page.evaluate(() => testApp.S.cursor), '2026-10-30');
@@ -495,7 +498,9 @@ async function main() {
           local: { [legacyDayKey]: JSON.stringify(legacyDayDraft) },
         },
       });
-      // Legacy v1 'day' draft opens directly in the single-day editor on 2026-10-29 with History tab active
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1, 'legacy drafts require explicit recovery');
+      await page.locator('[data-act="recoverdraft"]').click();
+      // Recovered legacy v1 'day' draft opens in the single-day editor with History active.
       assert.equal(await page.evaluate(() => testApp.S.tab), 'day');
       assert.equal(await page.evaluate(() => testApp.S.cursor), '2026-10-29');
       assert.equal(await page.locator('#tabbar [data-tab="history"]').getAttribute('aria-current'), 'true');
@@ -585,18 +590,20 @@ async function main() {
       const bannerTexts = await page.locator('#main > .note').allTextContents();
       assert.ok(bannerTexts.some(t => /Pro-Fibre · 1 Nov 2026 · dose since 16 Oct 2026/.test(t)), 'Today Pro-Fibre banner uses actual current date (1 Nov 2026)');
       assert.ok(bannerTexts.every(t => !/Pro-Fibre · 20 Oct 2026|\.\s*\(dose since/.test(t)), 'No stale draft date or doubled punctuation on Pro-Fibre banner');
-      assert.ok(bannerTexts.some(t => /Blood recorded \(Historical · 30 July 2026\)/.test(t)), 'Today vet historical classification uses actual current date (1 Nov 2026)');
+      // CR-02: 30 July is 94 days before the actual date (1 Nov), outside the 90-day vet window,
+      // so it stays in Review but no longer raises Today's banner. Classified by the actual date, not 20 Oct.
+      assert.ok(bannerTexts.every(t => !/Blood recorded/.test(t)), 'Today vet banner uses the actual current date (1 Nov 2026) and omits historical-only items');
       await assertNoHorizontalOverflow(page, `Recovered Today draft at ${viewport.width}x${viewport.height}`);
 
       // Cancel the recovered note so we return cleanly to current Today, then verify 10 historical blood dates stay bounded vs 1 date (CC-D1)
       await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
       await loadSyntheticDays(page, {
-        '2026-07-29': { date: '2026-07-29', stools: [{ id: 'blood-single', time: '08:00', bristol: 4, mucus: false, blood: true }] },
+        '2026-10-29': { date: '2026-10-29', stools: [{ id: 'blood-single', time: '08:00', bristol: 4, mucus: false, blood: true }] },
       }, { startDate: '2025-11-01', fibreSchedule: [{ from: '2026-10-28', g: 2.5 }] });
       await page.locator('#tabbar [data-tab="today"]').click();
       const singleBannerHeight = (await page.locator('#main > .note.bad').first().boundingBox()).height;
 
-      const bloodDates = ['2025-11-01', '2025-12-01', '2025-12-31', '2026-01-30', '2026-03-01', '2026-03-31', '2026-04-30', '2026-05-30', '2026-06-29', '2026-07-29'];
+      const bloodDates = ['2025-11-01', '2025-12-01', '2025-12-31', '2026-01-30', '2026-03-01', '2026-03-31', '2026-04-30', '2026-05-30', '2026-06-29', '2026-10-29'];
       const yearDays = {};
       bloodDates.forEach((iso, idx) => {
         yearDays[iso] = { date: iso, stools: [{ id: `blood-${idx}`, time: '08:00', bristol: 4, mucus: false, blood: true }] };
@@ -606,7 +613,7 @@ async function main() {
 
       const vetBanner = page.locator('#main > .note.bad').first();
       const vetBannerText = await vetBanner.textContent();
-      assert.match(vetBannerText, /Blood recorded \(Historical · latest 29 July 2026 · 10 dates\)\./);
+      assert.match(vetBannerText, /Blood recorded \(latest 29 Oct 2026 · 10 dates\)\./);
       assert.doesNotMatch(vetBannerText, /1 Nov 2025/);
       const vetBox = await vetBanner.boundingBox();
       assert.ok(vetBox.height <= singleBannerHeight + 26, `Today vet banner stays bounded (${vetBox.height}px vs 1-date ${singleBannerHeight}px)`);
@@ -616,7 +623,7 @@ async function main() {
       await vetBanner.locator('[data-act="go"][data-tab="review"]').click();
       await page.waitForFunction(() => testApp.S.tab === 'review');
       const reviewVetText = await page.locator('#main .note.bad').first().textContent();
-      for (const expected of ['1 Nov 2025', '1 Dec 2025', '31 Dec 2025', '30 Jan 2026', '1 Mar 2026', '31 Mar 2026', '30 Apr 2026', '30 May 2026', '29 June 2026', '29 July 2026']) {
+      for (const expected of ['1 Nov 2025', '1 Dec 2025', '31 Dec 2025', '30 Jan 2026', '1 Mar 2026', '31 Mar 2026', '30 Apr 2026', '30 May 2026', '29 June 2026', '29 Oct 2026']) {
         assert.ok(reviewVetText.includes(expected), `Review retains full blood date ${expected}`);
       }
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);

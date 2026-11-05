@@ -256,9 +256,9 @@ const importedDay = { date, updatedAt: time(11), weight: 18.5, notes: 'backup on
 const newerDay = { date, updatedAt: time(12), weight: 18.9, notes: 'server retained' };
 const cached = () => ({ ...empty(), days: { [date]: copy(oldDay) } });
 const change = (id, deltaG) => ({ id, date, deltaG, source: 'manual' });
-function assertDrained(h) {
+function assertDrained(h, status = 'Synced') {
   assert.equal(h.api.queuedWrites().length, 0);
-  assert.equal(h.api.S.status, 'Synced');
+  assert.equal(h.api.S.status, status);
 }
 function assertDayAndExport(h, expected) {
   assert.deepEqual(copy(h.api.S.days[date]), expected);
@@ -794,7 +794,9 @@ for (const col of ['days', 'changes']) for (const outcome of ['accepted', 'skipp
     delete afterDeletion[target];
     h.emit(col, afterDeletion, { changedIds: [target] });
     assertTarget(undefined);
-    assertDrained(h);
+    // CX-01: only this collection's watch has delivered a server-backed snapshot;
+    // the other two listeners still report cache, so "Synced" would be unproven.
+    assertDrained(h, 'Cached; checking sync');
   });
 }
 
@@ -849,7 +851,8 @@ for (const outcome of ['accepted', 'skipped']) {
     h.emit('settings');
     assert.deepEqual(copy(h.api.S.savedSettings), {});
     assert.equal(h.api.S.settings.theme, h.api.DEFAULTS.theme);
-    assertDrained(h);
+    // CX-01: days and changes have only delivered cached snapshots.
+    assertDrained(h, 'Cached; checking sync');
   });
 }
 
@@ -1226,7 +1229,8 @@ test('CC4: Delete focuses contextual Undo, and Undo returns focus to the restore
 test('CC4: contextual Undo labels escape untrusted stored text', () => {
   const h = makeHarness();
   h.start();
-  h.api.S.undo = { ...savedUndo(), label: 'Stool "<script><SCRIPT>" & removed' };
+  // A just-removed item: its Undo is pinned in the feedback region (CR-03).
+  h.api.S.undo = { ...savedUndo(), createdAt: Date.now(), label: 'Stool "<script><SCRIPT>" & removed' };
   h.ui.renderFeedback();
   assert.match(h.ui.element('#feedback').innerHTML, /aria-label="Undo: Stool &quot;&lt;script&gt;&lt;SCRIPT&gt;&quot; &amp; removed"/);
   assert.doesNotMatch(h.ui.element('#feedback').innerHTML, /<script\b/i);
@@ -1302,7 +1306,8 @@ test('CC4-08: the Undo dismissal has a distinct contextual name and escapes stor
   const h = makeHarness();
   h.start();
   h.api.S.banner = { kind: 'warn', title: 'Sync pending', text: 'Try again when connected' };
-  h.api.S.undo = { ...savedUndo(), label: 'Stool "<SCRIPT>" & removed' };
+  // A just-removed item: its Undo is pinned in the feedback region (CR-03).
+  h.api.S.undo = { ...savedUndo(), createdAt: Date.now(), label: 'Stool "<SCRIPT>" & removed' };
   h.ui.renderFeedback();
   const feedback = h.ui.element('#feedback').innerHTML;
   assert.match(feedback, /id="dismiss-notice"[^>]*>Dismiss<\/button>/);
