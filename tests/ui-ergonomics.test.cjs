@@ -79,7 +79,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
     download = (...args) => globalThis.testDownloads.push(args);
     globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, viewHistory, viewReview, viewSettings, navigateTo, normalizeTab, navDestination, formatAlertDates, formatVetAlertHeadline, rationAlertDateText, weeklyAdvice, insights, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
       exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, refreshSettingsReadOnly, APP_VERSION, downloads: globalThis.testDownloads,
-      weightAssessment, weightNumber, weightDeviation, weightOverview, fiveEntryWeightMean, weightMeanContent, weightHintContent, lineChart, toDay, computeDarfAdjustment,
+      weightAssessment, weightNumber, weightDeviation, weightOverview, fiveEntryWeightMean, weightMeanContent, weightHintContent, lineChart, toDay, toIso, computeDarfAdjustment,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; }, write, flushWrites, queuedWrites, saveDay, resyncIfPending, onResumeOrReconnect,
       pendingFlush: () => flushTask };
@@ -1492,4 +1492,68 @@ test('BCS-Exclusive DARF Ration Adjustment: decoupled from settings.bcsTarget an
   const at474 = api.computeDarfAdjustment({ weights: [], asOf: TODAY, bcs7dMean: 4.74, settings });
   assert.equal(at474.applied, true);
   assert.equal(at474.adjustmentG, 5);
+});
+
+test('BCS-Exclusive DARF Ration Adjustment: single-step clamp preserves maxStepG when existing offset exceeds cumulative cap', () => {
+  const { api } = makeHarness();
+  const settings = { ...api.S.settings, maxStepG: 15, maxCumulativeG: 40 };
+
+  // Offset +60g (beyond 40g cap) with BCS 5.5: raw step is -5g, projected is +55g.
+  // Cumulative cap calculation gives 40 - 60 = -20g, which must clamp to maxStepG (-15g).
+  const overPositive = api.computeDarfAdjustment({
+    weights: [], asOf: TODAY, currentOffsetG: 60, bcs7dMean: 5.5, settings
+  });
+  assert.equal(overPositive.applied, true);
+  assert.equal(overPositive.adjustmentG, -15, 'step does not exceed -15g when starting past +40g cap');
+  assert.equal(overPositive.limitedBy, 'maxStepG');
+  assert.match(overPositive.reason, /reduce DARF by 15 g and held at the single-step cap/);
+
+  // Offset -60g (beyond -40g cap) with BCS 4.5: raw step is +5g, projected is -55g.
+  // Cumulative cap calculation gives -40 - (-60) = +20g, which must clamp to maxStepG (+15g).
+  const overNegative = api.computeDarfAdjustment({
+    weights: [], asOf: TODAY, currentOffsetG: -60, bcs7dMean: 4.5, settings
+  });
+  assert.equal(overNegative.applied, true);
+  assert.equal(overNegative.adjustmentG, 15, 'step does not exceed +15g when starting past -40g cap');
+  assert.equal(overNegative.limitedBy, 'maxStepG');
+  assert.match(overNegative.reason, /increase DARF by 15 g and held at the single-step cap/);
+});
+
+test('weeklyAdvice: condition-score assessment window strictly evaluates the week before Monday', () => {
+  const h = makeHarness();
+  // TODAY is 2026-10-28 (Wednesday).
+  // mondayOf(TODAY) is 2026-10-26 (Monday).
+  // The week before Monday is 2026-10-19 (Monday) through 2026-10-25 (Sunday).
+  // Put BCS 6.0 in the prior completed week (2026-10-19 .. 2026-10-25).
+  // Put BCS 5.0 in the current mid-week (2026-10-26 .. 2026-10-28).
+  for (let d = h.api.toDay('2026-10-19'); d <= h.api.toDay('2026-10-25'); d++) {
+    const iso = h.api.toIso(d);
+    h.api.S.days[iso] = { ...(h.api.S.days[iso] || {}), bcs: 6.0 };
+  }
+  for (let d = h.api.toDay('2026-10-26'); d <= h.api.toDay('2026-10-28'); d++) {
+    const iso = h.api.toIso(d);
+    h.api.S.days[iso] = { ...(h.api.S.days[iso] || {}), bcs: 5.0 };
+  }
+  const adv = h.api.weeklyAdvice();
+  // Prior week mean is 6.0 -> calls for -10g.
+  // If it incorrectly used 7 days ending today (2026-10-22 to 2026-10-28), mean would include 5.0s and differ.
+  assert.equal(adv.bcs, 6.0, 'bcs is exactly 6.0 from the completed week before Monday');
+  assert.equal(adv.applied, true);
+  assert.equal(adv.adjustmentG, -10);
+});
+
+test('Trends chart: condition chart draws target line at fixed 5.0 clinical ideal, not settings.bcsTarget', () => {
+  const h = makeHarness();
+  h.api.S.settings.bcsTarget = 6.0; // legacy setting
+  const reviewHtml = h.api.viewReview();
+  assert.ok(reviewHtml.includes('Condition'), 'Review includes Condition section');
+  const conditionChart = h.api.lineChart([{ x: h.api.toDay('2026-10-20'), y: 5.0 }], 'bcs');
+  assert.ok(conditionChart.includes('Short horizontal dashes mark the ideal centre.'), 'chart summary notes ideal centre');
+  // For forceRange [3,7], lo=3, hi=7.
+  // py(y) = (1 - (y-3)/(7-3))*100.
+  // py(5.0) = (1 - 2/4)*100 = 50.
+  // py(6.0) = (1 - 3/4)*100 = 25.
+  const forcedChart = h.api.lineChart([{ x: h.api.toDay('2026-10-20'), y: 5.0 }], 'bcs', [3, 7]);
+  assert.match(forcedChart, /y1="50"/, 'target line is drawn at y=50% representing fixed 5.0');
+  assert.doesNotMatch(forcedChart, /y1="25"/, 'target line is not drawn at y=25% representing 6.0');
 });

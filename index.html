@@ -859,6 +859,10 @@ function computeDarfAdjustment({ weights=[], asOf, currentOffsetG=0, lastAdjustm
     if (Math.sign(step) !== direction) step = 0;   // Never reverse advice.
     out.limitedBy = 'maxCumulativeG';
   }
+  if (Math.abs(step) > cfg.maxStepG){
+    step = Math.sign(step) * cfg.maxStepG;
+    out.limitedBy = 'maxStepG';
+  }
   if (step === 0){
     out.reason = `Mean condition score ${bcs.toFixed(1)} calls for a change, but the ±${cfg.maxCumulativeG} g cumulative cap is reached.`;
     return out;
@@ -1895,12 +1899,12 @@ function lastAdjWeek(){
   if (!applied.length) return null;
   return applied.map(c=>c.date).sort().slice(-1)[0];
 }
-function weeklyAdvice(){
-  const today=localToday();
-  return cached('advice',()=>computeDarfAdjustment({
+function weeklyAdvice(asOf=localToday()){
+  const today=asOf, prevSunday=toIso(mondayOf(today)-1);
+  return cached('advice-'+today,()=>computeDarfAdjustment({
     weights:weightsList(), asOf:today, currentOffsetG:offsetNow(),
     lastAdjustmentWeek:lastAdjWeek(),
-    bcs7dMean:bcsMean(S.days,today,7).mean,
+    bcs7dMean:bcsMean(S.days,prevSunday,7).mean,
     regimeChanges:S.settings.regimeChanges||[], settings:S.settings
   }));
 }
@@ -2653,7 +2657,7 @@ function viewReview(){
     panel('Pro-Fibre',fibResult+fibExplain)+
     `<details class="card weight-condition" id="review-weight-condition"><summary class="sec">Weight &amp; condition <span class="assessment-strip" data-weight-strip data-date="${today}">${weightConditionStrip(today)}</span></summary><div class="sec"><div data-weight-summary="body" data-date="${today}">${weightConditionContent(today,false)}</div><div class="review-subsec"><p class="lab">Weight averages</p>${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}</div><div class="review-subsec"><p class="lab">Condition averages</p>${meanRows(today,false,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}<p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body Condition Score (BCS) directly governs weekly DARF ration adjustments, while weight trends and the 5-entry mean are tracked for ongoing health monitoring.</p></div></div></details>`+
     `<details class="card" id="review-week-context"><summary class="sec">This week against last <span class="fold-strip">Walks, bowl, treats and extras</span></summary><div class="sec">${ctx}</div></details>`+
-    `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range" aria-describedby="trend-range-note">${rangeChips(range,'range')}</div><p class="sub range-note" id="trend-range-note">Applies to History and Review.</p><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],s.bcsTarget,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
+    `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range" aria-describedby="trend-range-note">${rangeChips(range,'range')}</div><p class="sub range-note" id="trend-range-note">Applies to History and Review.</p><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],5.0,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
     `<details class="card" id="review-comparisons"><summary class="sec">Food &amp; recipe comparisons <span class="fold-strip">${rangeLabel} · by recipe, extra and tonight’s DARF</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Comparison range" aria-describedby="comp-range-note">${rangeChips(range,'comp-range')}</div><p class="sub range-note" id="comp-range-note">Applies to History and Review.</p><p class="lab">By recipe</p>${foodTable(isos,false)}</div><div class="sec"><p class="lab">By extra</p>${foodTable(isos,true)}</div><div class="sec"><p class="lab">Tonight by recipe</p>${tonight}</div></details>`;
 }
 const viewStatus=viewReview;
@@ -2764,6 +2768,7 @@ function calendarWeekMeans(pts,from,to){
 function lineChart(allPts,kind,forceRange,targetLine,dateRange){
   const weight=kind==='kg';
   if(weight)targetLine=WEIGHT_TARGET.kg;
+  if(kind==='bcs')targetLine=5.0;
   const valid=allPts.filter(p=>Number.isInteger(p.x)&&Number.isFinite(p.y)).sort((a,b)=>a.x-b.x);
   const from=dateRange?.[0]??valid[0]?.x,to=dateRange?.[1]??valid.at(-1)?.x;
   const pts=valid.filter(p=>p.x>=from&&p.x<=to);
