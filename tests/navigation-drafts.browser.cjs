@@ -421,7 +421,7 @@ async function main() {
     });
 
     const retiredKey = 'murphy-draft-v2:draft-test:retired-field-session';
-    const retiredDraft = { version: 2, savedAt: Date.parse('2026-11-01T22:00:00Z'), tab: 'status', cursor: '2026-10-29', viewDate: null, expanded: [], stool: null, stools: [],
+    const retiredDraft = { version: 2, ownerLock: true, savedAt: Date.parse('2026-11-01T22:00:00Z'), tab: 'status', cursor: '2026-10-29', viewDate: null, expanded: [], stool: null, stools: [],
       fields: [
         { id: 'in-retired-field-2026-10-29', date: '2026-10-29', key: 'retiredField', value: 'An unavailable old field' },
         { id: 'in-weight-' + TODAY, date: TODAY, key: 'retiredWeightField', value: '99' },
@@ -695,7 +695,11 @@ async function main() {
 
     const oldKey = 'murphy-draft:draft-test:legacy-navigation';
     await scenario('legacy v1 drafts migrate without writes or autofocus and remain usable across views', async ({ page, field, tab, flush, drafts, queued }) => {
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1, 'legacy owners did not hold locks, so migration needs explicit recovery');
+      assert.equal(await field('notes').inputValue(), '');
+      await page.locator('[data-act="recoverdraft"]').click();
       assert.equal(await field('notes').inputValue(), 'A legacy note');
+      assert.equal(await page.locator('[data-key="notes"] [data-act="saveinput"]').count(), 1, 'recovery still requires Save');
       assert.equal(await page.evaluate(() => /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)), false);
       await tab('review'); await tab('today'); await flush();
       assert.equal(await field('notes').inputValue(), 'A legacy note');

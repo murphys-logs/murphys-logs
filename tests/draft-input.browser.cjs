@@ -19,7 +19,14 @@ const html = original.replace(shellScript, `<script>
   window.AppShell={state:{},ready(){}};
   const RealDate=Date;window.__now=Number(localStorage.getItem('test-clock'))||${start};
   window.Date=class extends RealDate{constructor(...args){super(...(args.length?args:[window.__now]));}static now(){return window.__now;}};
-  Object.defineProperty(navigator,'locks',{value:{request:()=>new Promise(()=>{})}});
+  // Keep backend writes held. Same-session reloads use actual owner locks;
+  // unrelated cold-session recovery stays held so this suite exercises its manual prompt.
+  const nativeLocks=navigator.locks,priorDraftSession=sessionStorage.getItem('murphy-draft-session');
+  Object.defineProperty(navigator,'locks',{value:{request:(name,...args)=>{
+    const session=name.slice('murphy-draft-owner:'.length);
+    return name.startsWith('murphy-draft-owner:')&&(session===priorDraftSession||session===sessionStorage.getItem('murphy-draft-session'))?
+      nativeLocks.request(name,...args):new Promise(()=>{});
+  }}});
 </script>`).replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/gi, '')
   .replace(/https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\/firebase-(app|auth|firestore)\.js/g, '/firebase-stub.js')
   .replace(/(<script type="module">[\s\S]*?)(<\/script>)/i, (_, body, end) => body + `
@@ -311,6 +318,9 @@ async function main() {
 
     await page.evaluate(() => localStorage.setItem('test-user','draft-test'));
     await reload();
+    // The new document has its own writable session; returning accounts recover
+    // their earlier session explicitly when this harness holds that owner lock.
+    await page.locator('[data-act="recoverdraft"]').click();
     const ownKey=await page.evaluate(() => testApp.draftKey());
     const ownRaw=await page.evaluate(key=>localStorage.getItem(key),ownKey);
     const second=await context.newPage();await boot(second);

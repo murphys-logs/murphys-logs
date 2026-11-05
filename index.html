@@ -1112,26 +1112,70 @@ const queueOrder=key=>key.slice(key.lastIndexOf(':')+1);
 // fields replay and sending dereference (R2). Anything else is kept, never guessed at.
 // This is shape only: semantic conflicts (AG-05) are deliberately not decided here.
 const nonEmptyString=v=>typeof v==='string'&&v.length>0;
-const validStoolDelta=d=>object(d)&&Array.isArray(d.put)&&d.put.every(x=>object(x)&&nonEmptyString(x.id))&&
+const queueDocumentId=v=>nonEmptyString(v)&&v.length<1500&&!v.includes('/')&&v!=='.'&&v!=='..';
+const queueField=k=>nonEmptyString(k)&&!['__proto__','constructor','prototype'].includes(k);
+const queueIndex=v=>Number.isSafeInteger(v)&&v>=0;
+const queueTimestamp=v=>typeof v==='string'&&Number.isFinite(Date.parse(v));
+// Imported records already obey this depth/name boundary; retain unknown legacy
+// fields, but do not let an unreadable structure overflow mergeData or alter prototypes.
+function validQueuedValue(value,depth=0){
+  if(depth>=32)return false;
+  return !value||typeof value!=='object'||Object.entries(value).every(([k,v])=>queueField(k)&&validQueuedValue(v,depth+1));
+}
+const queueStool=v=>object(v)&&nonEmptyString(v.id)&&validQueuedValue(v);
+const validStoolDelta=d=>object(d)&&Array.isArray(d.put)&&d.put.every(queueStool)&&
   Array.isArray(d.drop)&&d.drop.every(nonEmptyString);
-const validPlainOp=op=>['days','settings','changes'].includes(op.col)&&nonEmptyString(op.id)&&
-  (op.col!=='days'||validDate(op.id))&&(op.patch===undefined||object(op.patch))&&
-  (op.remove===undefined||Array.isArray(op.remove)&&op.remove.every(path=>Array.isArray(path)&&path.length>0&&path.every(nonEmptyString)))&&
+const validQueuedPatch=(col,patch)=>object(patch)&&validQueuedValue(patch)&&
+  (col==='settings'||patch.date==null||validDate(patch.date))&&
+  (col!=='days'||patch.updatedAt==null||queueTimestamp(patch.updatedAt))&&
+  (col!=='days'||patch.stools==null||Array.isArray(patch.stools)&&patch.stools.every(queueStool))&&
+  (col!=='settings'||patch.regimeChanges===undefined||Array.isArray(patch.regimeChanges)&&patch.regimeChanges.every(validDate));
+function validQueueRemoval(col,path){
+  if(!(Array.isArray(path)&&path.length>0&&path.every(queueField)))return false;
+  // cleanDay removes arrays/scalars as whole fields. Descending into them would
+  // let pathValue replace them with objects and break subsequent valid commands.
+  const leaf=col==='days'?'date updatedAt weight weightMissed bcs notes walkMin walkKm activeMin treats events stools':
+    col==='changes'?'id date deltaG reason source refused':'';
+  return path.length===1||!leaf.split(' ').includes(path[0])&&
+    !(col==='settings'&&Object.hasOwn(DEFAULTS,path[0])&&!object(DEFAULTS[path[0]]));
+}
+const validPlainOp=op=>['days','settings','changes'].includes(op.col)&&queueDocumentId(op.id)&&
+  (op.col!=='days'||validDate(op.id))&&(op.patch===undefined?!op.restore:validQueuedPatch(op.col,op.patch))&&
+  (op.restore===undefined||typeof op.restore==='boolean')&&(op.erase===undefined||typeof op.erase==='boolean')&&
+  (op.remove===undefined||Array.isArray(op.remove)&&op.remove.every(path=>validQueueRemoval(op.col,path)))&&
   (op.stools===undefined||op.col==='days'&&validStoolDelta(op.stools));
 function validQueuedOp(op,depth=0){
   if(!object(op)||depth>4)return false;
   if(op.recover!==undefined){
     const r=op.recover;
-    return object(r)&&object(r.record)&&nonEmptyString(r.record.id)&&
-      (r.kind==='stool'?validDate(r.date):r.kind==='change'&&validDate(r.record.date));
+    return object(r)&&object(r.record)&&validQueuedValue(r.record)&&nonEmptyString(r.record.id)&&
+      (r.kind==='stool'?validDate(r.date)&&(r.index==null||queueIndex(r.index))&&
+        (r.updatedAt==null||typeof r.updatedAt==='string'):
+        r.kind==='change'&&queueDocumentId(r.record.id)&&validDate(r.record.date));
   }
-  if(op.regime!==undefined)return object(op.regime)&&validDate(op.regime.date);
+  if(op.regime!==undefined){
+    const r=op.regime;
+    return object(r)&&validDate(r.date)&&(r.drop===undefined||typeof r.drop==='boolean')&&
+      (r.count==null||Number.isSafeInteger(r.count)&&r.count>0)&&
+      (r.indices==null||Array.isArray(r.indices)&&r.indices.every(queueIndex))&&
+      // Multiple markers are only emitted by Undo, with one retained index each.
+      // This bounds the replay loop by actual stored data, including legacy Undo.
+      (!(r.count>1)||Array.isArray(r.indices)&&r.indices.length===r.count);
+  }
   if(op.move!==undefined){
     const m=op.move;
-    if(!(object(m)&&validDate(m.from)&&validDate(m.to)&&nonEmptyString(m.id)&&(m.patch===undefined||object(m.patch))))return false;
+    if(!(object(m)&&validDate(m.from)&&validDate(m.to)&&nonEmptyString(m.id)&&queueTimestamp(m.updatedAt)&&
+      (m.patch===undefined||object(m.patch)&&validQueuedValue(m.patch))))return false;
   }
   if(op.items!==undefined)return Array.isArray(op.items)&&op.items.length>0&&op.items.every(item=>validQueuedOp(item,depth+1));
   return op.move!==undefined||validPlainOp(op);
+}
+function normalizeQueuedOp(op,clock){
+  const normalized=timedRecovery(op,clock);
+  // Legacy Undo timestamps also need repair inside an aggregate. Move.items is
+  // only an older app's representation; the move itself still takes precedence.
+  return !op.recover&&!op.regime&&!op.move&&op.items?
+    {...normalized,items:op.items.map(item=>normalizeQueuedOp(item,clock))}:normalized;
 }
 // Unreadable outbox entries (CR-09). They stay at their original keys until the
 // owner sets them aside; every later entry is projected but held back from sync,
@@ -1144,11 +1188,14 @@ function queuedWrites(){
     const key=localStorage.key(i);
     if(prefixes.some(prefix=>key.startsWith(prefix))){
       const raw=localStorage.getItem(key);let op;
-      try{op=JSON.parse(raw);}catch{op=undefined;}
-      if(!validQueuedOp(op)){unreadable.push({key,raw});continue;}
-      // Older queued Undos have no timestamp; their durable key supplies it.
-      const clock=Number(queueOrder(key).split('-')[0]);
-      entries.push([key,timedRecovery(op,clock)]);
+      try{
+        op=JSON.parse(raw);
+        if(!validQueuedOp(op)){unreadable.push({key,raw});continue;}
+        // Older queued Undos have no timestamp; their durable key supplies it.
+        // A malformed key or normalization failure must not hide other records.
+        const clock=Number(queueOrder(key).split('-')[0]);
+        entries.push([key,normalizeQueuedOp(op,clock)]);
+      }catch{unreadable.push({key,raw});}
     }
   }
   unreadableOutbox=unreadable.sort((a,b)=>queueOrder(a.key).localeCompare(queueOrder(b.key)));
@@ -3045,7 +3092,7 @@ function setAsideOutbox(){
   for(let i=0;i<localStorage.length;i++){
     const key=localStorage.key(i);if(!key?.startsWith(prefix))continue;
     const raw=localStorage.getItem(key);let envelope=null;try{envelope=JSON.parse(raw);}catch{}
-    out.push(object(envelope)&&typeof envelope.key==='string'?{storedAt:key,...envelope}:{storedAt:key,raw});
+    out.push(object(envelope)&&typeof envelope.key==='string'?{...envelope,storedAt:key}:{storedAt:key,raw});
   }
   return out.sort((a,b)=>a.storedAt.localeCompare(b.storedAt));
 }
@@ -3068,6 +3115,7 @@ function setAsideUnreadable(){
       for(let n=2;localStorage.getItem(target)!==null&&!same(localStorage.getItem(target));n++)target=base+'~'+n;
       if(localStorage.getItem(target)===null)localStorage.setItem(target,JSON.stringify({key,raw,setAsideAt:new Date().toISOString()}));
       if(!same(localStorage.getItem(target)))throw Error('The copy could not be verified');
+      if(localStorage.getItem(key)!==raw)throw Error('An unreadable change was modified while it was being set aside');
       localStorage.removeItem(key);moved++;
     }
     queuedWrites();replayQueuedWrites();return true;
@@ -3284,7 +3332,7 @@ function selfTest(){
 
 /* EVENTS */
 let stoolDraft=null, stoolOriginal=null, stoolReturnFocus=null;
-let draftSession, draftUser=null, draftTimer, pendingDraft=null, draftRecovery=null, draftToday=null;
+let draftSession, draftPriorSession, draftUser=null, draftTimer, pendingDraft=null, draftRecovery=null, draftToday=null;
 let draftFields=[],draftStools=[],draftExpanded=[],activeStoolKey=null,draftTransfer=null,draftResume=null;
 const fieldDraftId=f=>f.key+':'+(f.key==='setnum'?'':f.date+':')+f.id;
 const stoolDraftId=s=>s.date+':'+s.record.id;
@@ -3296,10 +3344,13 @@ function mergeDrafts(older,newer,id){
 }
 function draftKey(){
   if(!draftSession){
+    // Duplicate tabs can copy sessionStorage. Use its session only as a recovery
+    // candidate; each document writes to its own key so two live tabs never share it.
+    draftSession=crypto.randomUUID();
     try{
-      draftSession=sessionStorage.getItem('murphy-draft-session')||crypto.randomUUID();
+      draftPriorSession=sessionStorage.getItem('murphy-draft-session');
       sessionStorage.setItem('murphy-draft-session',draftSession);
-    }catch{draftSession=crypto.randomUUID();}
+    }catch{}
     void holdDraftLock(draftSession);
   }
   // Older app versions must not overwrite a multi-view ledger as a one-page draft.
@@ -3323,7 +3374,7 @@ function captureDrafts(){
   draftExpanded=draftFields.length||draftStools.length?
     draftExpanded.filter(id=>!shown.has(id)).concat(details.filter(el=>el.open).map(el=>el.id)):[];
   if(draftToday&&!fields.length&&!stool){draftToday=null;rendered='';renderPending=true;}
-  return draftFields.length||draftStools.length?{version:2,savedAt:Date.now(),tab:S.tab,cursor:S.cursor,fields:draftFields,stools:draftStools,stool,
+  return draftFields.length||draftStools.length?{version:2,savedAt:Date.now(),ownerLock:heldDraftLocks.has(draftSession),tab:S.tab,cursor:S.cursor,fields:draftFields,stools:draftStools,stool,
     viewDate:$('#main [data-stool-log]')?.dataset.stoolLog||null,
     expanded:draftExpanded}:null;
 }
@@ -3390,8 +3441,12 @@ function loadDrafts(){
   try{
     const key=draftKey(),data=readDraft(localStorage.getItem(key));
     if(data){stageDraft(data);return;}
-    const legacy=`murphy-draft:${S.user.uid}:${draftSession}`,raw=localStorage.getItem(legacy),old=readDraft(raw);
-    if(old){draftTransfer={key:legacy,raw};stageDraft(old);return;}
+    // Resume this tab's earlier ledger first, but only through the same owner
+    // check as any other candidate: a duplicate tab may still own the old session.
+    if(draftPriorSession)for(const prefix of ['murphy-draft-v2:','murphy-draft:']){
+      const candidate=`${prefix}${S.user.uid}:${draftPriorSession}`,raw=localStorage.getItem(candidate),entry=readDraft(raw);
+      if(entry){draftRecovery={key:candidate,raw,data:entry};return;}
+    }
     // A fresh Home Screen session may not retain sessionStorage. Offer its
     // newest durable copy without taking over another open tab's inputs.
     const prefixes=[`murphy-draft:${S.user.uid}:`,`murphy-draft-v2:${S.user.uid}:`];
@@ -3403,10 +3458,10 @@ function loadDrafts(){
     }
   }catch{} // Saved records and the outbox remain usable if draft storage is denied.
 }
-// A Home Screen cold launch starts a new session, so its earlier draft would wait
+// A Home Screen cold launch may start a new session, so its earlier draft would wait
 // behind "Restore entries" (CR-07). Every window holds a Web Lock named after its own
 // draft session for as long as it is open. A recovered draft is restored automatically
-// only when this window can take *that session's* lock, so no live window owns it (R1),
+// only when this window can take *that session's* lock (R1),
 // and only if its stored copy is unchanged. It stays unsaved and needs Save. Without
 // Web Locks, or while its owner is open, the existing Restore entries prompt remains.
 const draftOwnerLock=session=>'murphy-draft-owner:'+session;
@@ -3429,10 +3484,13 @@ function holdDraftLock(session){
 async function autoRestoreDraft(){
   const recovery=draftRecovery,uid=S.user?.uid;
   if(!recovery||!uid)return;
+  // Old writers and failed lock claims leave no ownership evidence. A free lock
+  // cannot prove those windows closed, so keep their explicit recovery prompt.
+  if(!recovery.key.startsWith(`murphy-draft-v2:${uid}:`)||recovery.data.ownerLock!==true)return;
   if(!await holdDraftLock(draftSessionOf(recovery.key)))return;
   // Revalidate after the wait: same account, same candidate, unchanged stored payload.
   if(draftRecovery!==recovery||S.user?.uid!==uid||draftUser!==uid||!S.ready)return;
-  if(localStorage.getItem(recovery.key)!==recovery.raw)return;
+  try{if(localStorage.getItem(recovery.key)!==recovery.raw)return;}catch{return;}
   restoreRecoveredDraft(true);
 }
 function restoreRecoveredDraft(automatic=false){

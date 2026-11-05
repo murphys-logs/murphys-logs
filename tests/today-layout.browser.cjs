@@ -324,6 +324,9 @@ async function main() {
       assert.equal(await page.locator(`#activity-${TODAY}`).evaluate(el => el.open), false, 'sections without drafts stay closed');
       await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
       await page.reload(); await page.waitForFunction(() => window.testApp?.S.ready);
+      // This harness withholds owner locks, so the draft must use explicit recovery.
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1);
+      await page.locator('[data-act="recoverdraft"]').click();
       assert.equal(await page.locator(`#notes-${TODAY}`).evaluate(el => el.open), true, 'reload recovery reopens the section');
       assert.equal(await page.locator(`#in-notes-${TODAY}`).isVisible(), true);
       assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'Draft in a closed section');

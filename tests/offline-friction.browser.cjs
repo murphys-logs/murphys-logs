@@ -65,7 +65,7 @@ async function main() {
     });
     return ctx;
   }
-  async function open(ctx, setup = {}, { wait = true } = {}) {
+  async function open(ctx, setup = {}, { wait = true, session } = {}) {
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push(e.message));
     page.__dialogs = [];
@@ -74,6 +74,7 @@ async function main() {
     if (setup) {
       await page.goto(origin + '/setup');
       await page.evaluate(entries => { for (const [k, v] of Object.entries(entries)) localStorage.setItem(k, v); }, setup);
+      if(session)await page.evaluate(value=>sessionStorage.setItem('murphy-draft-session',value),session);
     }
     await page.goto(origin + '/index.html');
     if (wait) await page.waitForFunction(() => window.testApp?.S.ready);
@@ -82,6 +83,8 @@ async function main() {
   const fixture = f => ({ 'probe-fixture': JSON.stringify(f) });
   const settle = page => page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
   const state = page => page.locator('#state').textContent();
+  const weightDraft=value=>({version:2,ownerLock:true,savedAt:Date.parse(TODAY+'T08:00:00Z'),tab:'today',cursor:null,viewDate:TODAY,expanded:[],stool:null,stools:[],
+    fields:[{id:'in-weight-'+TODAY,date:TODAY,key:'weight',value}]});
   try {
     // CR-01: a signed-in launch shows "Opening…", never the sign-in form; signed-out shows the form.
     {
@@ -332,6 +335,106 @@ async function main() {
       assert.equal(await b.locator(`#in-weight-${TODAY}`).inputValue(), '19.3', 'B keeps its own draft');
       await ctx.close();
       passed++; console.log('PASS R1 a live window keeps ownership of its draft; another window only offers the prompt');
+    }
+
+    // R1: duplicated tabs copy sessionStorage, but must not share a writable draft key.
+    {
+      const ctx=await context(native),a=await open(ctx,fixture({days:{}}));
+      await a.locator(`#in-weight-${TODAY}`).fill('19.3');await a.waitForTimeout(400);
+      const owner=await a.evaluate(()=>({session:sessionStorage.getItem('murphy-draft-session'),key:Object.keys(localStorage).find(k=>k.startsWith('murphy-draft-v2:'))}));
+      const duplicate=await open(ctx,{}, {session:owner.session});await duplicate.waitForTimeout(300);
+      assert.equal(await duplicate.locator(`#in-weight-${TODAY}`).inputValue(),'','a copied session must not activate a live draft');
+      assert.equal(await duplicate.locator('[data-act="recoverdraft"]').count(),1,'the duplicate offers explicit recovery');
+      await duplicate.locator(`#in-weight-${TODAY}`).fill('19.8');await duplicate.waitForTimeout(400);
+      const out=await duplicate.evaluate(key=>({owner:localStorage.getItem(key),drafts:Object.keys(localStorage).filter(k=>k.startsWith('murphy-draft-v2:')).map(k=>localStorage.getItem(k))}),owner.key);
+      assert.match(out.owner,/19\.3/);assert.equal(out.drafts.length,2);assert.ok(out.drafts.some(raw=>raw.includes('19.8')));
+      assert.equal(await duplicate.evaluate(()=>testApp.queuedWrites().length),0,'both values remain unsaved');
+      await ctx.close();passed++;console.log('PASS R1 copied sessionStorage never shares or overwrites a live draft key');
+    }
+
+    // R1: another page cannot infer ownership when this live writer failed its claim.
+    {
+      const ctx=await context(native),owner=await ctx.newPage();
+      owner.on('pageerror',e=>errors.push(e.message));
+      await owner.addInitScript(()=>{
+        const locks=navigator.locks;
+        Object.defineProperty(navigator,'locks',{value:{request:(name,...args)=>name.startsWith('murphy-draft-owner:')?Promise.reject(Error('Synthetic owner claim failure')):locks.request(name,...args)}});
+      });
+      await owner.goto(origin+'/index.html');await owner.waitForFunction(()=>window.testApp?.S.ready);
+      await owner.locator(`#in-weight-${TODAY}`).fill('19.7');await owner.waitForTimeout(400);
+      const original=await owner.evaluate(()=>{const key=Object.keys(localStorage).find(k=>k.startsWith('murphy-draft-v2:'));return {key,raw:localStorage.getItem(key)};});
+      const newcomer=await open(ctx,null);await newcomer.waitForTimeout(150);
+      assert.equal(await newcomer.locator(`#in-weight-${TODAY}`).inputValue(),'','a missing owner claim does not prove that writer is closed');
+      assert.equal(await newcomer.locator('[data-act="recoverdraft"]').count(),1);
+      assert.equal(await newcomer.evaluate(k=>localStorage.getItem(k),original.key),original.raw);
+      assert.equal(await owner.locator(`#in-weight-${TODAY}`).inputValue(),'19.7');
+      await ctx.close();passed++;console.log('PASS R1 drafts written without a successful owner claim are never auto-moved');
+    }
+
+    // R1: old writers have no owner-lock protocol; even a same-session legacy key needs the prompt.
+    {
+      const ctx=await context(native),key='murphy-draft:probe-user:legacy-live-session';
+      const legacy={...weightDraft('19.4'),version:1};delete legacy.stools;
+      const raw=JSON.stringify(legacy),page=await open(ctx,{...fixture({days:{}}),[key]:raw},{session:'legacy-live-session'});
+      await page.waitForTimeout(150);
+      assert.equal(await page.locator(`#in-weight-${TODAY}`).inputValue(),'');
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(),1);
+      assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),raw);
+      await page.locator('[data-act="recoverdraft"]').click();
+      assert.equal(await page.locator(`#in-weight-${TODAY}`).inputValue(),'19.4');
+      assert.equal(await page.locator('[data-key="weight"] [data-act="saveinput"]').count(),1);
+      assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),0);
+      await ctx.close();passed++;console.log('PASS R1 legacy draft recovery waits for explicit consent and keeps Save');
+    }
+
+    // R1: a delayed owner-lock grant must not consume changed, dismissed, or another account's recovery.
+    for(const change of ['payload','dismissed','account','unreadable']){
+      const ctx=await context(native),session='delayed-'+change,key='murphy-draft-v2:probe-user:'+session,raw=JSON.stringify(weightDraft('19.5'));
+      await ctx.addInitScript(target=>{
+        const locks=navigator.locks;
+        Object.defineProperty(navigator,'locks',{value:{request:(name,...args)=>{
+          if(name!=='murphy-draft-owner:'+target)return locks.request(name,...args);
+          return new Promise((resolve,reject)=>{window.grantRecovery=()=>locks.request(name,args[0],lock=>{
+            window.recoveryLockGranted=true;return args[1](lock);
+          }).then(resolve,reject);});
+        }}});
+      },session);
+      const page=await open(ctx,{...fixture({days:{}}),[key]:raw});
+      await page.waitForFunction(()=>!!window.grantRecovery);
+      let expected=raw;
+      if(change==='payload'){
+        expected=JSON.stringify(weightDraft('20.1'));
+        await page.evaluate(([k,v])=>localStorage.setItem(k,v),[key,expected]);
+      }else if(change==='dismissed')await page.locator('[data-act="dismissdraft"]').click();
+      else if(change==='unreadable')await page.evaluate(key=>{
+        window.recoveryGetItem=Storage.prototype.getItem;
+        Storage.prototype.getItem=function(k){if(k===key)throw Error('Synthetic draft read failure');return window.recoveryGetItem.call(this,k);};
+      },key);
+      else{
+        await page.evaluate(()=>{testApp.S.user={uid:'second-user'};testApp.subscribe();});
+        await page.waitForFunction(()=>testApp.S.ready);
+      }
+      await page.evaluate(()=>{window.grantRecovery();});
+      await page.waitForFunction(()=>window.recoveryLockGranted);await settle(page);
+      if(change==='unreadable')await page.evaluate(()=>{Storage.prototype.getItem=window.recoveryGetItem;});
+      assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),expected);
+      assert.equal(await page.locator(`#in-weight-${TODAY}`).inputValue(),'');
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(),['payload','unreadable'].includes(change)?1:0);
+      assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),0);
+      await ctx.close();passed++;console.log('PASS R1 delayed lock revalidates '+change+' before recovering a draft');
+    }
+
+    for(const unavailable of ['unsupported','rejecting','unverified-v2']){
+      const ctx=await context(native),key='murphy-draft-v2:probe-user:unowned-'+unavailable,data=weightDraft('19.6');
+      if(unavailable==='unverified-v2')delete data.ownerLock;
+      const raw=JSON.stringify(data);
+      if(unavailable!=='unverified-v2')await ctx.addInitScript(mode=>Object.defineProperty(navigator,'locks',{value:mode==='unsupported'?undefined:{request:()=>Promise.reject(Error('Synthetic rejected lock'))}}),unavailable);
+      const page=await open(ctx,{...fixture({days:{}}),[key]:raw});await page.waitForTimeout(150);
+      assert.equal(await page.locator(`#in-weight-${TODAY}`).inputValue(),'');
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(),1);
+      assert.equal(await page.evaluate(k=>localStorage.getItem(k),key),raw);
+      assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),0);
+      await ctx.close();passed++;console.log('PASS R1 '+unavailable+' owner locks preserve the original and offer recovery');
     }
 
     // R5: the pinned Undo leaves on resume after 15 minutes, without a new render or relaunch.

@@ -427,6 +427,9 @@ async function main() {
       });
       await loadSyntheticDays(page, buildFixtureDays(), { theme: 'dark' });
 
+      // This old v2 draft has no owner-lock evidence, so recovery requires consent.
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1);
+      await page.locator('[data-act="recoverdraft"]').click();
       // Legacy 'status' draft normalizes to 'review' without losing cursor or hidden draft link
       assert.equal(await page.evaluate(() => testApp.S.tab), 'review');
       assert.equal(await page.evaluate(() => testApp.S.cursor), '2026-10-30');
@@ -495,7 +498,9 @@ async function main() {
           local: { [legacyDayKey]: JSON.stringify(legacyDayDraft) },
         },
       });
-      // Legacy v1 'day' draft opens directly in the single-day editor on 2026-10-29 with History tab active
+      assert.equal(await page.locator('[data-act="recoverdraft"]').count(), 1, 'legacy drafts require explicit recovery');
+      await page.locator('[data-act="recoverdraft"]').click();
+      // Recovered legacy v1 'day' draft opens in the single-day editor with History active.
       assert.equal(await page.evaluate(() => testApp.S.tab), 'day');
       assert.equal(await page.evaluate(() => testApp.S.cursor), '2026-10-29');
       assert.equal(await page.locator('#tabbar [data-tab="history"]').getAttribute('aria-current'), 'true');
