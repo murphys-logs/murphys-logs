@@ -2,9 +2,12 @@
 
 // Actual browser Service Worker/Cache API regression on an isolated localhost
 // origin. Only the test transport changes: the HTML and worker's pinned CDN
-// module URLs point at three local synthetic SDK modules. Auth and previously
-// available records are synthetic; this does NOT exercise Firebase persistence,
-// real network transactions, Safari, or an installed iPhone Home Screen app.
+// module URLs point at three local synthetic SDK modules. Auth and record
+// availability are simulated: snapshots always read the test's localStorage
+// fixture, even offline. Actual app outbox/draft persistence and worker/cache
+// lifecycle are exercised; Firebase persistence and real SDK pending writes are
+// not. The send-failure scenario injects a rejection after the local save; it
+// does not interrupt local saving. No Safari or installed Home Screen coverage.
 // No production requests/accounts/data. The runtime files are never rewritten.
 // PLAYWRIGHT_MODULE and BROWSER_EXECUTABLE select an existing local installation.
 // Run: node tests/offline-launch.browser.cjs
@@ -20,9 +23,15 @@ const TODAY = '2026-11-06';
 const YESTERDAY = '2026-11-05';
 const fixtureKey = 'offline-launch-fixture';
 const writeKey = 'offline-launch-writes';
-const sdkPattern = /https:\/\/www\.gstatic\.com\/firebasejs\/[^/]+\//g;
-const originalSdk = original.match(sdkPattern)?.[0];
-assert.ok(originalSdk && worker.includes(originalSdk), 'HTML and worker use the same pinned SDK transport');
+const sdkModules = ['app', 'auth', 'firestore'].map(name => 'firebase-' + name + '.js');
+const moduleImports = source => [...source.matchAll(/^import\s+\{[^}]+\}\s+from\s+["']([^"']+)["'];/gm)].map(match => match[1]);
+const workerSdk = source => source.match(/^const SDK = '([^']+)';/m)?.[1];
+const originalSdk = workerSdk(worker);
+assert.ok(originalSdk, 'Worker declares its pinned SDK transport');
+const sdkUrl = new URL(originalSdk);
+assert.equal(sdkUrl.origin, 'https://www.gstatic.com', 'Expected SDK origin before fixture rewriting');
+assert.match(sdkUrl.pathname, /^\/firebasejs\/\d+\.\d+\.\d+\/$/, 'Expected versioned SDK directory');
+assert.deepEqual(moduleImports(original), sdkModules.map(name => originalSdk + name), 'HTML and worker use the same three pinned SDK modules');
 
 const bootstrap = `<script>
   const NativeDate=Date, now=NativeDate.parse('${TODAY}T12:00:00Z');
@@ -53,7 +62,7 @@ const firestoreStub = `
     const transport=window.offlineTransport;
     if(transport.delayNext){
       transport.delayNext=false;transport.inFlight=true;
-      await new Promise((_resolve,reject)=>{transport.rejectInFlight=()=>{transport.inFlight=false;reject(Object.assign(Error('Synthetic connection interrupted during send'),{code:'unavailable'}));};});
+      await new Promise((_resolve,reject)=>{transport.rejectInFlight=()=>{transport.inFlight=false;reject(Object.assign(Error('Injected synthetic send rejection'),{code:'unavailable'}));};});
     }
     if(!navigator.onLine)throw Object.assign(Error('Synthetic offline send'),{code:'unavailable'});
     if(ref.col!=='days'||Object.keys(patch).some(k=>!['date','updatedAt','notes'].includes(k)))throw Error('Unexpected synthetic write');
@@ -85,11 +94,14 @@ async function main() {
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
     origin=`http://127.0.0.1:${server.address().port}`;
     const localSdk=origin+'/test-sdk/';
-    html=original.replace(sdkPattern,localSdk).replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/gi,'')
+    html=original.replaceAll(originalSdk,localSdk).replace(/<link rel="(?:preconnect|dns-prefetch)"[^>]*>/gi,'')
       .replace('<script type="module">',bootstrap+'<script type="module">')
       .replace(/(<script type="module">[\s\S]*?)(<\/script>)/,(_,body,end)=>body+'\nwindow.offlineProbe={S,queuedWrites};\n'+end);
     sw=worker.replaceAll(originalSdk,localSdk);
-    assert.ok(!html.includes('https://www.gstatic.com')&&!sw.includes('https://www.gstatic.com'),'No live SDK URLs remain in test transport');
+    // Fixture invariants, not substring-based host validation. Runtime request
+    // isolation is separately enforced by the exact-origin checks below.
+    assert.deepEqual(moduleImports(html),sdkModules.map(name=>localSdk+name),'Every app SDK import points at the exact local synthetic module');
+    assert.equal(workerSdk(sw),localSdk,'Worker caches the same exact local SDK directory');
     browser=await chromium.launch({headless:true,...(process.env.BROWSER_EXECUTABLE?{executablePath:process.env.BROWSER_EXECUTABLE}:{})});
     ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,timezoneId:'Europe/London',serviceWorkers:'allow'});
     await ctx.route('**/*',route=>{
@@ -129,7 +141,7 @@ async function main() {
       assert.equal(await page.evaluate(()=>offlineProbe.S.tab),tab);
       assert.ok((await page.locator('#main').textContent()).trim().length>50,tab+' renders offline');
     }
-    console.log('PASS offline reload and all four destinations retain previously available synthetic records');
+    console.log('PASS cached shell reloads offline and all four destinations render records supplied by the synthetic snapshot fixture');
 
     await notes(page,'Saved offline before reconnect');
     assert.match(await page.locator('#state').textContent(),/Offline.*saved on this device/);
@@ -146,11 +158,12 @@ async function main() {
     await page.waitForFunction(()=>offlineProbe.queuedWrites().length===0&&offlineProbe.S.status==='Synced');
     assert.equal(await page.evaluate(key=>JSON.parse(localStorage.getItem(key)).length,writeKey),1,'One synthetic acknowledgement, no duplicate send');
     assert.equal(await page.locator('#in-walkMin-'+TODAY).inputValue(),'22','Reconnect does not erase entered text');
-    // The saved note must also survive losing connectivity after acknowledgement.
+    // After acknowledgement, record availability comes from the synthetic
+    // snapshot fixture; this is not a check of Firestore's persistent cache.
     await ctx.setOffline(true);await page.reload();await ready(page);
     assert.equal(await page.evaluate(()=>offlineProbe.S.days['2026-11-06'].notes),'Saved offline before reconnect');
     assert.equal((await queue(page)).length,0);
-    console.log('PASS reconnect acknowledges once, keeps the unfinished draft, and a later offline reload retains the saved note');
+    console.log('PASS synthetic reconnect acknowledges once, keeps the real app draft, and an offline reload renders the updated snapshot fixture');
 
     await ctx.setOffline(false);
     await page.evaluate(()=>{offlineTransport.delayNext=true;});
@@ -194,11 +207,11 @@ async function main() {
     assert.equal(await page.evaluate(()=>window.AppShell.state.activeVersion),activeVersion);
     assert.equal(await page.evaluate(()=>offlineProbe.S.days['2026-11-06'].notes),'Entered before connection failed during send');
     assert.equal((await queue(page)).length,0);
-    console.log('PASS an incomplete release fails installation; the existing cached app and records still reopen offline');
+    console.log('PASS an incomplete release fails installation; the existing cached app reopens offline and renders the synthetic snapshot fixture');
 
     assert.deepEqual(external,[],'No external requests');assert.deepEqual(errors,[],'No page errors');
     console.log(JSON.stringify({browser:browser.version(),viewport:'390x844 touch emulation',scenarios:6,pageErrors:errors.length,externalRequests:external.length,
-      limitations:'Local SDK/auth/record adapters and rewritten CDN transport; real browser SW/cache/lifecycle. Not real Firebase, Safari, browser-process restart or installed Home Screen validation.'}));
+      limitations:'Record availability is simulated by a localStorage snapshot fixture. Real app outbox/draft persistence and browser SW/cache lifecycle; injected send rejection after local save, not real SDK in-flight/pending behaviour or interrupted local saving. No real Firebase, Safari, browser-process restart or installed Home Screen validation.'}));
   } finally {
     if(ctx)await ctx.close();if(browser)await browser.close();
     await new Promise(resolve=>server.close(resolve));
