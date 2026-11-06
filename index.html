@@ -2104,6 +2104,10 @@ function render(force=false){
     else if(summaryId)document.getElementById(summaryId)?.querySelector(':scope > summary')?.focus({preventScroll:true});
   }
   restoreDraftInputs();
+  if(!pendingDraft&&focus&&document.activeElement?.id!==focus){
+    const btn=document.getElementById(focus);
+    if(btn&&btn.tagName==='BUTTON')refocus(focus);
+  }
   syncBcsGuidance();
   refreshWeightConditionViews();
   renderFeedback();
@@ -3683,7 +3687,8 @@ function markInputDirty(input){
   form.setAttribute('data-dirty','');
   syncDraftMarkers();refreshTodoCard();
   if(form.hasAttribute('data-feeding'))return;
-  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button id="save-${input.id}" class="btn sm" data-act="saveinput" aria-label="Save ${esc(form.dataset.saveLabel||$('label',form).textContent)}">Save</button><button id="cancel-${input.id}" class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
+  const primaryId=$('input,textarea',form)?.id||input.id;
+  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button id="save-${primaryId}" class="btn sm" data-act="saveinput" aria-label="Save ${esc(form.dataset.saveLabel||$('label',form).textContent)}">Save</button><button id="cancel-${primaryId}" class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
   if(form.dataset.key==='weight'){
     const toggle=document.getElementById('weight-missed-'+form.dataset.date);
     if(toggle){toggle.disabled=true;$('.switch-detail',toggle).textContent='Save or cancel the weight entry before marking it missed.';}
@@ -4385,7 +4390,7 @@ onAuthStateChanged(auth, (u)=>{
 
 window.addEventListener('online', ()=>void resyncIfPending());
 window.addEventListener('offline', ()=>{
-  let pending=false;try{pending=pendingCount()>0;}catch{}
+  const pending=pendingCount()>0;
   setStatus(pending?'Offline · saved on this device':'Offline · saved records available',pending?'warn':'');
 });
 

@@ -1691,8 +1691,8 @@ test('stable element IDs are present across navigation tabs, notices, stool acti
   assert.match(moduleSource, /id="stool-tog-\$\{k\}-\$\{iso\}"/);
   assert.match(moduleSource, /id="save-stool-\$\{iso\}"/);
   assert.match(moduleSource, /id="cancel-stool-\$\{iso\}"/);
-  assert.match(moduleSource, /id="save-\$\{input\.id\}"/);
-  assert.match(moduleSource, /id="cancel-\$\{input\.id\}"/);
+  assert.match(moduleSource, /id="save-\$\{primaryId\}"/);
+  assert.match(moduleSource, /id="cancel-\$\{primaryId\}"/);
 });
 
 test('offline event handler accurately reflects held unreadable outbox in status and warning styling', () => {
