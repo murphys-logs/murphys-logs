@@ -436,6 +436,10 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   :focus-visible{outline:3px solid CanvasText}
   button:not(:disabled):active{opacity:1}
   button:disabled{color:GrayText}
+  /* Marks drawn only as a fill would take the page colour and vanish. Stool chart
+     shapes still tell the bands apart; the attention dot keeps its spoken label. */
+  :is(.tabbar .dotmark,.dot,.chart-point.stool-point,.gauge .mid){forced-color-adjust:none;background:CanvasText}
+  .gauge .fill{forced-color-adjust:none;background:Highlight}
 }
 @media(min-width:64rem){
   main.wide{max-width:68rem}
