@@ -453,12 +453,13 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 }
 /* Typing with an on-screen keyboard: the area left above it can be shorter than the
    pinned top bar plus notices, which would hide the field being typed in. While a
-   keyboard field is focused, notices scroll with the page instead; sticky already
+   keyboard field or its Save/Cancel button is focused, notices scroll with the page
+   instead. Keep them out of the way until activation completes; sticky already
    reserves their place in the flow, so nothing moves when they are pinned again. */
 @media(hover:none) and (pointer:coarse){
-  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"])):focus){scroll-padding-top:calc(var(--headerh) + 1rem)}
-  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"])):focus) .feedback-region{position:static}
-  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"])):focus) #main :is(input,select,textarea,[tabindex="-1"]){scroll-margin-block-start:calc(var(--headerh) + 1rem)}
+  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"]),[data-confirm] button):focus){scroll-padding-top:calc(var(--headerh) + 1rem)}
+  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"]),[data-confirm] button):focus) .feedback-region{position:static}
+  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"]),[data-confirm] button):focus) #main :is(input,select,textarea,[tabindex="-1"]){scroll-margin-block-start:calc(var(--headerh) + 1rem)}
 }
 /* iPhone shell: keep the desktop shell unchanged, including touch-screen PCs. */
 @supports(-webkit-touch-callout:none){

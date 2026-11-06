@@ -43,15 +43,31 @@ async function main() {
         const c = getComputedStyle(el), r = el.getBoundingClientRect();
         // The colour behind the mark: the nearest ancestor with a non-transparent background.
         // Forced colours report transparency as Canvas with zero alpha, so test the alpha.
-        const clear = v => /rgba\([^)]*,\s*0\)$/.test(v), rgb = v => v.replace(/^rgba?\(([^,]+),([^,]+),([^,)]+).*$/, 'rgb($1,$2,$3)').replace(/\s/g, '');
+        const alpha = v => Number(v.match(/^rgba\([^)]*,\s*([\d.]+)\)$/)?.[1] ?? 1);
+        const clear = v => alpha(v) === 0, rgb = v => v.replace(/^rgba?\(([^,]+),([^,]+),([^,)]+).*$/, 'rgb($1,$2,$3)').replace(/\s/g, '');
         let behind = 'rgba(0, 0, 0, 0)';
         for (let p = el.parentElement; p && clear(behind); p = p.parentElement) behind = getComputedStyle(p).backgroundColor;
-        return [sel, { bg: rgb(c.backgroundColor), behind: rgb(behind), raw: c.backgroundColor, border: c.borderTopStyle === 'none' ? 0 : parseFloat(c.borderTopWidth), size: [r.width, r.height] }];
+        return [sel, { bg: rgb(c.backgroundColor), behind: rgb(behind), raw: c.backgroundColor,
+          alpha: alpha(c.backgroundColor), opacity: Number(c.opacity), visibility: c.visibility,
+          border: c.borderTopStyle === 'none' ? 0 : parseFloat(c.borderTopWidth), size: [r.width, r.height] }];
       })), selectors);
+      const visibleMark = (sel, mark) => {
+        assert.ok(mark, `${sel} is rendered (${forcedColors}, ${colorScheme})`);
+        assert.ok(mark.size[0] > 0 && mark.size[1] > 0, `${sel} has a size`);
+        // System Highlight may include alpha (for example 0.8 in Chromium).
+        // Reject an invisible fill without overriding the platform's token.
+        assert.ok(mark.alpha > 0, `${sel} has a nontransparent fill`);
+        assert.equal(mark.opacity, 1, `${sel} is not faded out`);
+        assert.equal(mark.visibility, 'visible', `${sel} is visible`);
+        assert.notEqual(mark.bg, mark.behind, `${sel} is distinguishable from its background (${forcedColors}, ${colorScheme}): ${mark.bg} on ${mark.behind}`);
+      };
       const today = await marks(['#tabbar .dotmark', '#main .stool .dot']);
-      await page.evaluate(() => testApp.open('review'));
+      await page.evaluate(() => { testApp.S.changes = []; testApp.open('review'); });
       await page.evaluate(() => { for (const d of document.querySelectorAll('#main details')) d.open = true; });
       const review = await marks(['#main .gauge .fill', '#main .gauge .mid']);
+      assert.ok(review['#main .gauge .fill'], 'zero-adjustment gauge is rendered');
+      assert.equal(review['#main .gauge .fill'].size[0], 0, 'zero adjustment draws no fill');
+      assert.ok(review['#main .gauge .fill'].size[1] > 0, 'zero gauge is expanded, not hidden');
       await page.evaluate(() => { testApp.S.range = 14; testApp.open('history'); });
       const history = await marks(['#main .diary-val .dot']);
       // Data charts live on Review; the stool chart draws one point per stool.
@@ -59,10 +75,7 @@ async function main() {
       const chart = await marks(['#main .chart-point.stool-point']);
       const all = { ...today, ...review, ...history, ...chart };
       for (const [sel, mark] of Object.entries(all)) {
-        if (sel === '#main .gauge .fill' && mark && mark.size[0] === 0) continue; // Zero adjustment draws no fill.
-        assert.ok(mark, `${sel} is rendered (${forcedColors}, ${colorScheme})`);
-        assert.ok(mark.size[0] > 0 && mark.size[1] > 0, `${sel} has a size`);
-        assert.notEqual(mark.bg, mark.behind, `${sel} is distinguishable from its background (${forcedColors}, ${colorScheme}): ${mark.bg} on ${mark.behind}`);
+        if (sel !== '#main .gauge .fill') visibleMark(sel, mark); // Zero state was asserted above.
       }
       if (forcedColors === 'none') {
         // Normal themes keep the design tokens: the attention dot uses --ink, stool dots their band tone.
@@ -74,6 +87,34 @@ async function main() {
         assert.equal(all['#main .diary-val .dot'].raw, tokens.watch, 'diary dot keeps the watch tone');
       }
       pass(`status marks are visible with forced colours ${forcedColors} in ${colorScheme} appearance`);
+      // Render real signed changes through offsetNow()/viewReview(), rather than
+      // injecting a width that could mask a missing or incorrectly directed fill.
+      for (const deltaG of [20, -20]) {
+        await page.evaluate(deltaG => {
+          testApp.S.changes = [{ id: 'forced-colours-adjustment', date: '2026-11-01', deltaG, source: 'manual' }];
+          testApp.render(true);
+          document.getElementById('review-ration-details').open = true;
+        }, deltaG);
+        const fill = (await marks(['#main .gauge .fill']))['#main .gauge .fill'];
+        visibleMark('#main .gauge .fill', fill);
+        const expected = await page.evaluate(() => {
+          const reference = document.createElement('i');
+          reference.style.cssText = 'forced-color-adjust:none;background:Highlight;color:var(--accent)';
+          document.body.append(reference);
+          const colors = getComputedStyle(reference);
+          const gauge = document.querySelector('#main .gauge').getBoundingClientRect();
+          const fill = document.querySelector('#main .gauge .fill').getBoundingClientRect();
+          const result = { highlight: colors.backgroundColor, accent: colors.color,
+            midpoint: gauge.left + gauge.width / 2, left: fill.left, right: fill.right };
+          reference.remove();
+          return result;
+        });
+        assert.equal(fill.raw, forcedColors === 'active' ? expected.highlight : expected.accent,
+          'nonzero gauge uses system Highlight in forced colours and --accent otherwise');
+        assert.ok(Math.abs((deltaG > 0 ? expected.left : expected.right) - expected.midpoint) <= 1,
+          `${deltaG > 0 ? 'positive' : 'negative'} adjustment starts at the gauge midpoint`);
+        pass(`${deltaG > 0 ? 'positive' : 'negative'} gauge fill is visible with forced colours ${forcedColors} in ${colorScheme} appearance`);
+      }
       await context.close();
     }
     assert.deepEqual(errors, [], 'no page errors');

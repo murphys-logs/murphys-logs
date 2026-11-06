@@ -130,6 +130,60 @@ async function main() {
       await context.close();
     }
 
+    // Focus moves to the confirmation button before its click fires. Repinning
+    // notices at that point can cover the same screen coordinates and swallow
+    // the click. Use physical coordinates (no locator auto-scrolling/retry), and
+    // exercise Tab separately so the focused action must stay above the keyboard.
+    for (const [width, height, visible] of PHONES) {
+      for (const activation of ['touch', 'mouse', 'keyboard']) for (const action of ['save', 'cancel']) {
+        const { context, page } = await open({ viewport: { width, height }, isMobile: true, hasTouch: true });
+        await page.evaluate(date => testApp.open('day', { date }), YESTERDAY);
+        await showNotices(page);
+        await openKeyboard(page, visible);
+        const selector = `#in-walkMin-${YESTERDAY}`, buttonId = `${action}-in-walkMin-${YESTERDAY}`;
+        const before = await page.evaluate(date => ({ value: testApp.S.days[date]?.walkMin,
+          writes: testApp.queuedWrites().length }), YESTERDAY);
+        await page.locator(selector).focus();
+        await page.locator(selector).pressSequentially('45');
+        if (activation === 'keyboard') {
+          await page.keyboard.press('Tab');
+          if (action === 'cancel') await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement.id), buttonId, 'Tab reaches the intended confirmation button');
+        }
+        const target = await page.evaluate(id => {
+          const button = document.getElementById(id), box = button.getBoundingClientRect();
+          const x = box.left + box.width / 2, y = box.top + box.height / 2;
+          const feedback = document.getElementById('feedback'), pinned = getComputedStyle(feedback).position === 'sticky';
+          const cover = Math.max(document.querySelector('.topbar').getBoundingClientRect().bottom,
+            pinned ? feedback.getBoundingClientRect().bottom : 0);
+          return { x, y, top: box.top, bottom: box.bottom, cover, pinned,
+            hit: button.contains(document.elementFromPoint(x, y)) };
+        }, buttonId);
+        assert.equal(target.pinned, false, `${activation} ${action}: notices stay out of the way until confirmation completes`);
+        assert.ok(target.top >= target.cover - 0.5 && target.bottom <= visible + 0.5,
+          `${activation} ${action}: button remains visible above the ${visible}px keyboard viewport at ${width}px`);
+        assert.ok(target.hit, `${activation} ${action}: the visible button is not covered`);
+        if (activation === 'touch') await page.touchscreen.tap(target.x, target.y);
+        else if (activation === 'mouse') await page.mouse.click(target.x, target.y);
+        else await page.keyboard.press('Enter');
+        await page.waitForFunction(selector => !document.querySelector(selector).closest('[data-form]').querySelector('[data-confirm]'),
+          selector, { timeout: 2000 });
+        const after = await page.evaluate(date => ({ value: testApp.S.days[date]?.walkMin,
+          writes: testApp.queuedWrites().length }), YESTERDAY);
+        assert.equal(after.value, action === 'save' ? 45 : before.value, `${activation} ${action}: one activation completes the intended action`);
+        assert.equal(after.writes, before.writes + (action === 'save' ? 1 : 0),
+          `${activation} ${action}: Save queues exactly one change; Cancel queues none`);
+        const fieldTop = await page.locator(selector).evaluate(el => el.getBoundingClientRect().top);
+        await page.evaluate(() => document.activeElement.blur());
+        const settled = await page.locator(selector).evaluate(el => ({ top: el.getBoundingClientRect().top,
+          position: getComputedStyle(document.getElementById('feedback')).position }));
+        assert.equal(settled.position, 'sticky', 'notices pin again after focus leaves the completed entry');
+        assert.ok(Math.abs(settled.top - fieldTop) < 0.5, 'repinning after confirmation does not shift the field');
+        pass(`${activation} ${action}: one activation completes with two notices at ${width}x${height}/${visible}px keyboard viewport`);
+        await context.close();
+      }
+    }
+
     // Desktop (no touch): focusing a field leaves the notices pinned, exactly as before.
     {
       const { context, page } = await open({ viewport: { width: 1440, height: 900 } });
