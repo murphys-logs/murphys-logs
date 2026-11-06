@@ -1,0 +1,41 @@
+# PR #20 independent-review reconciliation
+
+Both reviewers examined base **`f28696bc8027c2d1788d167cc2119e8063627c68`** and head **`5e2b04fc6a587bd0d7d9b21f0d88803e1c539a09`** (3.12.1): [Claude Code](https://github.com/murphys-logs/murphys-logs/pull/20#pullrequestreview-5807002646) and [Antigravity](https://github.com/murphys-logs/murphys-logs/pull/20#pullrequestreview-5806985196). Both found no introduced P1/P2 product regression and independently checked the Firebase boundary. Claude identified five P3 improvements that Antigravity's broad passing verdict did not cover. This follow-up accepts those improvements, with the evidence qualifications below, and advances the matching application release IDs to **3.12.2**.
+
+The original base remains unchanged. The PR description identifies the final follow-up head and its test results. This document does not treat the reviewers' earlier conclusions as approval of the new head. No merge or deployment is authorized.
+
+## Dispositions
+
+| Feedback | Reconciliation | Change / remaining acceptance |
+|---|---|---|
+| [CC20-01](https://github.com/murphys-logs/murphys-logs/pull/20#discussion_r4497604776), P3, focus-test gap | **Accepted, fixed.** Previously the four storage-failure cases changed only feedback, so unchanged main markup skipped replacement. Those cases passed on the pre-PR baseline and did not protect surviving-button restoration. | Each case now retains the original element, invokes `render(true)`, verifies that element is disconnected, then asserts the replacement action is focused and no operation was queued. Counterfactual failure-only probes pass all four original cases on `f28696b` but fail all four strengthened cases there; the current implementation passes. |
+| [CC20-02](https://github.com/murphys-logs/murphys-logs/pull/20#discussion_r4497606013), P3, unnamed focus targets | **Accepted as accessibility hardening; platform risk remains unverified.** This was not evidence of a reproduced VoiceOver failure. | The two existing result containers retain `tabindex="-1"` and now have `role="group"` with names “This week’s ration result” and “Pro-Fibre result”. Tests resolve their accessible roles/names with `getByRole`. No extra live region, focus algorithm, save handler or calculation changes. Actual Safari/VoiceOver announcements and pointer behaviour still need a device. |
+| [CC20-03](https://github.com/murphys-logs/murphys-logs/pull/20#discussion_r4497606637), P3, layout-fixture gap | **Accepted, fixed.** The original 192 combinations were valid but their Review fixture had no conditional advice actions. | Preserve all 192 standard cases and add 48 advice-present Review cases (8 sizes × 3 appearances × 2 root sizes). Each explicitly requires all four advice actions, applies the same target-size/overflow/label checks, checks named result groups and resets the fixture before the next case. Total: **240** combinations. |
+| [CC20-04](https://github.com/murphys-logs/murphys-logs/pull/20#discussion_r4497607611), P3, offline evidence wording | **Accepted, corrected.** Passing fixture-supplied records are not proof of Firestore caching. The injected rejection follows a completed local save and does not model a real SDK write remaining pending offline. | Clarify the report, test comments/output and PR description. Real evidence covers app outbox/draft storage/replay and browser worker/cache lifecycle. Record availability, Auth and sending remain synthetic; no claim of interrupted local-save testing, real SDK persistence or Home Screen cold launch. Existing assertions remain intact. |
+| [CC20-05](https://github.com/murphys-logs/murphys-logs/pull/20#discussion_r4497608067), P3, documentation privacy | **Accepted, fixed in the current tree.** The personal profile path is unnecessary reproduction detail. | Use a generic existing-Playwright path placeholder. No history rewrite: prior Git revisions and already published review comments are not erased. No secret or health record was involved. |
+| Claude node-count nit | **Accepted, corrected.** The final Review markup has three more nodes than the early benchmark. | Current five-year All Review count is **58,094**. Earlier timings remain identified as historical measurements, not a claimed performance gain. |
+| CodeQL [alert 16](https://github.com/murphys-logs/murphys-logs/security/code-scanning/16) / [alert 17](https://github.com/murphys-logs/murphys-logs/security/code-scanning/17) | **Test invariant improved.** The flagged negative host-substring assertion was a fixture check, not production URL authorization or a demonstrated production vulnerability. | Validate the original SDK URL origin/path, require exact three import URLs, and require the exact rewritten worker SDK directory. Preserve exact-origin request isolation. Lookalike-host and unexpected-module scratch fixtures fail before browser/server startup. Hosted CodeQL disposition is recorded in the PR after its rerun; local test success is not a CodeQL pass. |
+
+## Reconcile Antigravity's conclusions
+
+AG20-01/02 remain device and deployed-authorization assurance gaps. AG20-03 corroborates the pre-existing large-All-history cost; no performance code changes are justified by this follow-up. AG20-04/05 corroborate the protected conflict/recovery/domain issues listed in the [whole-app report](whole-app-review.md). All remain unresolved under the existing boundaries.
+
+Some wording in Antigravity's review goes beyond its evidence and is not adopted:
+
+- No assistive technology was tested, so “screen readers … announce the outcome” is not a verified result. Browser focus and accessible-tree naming are narrower evidence.
+- No physical iPhone/iOS version was tested. The referenced iOS 18 is not a device-test result, and browser Firestore persistence here concerns the JavaScript SDK/IndexedDB, not a tested C++ SDK.
+- The five-year timing is through forced layout, including script and measurement work; it is not layout-only time or observed physical-phone scrolling latency.
+- At reviewed head `5e2b04f`, `viewHistory` starts at 2796, `weekContext` at 2762, `exportMonthCsv` at 3150, the symptom event handler at 3912 and erase at 4244. Some review references are stale or label the sender as the event handler. The report's separately labelled original-base references remain historical anchors.
+- Addressing the blocked defects requires separately authorized, focused conflict/identity/recovery designs and meaningful tests; an architectural overhaul is not established as necessary.
+
+Neither reviewer tested production Firebase. Neither review establishes production readiness. Antigravity's recommendation to merge does not override the owner's instruction to leave this PR open and undeployed.
+
+## Validation and unchanged boundaries
+
+Targeted follow-up runs: **13/13 Review-focus scenarios, 240/240 layout combinations and 6/6 offline-launch scenarios in both Edge 156.0.4314.58 and Brave 157.0.8103.39**, using existing Playwright on Windows, synthetic data and no external app requests/page errors. The PR description records the complete final rerun of all six Node suites and nine browser suites. Counterfactual and hostile-fixture probes are test evidence, not additional passing product scenarios.
+
+The only runtime follow-up beyond `5e2b04f` is two result-group role/name attributes and matching release IDs. The full baseline comparison still allows only the existing three presentation functions; all exempt bodies are manually reviewed as well. `sw.js` changes only `VERSION`, and the upgrade fixture retains actual main 3.12.0 as its source and expects 3.12.2 as its destination.
+
+Firebase SDK/version/configuration, Auth, listeners, transactions, save/sync/outbox/draft semantics, data structures, personal-weight handling, calculations and import/export formats remain unchanged. No dependency, production resource, record or storage migration is involved. The pre-existing P1 data-integrity defects, deployed-rule uncertainty, physical-device/VoiceOver checks, real SDK persistence and cold-start acceptance remain open.
+
+Independent follow-up prompts: [Claude Code](prompts/claude-followup.md) and [Antigravity](prompts/antigravity-followup.md). Each must review the current exact head independently before reading the other's new feedback.
