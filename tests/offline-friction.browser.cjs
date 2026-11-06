@@ -190,6 +190,16 @@ async function main() {
       assert.match(details, /3 changes waiting on this device, the oldest saved at 09:00 today/);
       assert.match(details, /Not yet confirmed with the server on this device/);
       assert.match(details, /Storage is (?:protected|not protected)|cannot be checked|could not be checked/);
+      assert.match(details, /Keep the app open while connected to finish syncing/);
+      assert.match(details, /If it was closed, reopen it and check the sync status/);
+      for (const protection of ['persisted', 'best-effort']) {
+        await page.evaluate(value => { testApp.S.storageProtection=value; testApp.render(); }, protection);
+        const storage = await page.locator('#settings-sync').textContent();
+        assert.doesNotMatch(storage, /iOS will not clear|sync automatically/);
+        assert.match(storage, /[Ss]ave a Full backup regularly/);
+        if (protection === 'persisted') assert.match(storage, /Space is still limited, and clearing website data removes local records/);
+        else assert.match(storage, /this browser may clear local data under storage pressure/);
+      }
       page.__answer = false;
       await page.locator('#signout-btn').click();
       assert.equal(page.__dialogs.length, 1);

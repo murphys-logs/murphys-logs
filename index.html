@@ -3013,12 +3013,12 @@ function syncSectionBody(){
   const oldest=stamps.sort((a,b)=>a-b)[0];
   const waiting=n?`<b>${n} change${n===1?'':'s'} waiting</b> on this device${oldest?`, the oldest saved at ${clockText(oldest)}`:''}. `+
     (held?`<b>Sending is held</b> because ${unreadableOutbox.length===1?'one change can’t':unreadableOutbox.length+' changes can’t'} be read. Save a recovery file, then set ${unreadableOutbox.length===1?'it':'them'} aside to let the rest sync.`:
-      `${n===1?'It syncs':'They sync'} automatically when there is signal.`):'No changes are waiting on this device.';
+      'Keep the app open while connected to finish syncing. If it was closed, reopen it and check the sync status.'):'No changes are waiting on this device.';
   const recovery=held||setAside?`<div class="btnrow"><button class="btn ghost sm" id="settings-outbox-recovery" data-act="outboxrecovery">Save recovery file</button>${held?'<button class="btn ghost sm" id="settings-outbox-set-aside" data-act="outboxsetaside">Set aside and continue syncing</button>':''}</div>`+
     (setAside?`<p class="sub">${setAside} unreadable change${setAside===1?' is':'s are'} set aside on this device. ${setAside===1?'It is':'They are'} never sent, and ${setAside===1?'is':'are'} included in recovery files and Full backup.</p>`:''):'';
   const confirmed=S.lastConfirmed?`Last confirmed with the server at ${clockText(S.lastConfirmed)}.`:'Not yet confirmed with the server on this device.';
-  const storage={persisted:'Storage is protected: iOS will not clear this app’s saved data automatically.',
-    'best-effort':'Storage is not protected: iOS may clear this app’s data if the phone runs short of space. Keep the app on the Home Screen and save a Full backup regularly.',
+  const storage={persisted:'Storage is protected from automatic browser clearing. Space is still limited, and clearing website data removes local records. Save a Full backup regularly.',
+    'best-effort':'Storage is not protected: this browser may clear local data under storage pressure. Keep the app on the Home Screen and save a Full backup regularly.',
     unsupported:'Storage protection cannot be checked in this browser.',unknown:'Storage protection could not be checked.'}[S.storageProtection]||'Checking storage protection…';
   const old=S.undo&&!undoSticky(S.undo)&&!S.undoBusy?`<div class="review-subsec"><h5 class="lab">Recently removed</h5>${undoNote(S.undo)}</div>`:'';
   return `<p class="chart-summary" id="settings-sync-status">${esc(S.status)}</p><p class="sub">${waiting}</p><p class="sub">${confirmed}</p><p class="sub">${storage}</p>`+
