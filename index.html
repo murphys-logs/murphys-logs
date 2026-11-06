@@ -2091,7 +2091,7 @@ function render(force=false){
   // Unchanged markup skips replacement, but a handler may just have cleared a draft (CX-05).
   if(!force&&html===rendered){syncDraftMarkers();return;}
   rendered=html;
-  const active=document.activeElement, focus=active?.id, summaryId=!focus&&active?.tagName==='SUMMARY'?active.parentElement?.id:'';
+  const active=document.activeElement, focus=active?.id, summaryId=!focus&&active?.tagName==='SUMMARY'?active.parentElement?.id:'', staged=!!pendingDraft;
   // Review actions disappear after a decision. Keep keyboard focus on their
   // updated result, while a still-available action (including a failed save)
   // keeps its own focus. This is presentation only; saving is unchanged.
@@ -2099,12 +2099,12 @@ function render(force=false){
   const expanded=$$('#main details[id]').map(e=>[e.id,e.open]);
   replaceRenderedHtml($('#main'),html);
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
-  if(!pendingDraft){
+  if(!staged){
     if(focus&&document.activeElement?.id!==focus)refocus(document.getElementById(focus)?focus:focusResult);
     else if(summaryId)document.getElementById(summaryId)?.querySelector(':scope > summary')?.focus({preventScroll:true});
   }
   restoreDraftInputs();
-  if(!pendingDraft&&focus&&document.activeElement?.id!==focus){
+  if(!staged&&focus&&document.activeElement?.id!==focus){
     const btn=document.getElementById(focus);
     if(btn&&btn.tagName==='BUTTON')refocus(focus);
   }
