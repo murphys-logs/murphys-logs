@@ -25,11 +25,11 @@ function omitPresentation(source) {
   return source;
 }
 const html = before('index.html')
-  .replace('data-version="3.12.0"', 'data-version="3.12.1"')
-  .replace("const APP_VERSION = '3.12.0';", "const APP_VERSION = '3.12.1';");
+  .replace('data-version="3.12.0"', 'data-version="3.12.2"')
+  .replace("const APP_VERSION = '3.12.0';", "const APP_VERSION = '3.12.2';");
 assert.equal(omitPresentation(after('index.html')), omitPresentation(html),
   'Outside the three reviewed presentation functions and app release IDs, index.html must be identical');
-assert.equal(after('sw.js'), before('sw.js').replace("const VERSION = '3.12.0';", "const VERSION = '3.12.1';"),
+assert.equal(after('sw.js'), before('sw.js').replace("const VERSION = '3.12.0';", "const VERSION = '3.12.2';"),
   'Worker must be identical apart from the application release identifier');
 const changed = (git(['diff', '--name-only', base]) + git(['ls-files', '--others', '--exclude-standard']))
   .trim().split(/\r?\n/).filter(Boolean);

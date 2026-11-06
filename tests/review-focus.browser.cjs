@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const { chromium, html, stub, origin } = require('./draft-input.browser.cjs');
 const actions = ['applyadv', 'refuseadv', 'applyfibre', 'dismissfibre'];
 const resultId = action => action.endsWith('adv') ? 'review-ration-result' : 'review-fibre-result';
+const resultName = action => action.endsWith('adv') ? 'This week’s ration result' : 'Pro-Fibre result';
 
 async function main() {
   const browser = await chromium.launch({ headless: true,
@@ -59,6 +60,7 @@ async function main() {
         assert.equal(await page.locator('#' + id).getAttribute('open'), '', id + ' remains expanded');
       const result = page.locator('#' + resultId(action));
       assert.equal(await result.getAttribute('tabindex'), '-1');
+      assert.equal(await page.getByRole('group', { name: resultName(action), exact: true }).getAttribute('id'), resultId(action), 'the focus destination has an accessible role and name');
       assert.ok((await result.textContent()).trim().length, 'the focus destination contains the current result');
       if (action === 'dismissfibre') assert.match(await result.textContent(), /Advice postponed/);
       if (action.endsWith('adv')) assert.match(await result.textContent(), /No ration change/);
@@ -75,12 +77,17 @@ async function main() {
         };
       });
       const button = page.locator(`[data-act="${action}"]`);
+      const originalButton = await button.elementHandle();
       await button.focus(); await button.press('Enter');
       await page.waitForFunction(() => document.querySelector('#feedback').textContent.trim().length > 0);
+      // Failure changes feedback only, so the ordinary render skips identical
+      // #main markup. Exercise the surviving-button path across a real replacement.
+      await page.evaluate(() => testApp.render(true));
+      assert.equal(await originalButton.evaluate(element => element.isConnected), false, 'the original action was replaced, not merely left focused');
       assert.equal(await page.evaluate(() => document.activeElement.dataset.act), action, 'failed action stays focused and available');
       assert.equal(await button.count(), 1);
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
-      pass('storage failure: ' + action + ' remains focused for retry');
+      pass('storage failure: ' + action + ' remains focused for retry after main replacement');
       await context.close();
     }
     {
