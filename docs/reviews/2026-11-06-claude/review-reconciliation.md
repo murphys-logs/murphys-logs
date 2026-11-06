@@ -64,3 +64,31 @@ The runtime delta from base remains CSS inside `<style>` plus the aligned 3.12.4
   - type, then a single tap on Save, and separately on Cancel;
   - confirm the notices stay out of the way and then pin again without the page jumping.
 - **Pre-existing documented P1 data-integrity risks remain.**
+
+# Round 2: re-reviews of `c989afa`
+
+**Posted on the PR:** [Antigravity's re-review](https://github.com/murphys-logs/murphys-logs/pull/22#pullrequestreview-5808588395) of `c989afaf3c34f29a5daaae916cabe0e290386bec` (Windows 11, Node 20.18.0, Edge 157). The independent Codex and Claude Code (separate session) re-reviews have **not** been posted on the PR.
+
+## Antigravity dispositions
+
+**No new findings, accepted.** Antigravity reproduced CX22-01 on `d0aa02f`, and the Safari-model failure on `3bb4c65`. It confirmed CX22-01 and CX22-02 as fixed on `c989afa`, judged the residual tap acceptable, and agreed with both round-1 wording qualifications. It reported 220 Node tests, 176 browser scenarios, 240 layout combinations, 19 state configurations, a clean audit and a clean `git diff --check`.
+
+**One claim corrected, which led to CC-K2.** The review says that after a failed save *"S.error displays inline at the field level"*. The app has no `S.error`, and a failed local save shows no field-level message. I tested this at 393×659 with a 330 px keyboard viewport, with local storage refusing outbox writes. On this head the *Could not save locally* alert stays in the page with `role="alert"`, but it is at the top of the page, outside the keyboard viewport. The pinned status reads *Not saved*, the entry and value stay open with Save focused and visible, and nothing is queued. On `main` the alert was pinned and visible, but the field was the part hidden.
+
+## CC-K2 · P3 · accepted trade-off, now tested
+
+Pinning alert-level notices while an entry is open would cover the field and Save again, which is CC-K1. A field-level message would need a script change in the save path, outside this CSS-only change. The trade-off is documented in the report. A new keyboard-suite scenario pins down the signals that remain: *Not saved* visible, the alert present, the entry kept, Save reachable, nothing queued.
+
+## Round-2 validation (test and documentation change only)
+
+- **No runtime change since `c989afa`:** `index.html` and `sw.js` are byte-identical to it.
+- **220/220 Node tests.**
+- **177/177 browser scenarios:** 124 + 41 + 12.
+- **240/240 layout combinations; 19/19 state configurations.**
+- **Boundary audit passes;** `git diff --check` is clean.
+
+## Merge readiness: not yet
+
+- The Codex and Claude Code (separate session) re-reviews of the current runtime are outstanding. Antigravity's re-review covers the runtime, which is unchanged since `c989afa`; the new test and documentation need only a light confirmation.
+- The physical iPhone check is open.
+- The documented P1 data-integrity risks still rule out a production-readiness claim.

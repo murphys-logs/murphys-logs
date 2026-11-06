@@ -37,7 +37,7 @@ node docs/reviews/2026-11-06-claude/audit-boundaries.cjs
 git diff --check <base>..<head>
 ```
 
-Counts to verify: **220 Node; 176 browser (124 + 40 keyboard + 12 forced-colours); 240 layout; 19 state configurations.** Report real failures or skips; do not edit tests to reach these counts. Distinguish Edge/Brave (Chromium) emulation from Safari, and do not describe untested VoiceOver, keyboard or Home Screen behaviour as verified.
+Counts to verify: **220 Node; 177 browser (124 + 41 keyboard + 12 forced-colours); 240 layout; 19 state configurations.** Report real failures or skips; do not edit tests to reach these counts. Distinguish Edge/Brave (Chromium) emulation from Safari, and do not describe untested VoiceOver, keyboard or Home Screen behaviour as verified.
 
 **Submit** one GitHub review as **COMMENT**, explicitly marked AI-generated. Include:
 

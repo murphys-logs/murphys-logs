@@ -220,6 +220,54 @@ async function main() {
       await context.close();
     }
 
+    // A failed local save while notices are out of the way (CC-K2, accepted trade-off):
+    // the "Could not save locally" alert sits with the other notices at the top of the
+    // page, outside the keyboard viewport, but the failure is never silent. The pinned
+    // status reads "Not saved", the alert keeps role="alert", the entry and its value stay
+    // open with Save still focused and visible, and nothing is queued.
+    {
+      const [width, height, visible] = PHONES[0];
+      const { context, page } = await open({ viewport: { width, height }, isMobile: true, hasTouch: true });
+      await page.evaluate(date => testApp.open('day', { date }), YESTERDAY);
+      await showNotices(page);
+      await openKeyboard(page, visible);
+      const selector = `#in-walkMin-${YESTERDAY}`, saveId = `save-in-walkMin-${YESTERDAY}`;
+      await page.locator(selector).focus();
+      await page.locator(selector).pressSequentially('45');
+      const queuedBefore = await page.evaluate(() => testApp.queuedWrites().length);
+      // Local storage refuses new outbox entries, as when the device is out of space.
+      await page.evaluate(() => {
+        const set = Storage.prototype.setItem;
+        Storage.prototype.setItem = function (key, value) {
+          if (String(key).startsWith('murphy-outbox')) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+          return set.call(this, key, value);
+        };
+      });
+      const target = await page.evaluate(id => { const r = document.getElementById(id).getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, saveId);
+      await page.touchscreen.tap(target.x, target.y);
+      await page.waitForFunction(() => document.getElementById('state').textContent === 'Not saved');
+      const failed = await page.evaluate(({ selector, saveId, visible }) => {
+        const feedback = document.getElementById('feedback'), state = document.getElementById('state').getBoundingClientRect();
+        const alert = [...feedback.querySelectorAll('.note')].find(n => /Could not save locally/.test(n.textContent));
+        const form = document.querySelector(selector).closest('[data-form]'), save = document.getElementById(saveId)?.getBoundingClientRect();
+        return { stateVisible: state.top >= 0 && state.bottom <= visible, alertRole: alert?.getAttribute('role'),
+          position: getComputedStyle(feedback).position, dirty: form.hasAttribute('data-dirty'),
+          value: document.querySelector(selector).value, focus: document.activeElement?.id,
+          saveVisible: !!save && save.top >= document.querySelector('.topbar').getBoundingClientRect().bottom && save.bottom <= visible };
+      }, { selector, saveId, visible });
+      assert.ok(failed.stateVisible, 'the pinned status line shows "Not saved" inside the keyboard viewport');
+      assert.equal(failed.alertRole, 'alert', 'the failure notice is still present and announced');
+      assert.equal(failed.position, 'static', 'notices stay out of the way while the entry is still unsaved');
+      assert.equal(failed.dirty, true, 'the entry stays open');
+      assert.equal(failed.value, '45', 'the typed value is kept');
+      assert.equal(failed.focus, saveId, 'Save keeps focus for a retry');
+      assert.ok(failed.saveVisible, 'Save stays visible above the keyboard for a retry');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), queuedBefore, 'nothing is queued by the failed save');
+      pass(`failed local save keeps "Not saved" pinned, the entry open and Save reachable at ${width}x${height}/${visible}px keyboard viewport`);
+      await context.close();
+    }
+
     // Desktop (no touch): focusing a field leaves the notices pinned, exactly as before.
     {
       const { context, page } = await open({ viewport: { width: 1440, height: 900 } });

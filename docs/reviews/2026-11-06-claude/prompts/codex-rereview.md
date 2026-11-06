@@ -32,7 +32,8 @@ You are Codex. Independently re-review https://github.com/murphys-logs/murphys-l
    - Confirm the collapsed-section exclusion and the absence of content shift when notices pin again.
 2. **Residual tap.** With a field focused and nothing typed, tapping an unrelated control under the band the notices will cover is said to be swallowed, with no action and no notice-button activation. Verify this. Decide whether it is acceptable or needs another change within the CSS-only, protected-boundary constraint.
 3. **Test changes.** The activation cases now run first. "Pinned again on blur" became "still unpinned while unsaved, pinned after Cancel". The no-shift check now covers only the repin step. Confirm none of these weakened a meaningful assertion, and that the 23 px movement on Cancel is the pre-existing *Still to log* update rather than the notices.
-4. **CX22-02.** Confirm the gauge-fill counterfactual and that the 12 forced-colours scenarios are sound.
+4. **CC-K2 (round 2).** A failed local save while notices are unpinned leaves the *Could not save locally* alert at the top of the page, with *Not saved* pinned in the status line. Judge whether this accepted trade-off (documented in the reconciliation's round 2) is acceptable, or whether a CSS-only alternative exists that keeps the field and Save visible.
+5. **CX22-02.** Confirm the gauge-fill counterfactual and that the 12 forced-colours scenarios are sound.
 
 **Run on the exact head:**
 
@@ -46,7 +47,7 @@ git diff --check <base>..<head>
 APP_HTML=<index.html at 3bb4c65> node tests/keyboard-reveal.browser.cjs   # expected to fail
 ```
 
-Counts to verify: **220 Node; 176 browser (124 + 40 keyboard + 12 forced-colours); 240 layout; 19 state configurations.** Report real failures or skips; do not edit tests to reach these counts.
+Counts to verify: **220 Node; 177 browser (124 + 41 keyboard + 12 forced-colours); 240 layout; 19 state configurations.** Report real failures or skips; do not edit tests to reach these counts.
 
 **Submit** one GitHub review as **COMMENT**, explicitly marked AI-generated. Include:
 

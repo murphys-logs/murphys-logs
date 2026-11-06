@@ -26,6 +26,13 @@ Severity follows the repository's scale: **P1** daily impact or data risk, **P2*
 
   A sticky element already holds its normal-flow space, so the page content does not move when editing starts or ends. The new test checks there is no shift. Date, time and file inputs open pickers rather than the keyboard, so they keep the notices pinned, as does every desktop browser. Notices stay in the page and in their live region; the top bar's sync status stays pinned. Save, draft, outbox and sync code is untouched.
 - **Residual (first tap):** If a field is focused but nothing has been typed, and the user taps an unrelated control in the band the notices will cover, the notices pin during the tap. In Chromium, with and without a Safari focus model, that tap is swallowed: nothing activates, including any notice button, and nothing is written. A second tap works. Before this PR those controls were hidden under the notices.
+- **Residual (failed save, CC-K2 · P3 · accepted):** If saving locally fails while the entry is open, the *Could not save locally* alert sits with the other notices at the top of the page, outside the keyboard viewport. The failure is not silent:
+  - the pinned status line reads *Not saved*;
+  - the alert keeps `role="alert"`, so it is announced;
+  - the entry and its value stay open, with Save focused and visible for a retry;
+  - nothing is queued.
+
+  Pinning alert-level notices instead would cover the field and Save again. A field-level message would need a script change in the save path, which this CSS-only change avoids. Tested in `keyboard-reveal.browser.cjs`.
 - **Residual (space):** At 320 px, a field with long help text (Active minutes) cannot fit its field, help and Save row in about 215 px. The typed field stays visible and Save is one scroll below (Return also saves numeric fields). The test records this case rather than counting it as a pass. When editing, a new notice (for example a local save failure) appears at the top of the page rather than pinned. It is still announced, and the pinned status reads *Not saved*.
 - **Relation to CL-05:** This addresses the worst case of CL-05 (sticky notices up to 45dvh) during text entry only. Outside text entry the cap is unchanged: two notices still take **297 of 659 px** at the iPhone 16 viewport and 154 of 343 px in iPhone 16 landscape. Consolidating notices still needs on-device priority decisions.
 
@@ -120,7 +127,7 @@ No new vulnerability was found.
 
 No calculation, record format, backup/export schema, history interpretation or workflow changed. New coverage, plus the version updates:
 
-- `tests/keyboard-reveal.browser.cjs`: 40 scenarios. These are 24 Save/Cancel activations (touch, mouse, Tab+Enter and a Safari focus model, × Save/Cancel, × three phone geometries), 12 visibility cases, 3 collapsed-section cases and 1 desktop case. It fails on base `ee42092`, on the first PR head `d0aa02f` (first touch Save) and on `3bb4c65` (first Safari-model Save).
+- `tests/keyboard-reveal.browser.cjs`: 41 scenarios. These are 24 Save/Cancel activations (touch, mouse, Tab+Enter and a Safari focus model, × Save/Cancel, × three phone geometries), 12 visibility cases, 3 collapsed-section cases, 1 failed-local-save case and 1 desktop case. It fails on base `ee42092`, on the first PR head `d0aa02f` (first touch Save) and on `3bb4c65` (first Safari-model Save).
 - `tests/forced-colours.browser.cjs`: 12 scenarios, including real ±20 g gauge fills added by Codex (CX22-02). It fails on base, and also fails when only the gauge-fill rule is removed.
 - Version assertions in `ui-ergonomics.test.cjs`, `settings-exports.browser.cjs` and `sw-assets.test.cjs` now expect 3.12.4; the worker upgrade fixture stages from main's 3.12.3.
 
@@ -159,7 +166,7 @@ node docs/reviews/2026-11-06-claude/audit-boundaries.cjs
 Final tree results:
 
 - **220/220 Node tests.**
-- **176/176 browser scenarios:** 124 existing + 40 + 12 (after the review follow-up).
+- **177/177 browser scenarios:** 124 existing + 41 + 12 (after the review follow-ups).
 - **240/240 layout combinations.**
 - **19/19 conditional-state configurations** with no problems.
 - **No page errors and no external requests** in any browser suite.

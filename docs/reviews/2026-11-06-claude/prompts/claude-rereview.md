@@ -28,9 +28,10 @@ You are Claude Code, in a **separate session** from the one that authored this P
      - restored drafts;
      - failed local saves;
      - VoiceOver reading order, as far as the browser accessibility tree allows.
+   - Failed local save (CC-K2): with notices unpinned, is the pinned *Not saved* status plus a `role="alert"` notice at the top of the page an adequate error state?
 2. **CC-F1 (forced colours).** Are the attention dot, stool dots, chart points and gauge visible with forced colours and unchanged otherwise? Does any other fill-only status mark remain?
 3. **Release.** `data-version`, `APP_VERSION` and `sw.js` `VERSION` must move together, with the worker changing only its `VERSION`. Check that the upgrade fixture goes from 3.12.3 to 3.12.4.
-4. **Tests.** Do the 40 keyboard and 12 forced-colours scenarios fail on base for the right reason, and do they protect against reintroducing CX22-01? Look for weak, skipped or tautological assertions.
+4. **Tests.** Do the 41 keyboard and 12 forced-colours scenarios fail on base for the right reason, and do they protect against reintroducing CX22-01? Look for weak, skipped or tautological assertions.
 5. **Unresolved items and wording.** Are the unresolved items in the report accurately classified, including those blocked by the Firebase restriction? Look for any overclaim (emulation presented as Safari, probes presented as passing tests).
 
 **Run on the exact head:**
@@ -44,7 +45,7 @@ node docs/reviews/2026-11-06-claude/audit-boundaries.cjs
 git diff --check <base>..<head>
 ```
 
-Counts to verify: **220 Node; 176 browser (124 + 40 + 12); 240 layout; 19 state configurations.** Report real failures or skips; do not edit tests to reach these counts. Rerun `interaction-probe.cjs` or `history-benchmark.cjs` only if you rely on performance claims, and label any such results as measurements.
+Counts to verify: **220 Node; 177 browser (124 + 41 + 12); 240 layout; 19 state configurations.** Report real failures or skips; do not edit tests to reach these counts. Rerun `interaction-probe.cjs` or `history-benchmark.cjs` only if you rely on performance claims, and label any such results as measurements.
 
 **Submit** one GitHub review as **COMMENT**, explicitly marked AI-generated, with inline comments where they are actionable. Include:
 
