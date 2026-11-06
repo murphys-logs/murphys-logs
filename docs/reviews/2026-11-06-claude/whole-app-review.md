@@ -18,12 +18,15 @@ Severity follows the repository's scale: **P1** daily impact or data risk, **P2*
 
 - **Impact:** When notices are showing, typing on a phone can happen into a field the user cannot see. Two ordinary notices are enough, for example *Sync pending* on a walk with no signal plus a recent *Undo*. iOS keeps the layout viewport full height behind the keyboard and only shrinks the visual viewport (the app's own `revealAboveKeyboard` comment relies on this), so the sticky top bar and notice region stay pinned over the small visible area.
 - **Evidence:** The pinned top bar plus two notices measure **352 px** at the iPhone 16 Safari viewport (393×659), against about 330 px visible above the keyboard. The figures are **359/400 px** at the iPhone 17 Pro Max viewport (440×763) and **311/270 px** at 320×568. On the base commit the focused field ends either under the notices or below the keyboard. `tests/keyboard-reveal.browser.cjs` fails on `ee42092` with *"Today: Minutes walked stays above the 330px keyboard viewport"*.
-- **Fix (CSS only):** On touch devices (`hover:none` and `pointer:coarse`), while a keyboard field in `#main` is focused:
+- **Fix (CSS only):** On touch devices (`hover:none` and `pointer:coarse`), while a keyboard field in `#main` is focused, **or a visible entry is unsaved** (a `[data-dirty]` form outside any collapsed section, so its Save/Cancel row is showing):
   - the notice region scrolls with the page instead of staying pinned;
   - focus scrolling reserves only the top bar's height.
 
+  *Revised after review (CX22-01):* the first version keyed only on field focus, so a Save/Cancel tap moved focus away, pinned the notices over the button and swallowed the tap. Unsaved state, rather than button focus, now carries the notices through the tap. That matters because Safari does not focus a tapped button; it only blurs the field. See [the reconciliation](review-reconciliation.md).
+
   A sticky element already holds its normal-flow space, so the page content does not move when editing starts or ends. The new test checks there is no shift. Date, time and file inputs open pickers rather than the keyboard, so they keep the notices pinned, as does every desktop browser. Notices stay in the page and in their live region; the top bar's sync status stays pinned. Save, draft, outbox and sync code is untouched.
-- **Residual:** At 320 px, a field with long help text (Active minutes) cannot fit its field, help and Save row in about 215 px. The typed field stays visible and Save is one scroll below (Return also saves numeric fields). The test records this case rather than counting it as a pass. When editing, a new notice (for example a local save failure) appears at the top of the page rather than pinned. It is still announced, and the pinned status reads *Not saved*.
+- **Residual (first tap):** If a field is focused but nothing has been typed, and the user taps an unrelated control in the band the notices will cover, the notices pin during the tap. In Chromium, with and without a Safari focus model, that tap is swallowed: nothing activates, including any notice button, and nothing is written. A second tap works. Before this PR those controls were hidden under the notices.
+- **Residual (space):** At 320 px, a field with long help text (Active minutes) cannot fit its field, help and Save row in about 215 px. The typed field stays visible and Save is one scroll below (Return also saves numeric fields). The test records this case rather than counting it as a pass. When editing, a new notice (for example a local save failure) appears at the top of the page rather than pinned. It is still announced, and the pinned status reads *Not saved*.
 - **Relation to CL-05:** This addresses the worst case of CL-05 (sticky notices up to 45dvh) during text entry only. Outside text entry the cap is unchanged: two notices still take **297 of 659 px** at the iPhone 16 viewport and 154 of 343 px in iPhone 16 landscape. Consolidating notices still needs on-device priority decisions.
 
 ### CC-F1 · P3 · fixed · Status marks vanish with forced colours
@@ -117,8 +120,8 @@ No new vulnerability was found.
 
 No calculation, record format, backup/export schema, history interpretation or workflow changed. New coverage, plus the version updates:
 
-- `tests/keyboard-reveal.browser.cjs`: 13 scenarios, fails on base.
-- `tests/forced-colours.browser.cjs`: 4 scenarios, fails on base.
+- `tests/keyboard-reveal.browser.cjs`: 40 scenarios. These are 24 Save/Cancel activations (touch, mouse, Tab+Enter and a Safari focus model, × Save/Cancel, × three phone geometries), 12 visibility cases, 3 collapsed-section cases and 1 desktop case. It fails on base `ee42092`, on the first PR head `d0aa02f` (first touch Save) and on `3bb4c65` (first Safari-model Save).
+- `tests/forced-colours.browser.cjs`: 12 scenarios, including real ±20 g gauge fills added by Codex (CX22-02). It fails on base, and also fails when only the gauge-fill rule is removed.
 - Version assertions in `ui-ergonomics.test.cjs`, `settings-exports.browser.cjs` and `sw-assets.test.cjs` now expect 3.12.4; the worker upgrade fixture stages from main's 3.12.3.
 
 Domain issues AG-03 (P2), AG-09 (P3) and AG-10 (P3) still reproduce with `docs/reviews/2026-11-04/reproduce-domain.cjs`. They are left unchanged because they would alter calculations or export meaning.
@@ -156,11 +159,11 @@ node docs/reviews/2026-11-06-claude/audit-boundaries.cjs
 Final tree results:
 
 - **220/220 Node tests.**
-- **141/141 browser scenarios:** 124 existing + 13 + 4.
+- **176/176 browser scenarios:** 124 existing + 40 + 12 (after the review follow-up).
 - **240/240 layout combinations.**
 - **19/19 conditional-state configurations** with no problems.
 - **No page errors and no external requests** in any browser suite.
-- Both new suites were also run against `ee42092` (`APP_HTML=<base index.html>`) and fail there, as intended.
+- Both new suites were also run against `ee42092` (`APP_HTML=<base index.html>`) and fail there, as intended. The keyboard suite also fails against the earlier PR heads `d0aa02f` and `3bb4c65`, as described above.
 
 ## Firebase and protected-data diff audit
 
@@ -177,6 +180,6 @@ No dependency, SDK version, configuration, rules, cloud resource, database struc
 
 - The P1 data-integrity defects above remain and prevent a data-safety or production-readiness claim.
 - The fixes are verified in Chromium emulation only.
-- CC-K1 rests on iOS keeping sticky elements pinned to the top of the visual viewport while the keyboard is open; that needs confirming on an iPhone.
+- CC-K1 rests on iOS keeping sticky elements pinned to the top of the visual viewport while the keyboard is open, and the Safari focus model is emulated. Both need confirming on an iPhone, including a single Save/Cancel tap with two notices showing.
 
 Under `docs/review-handoff.md` §6, Codex, Claude Code and Antigravity must each review this change independently before merge. This report is the authoring session's review, not an independent one.
