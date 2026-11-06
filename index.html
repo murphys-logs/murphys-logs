@@ -4385,7 +4385,7 @@ onAuthStateChanged(auth, (u)=>{
 
 window.addEventListener('online', ()=>void resyncIfPending());
 window.addEventListener('offline', ()=>{
-  let pending=false;try{pending=queuedWrites().length>0;}catch{}
+  let pending=false;try{pending=pendingCount()>0;}catch{}
   setStatus(pending?'Offline · saved on this device':'Offline · saved records available',pending?'warn':'');
 });
 

@@ -82,7 +82,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
       weightAssessment, weightNumber, weightDeviation, weightOverview, fiveEntryWeightMean, weightMeanContent, weightHintContent, netWeightKg, weighInCheck, weighInField, WEIGH_IN_RANGE, lineChart, toDay, toIso, computeDarfAdjustment,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; }, write, flushWrites, queuedWrites, saveDay, resyncIfPending, onResumeOrReconnect,
-      pendingFlush: () => flushTask };
+      unreadableOutbox: () => unreadableOutbox, pendingFlush: () => flushTask };
   `, context, { filename: htmlPath, timeout: 5000 });
   const { api } = context;
   api.S.user = { uid: 'ui-test-only', email: 'test.invalid' };
@@ -1693,4 +1693,24 @@ test('stable element IDs are present across navigation tabs, notices, stool acti
   assert.match(moduleSource, /id="cancel-stool-\$\{iso\}"/);
   assert.match(moduleSource, /id="save-\$\{input\.id\}"/);
   assert.match(moduleSource, /id="cancel-\$\{input\.id\}"/);
+});
+
+test('offline event handler accurately reflects held unreadable outbox in status and warning styling', () => {
+  const h = makeHarness();
+  const offlineListeners = h.windowListeners.get('offline') || [];
+  assert.equal(offlineListeners.length, 1, 'offline listener is registered on window');
+
+  // Case 1: no pending writes or unreadable outbox entries
+  offlineListeners[0]();
+  assert.equal(h.api.S.status, 'Offline · saved records available');
+  assert.equal(h.element('#state').className, 'state ');
+
+  // Case 2: unreadable outbox entry in storage while queued valid writes is empty
+  h.storage.set('murphy-outbox-v2:ui-test-only:1000-corrupt', '{corrupted-json');
+  assert.equal(h.api.queuedWrites().length, 0, 'no valid queued writes');
+  assert.equal(h.api.unreadableOutbox().length, 1, 'one unreadable outbox entry detected');
+
+  offlineListeners[0]();
+  assert.equal(h.api.S.status, 'Offline · saved on this device');
+  assert.equal(h.element('#state').className, 'state warn');
 });
