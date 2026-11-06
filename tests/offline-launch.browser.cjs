@@ -170,6 +170,8 @@ async function main() {
 
     // Partially published update: a new worker expects a release whose shell is
     // unavailable. The browser must reject that install and retain the old app.
+    // Record the acknowledged worker version, not the earlier data-ready state.
+    await page.waitForFunction(()=>navigator.serviceWorker.controller&&window.AppShell.state.offlineReady===true&&window.AppShell.state.activeVersion);
     const activeVersion=await page.evaluate(()=>window.AppShell.state.activeVersion);
     const beforeCaches=await page.evaluate(()=>caches.keys());
     sw=sw.replace(/const VERSION = '[^']+';/,`const VERSION = '${activeVersion}-unpublished';`);
