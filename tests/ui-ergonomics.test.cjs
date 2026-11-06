@@ -580,6 +580,14 @@ test('weigh-in by difference rounds the subtraction to 2 dp, free of IEEE 754 ar
     assert.equal(api.netWeightKg(solo, combined), n / 100, `${combined} − ${solo}`);
   }
   assert.equal(api.weighInCheck(' 83.85 ', '102.40').kg, 18.55, 'whitespace and trailing zeros are harmless');
+  assert.equal(api.weighInCheck('83.850', '102.4').kg, 18.55, 'trailing zeros are not extra precision');
+  assert.equal(api.weighInCheck('83.', '102.4').kg, 19.4, 'a trailing point is a whole number');
+  // At the 500 kg reading cap, every 2 dp pair still subtracts exactly.
+  for (let s = 47000; s <= 48000; s += 3) for (let n = 1000; n <= 3000; n += 17) {
+    const solo = s / 100, combined = Number(((s + n) / 100).toFixed(2));
+    if (combined > 500) continue;
+    assert.equal(api.weighInCheck(String(solo), String(combined)).kg, n / 100, `${combined} − ${solo}`);
+  }
 });
 
 test('weigh-in validation blocks empty, non-numeric, non-positive, inverted and out-of-range readings', () => {
@@ -610,11 +618,22 @@ test('weigh-in validation blocks empty, non-numeric, non-positive, inverted and 
     assert.equal(p.message, 'The combined weight must be more than your weight alone.');
   }
   // Murphy's net weight keeps the single field's former 10–30 kg bounds
-  assert.deepEqual({ ...api.WEIGH_IN_RANGE }, { minKg: 10, maxKg: 30 });
+  assert.deepEqual({ ...api.WEIGH_IN_RANGE }, { minKg: 10, maxKg: 30, maxReadingKg: 500 });
   assert.match(problem('83.85', '88.85').message, /That makes Murphy 5\.00 kg, outside 10–30 kg/);
   assert.equal(problem('50', '80.01').part, 'combined');
   assert.equal(api.weighInCheck('50', '60').kg, 10, 'lower bound inclusive');
   assert.equal(api.weighInCheck('50', '80').kg, 30, 'upper bound inclusive');
+  // Precision is read from the typed digits: no tolerance lets extra digits through.
+  for (const solo of ['83.850000001', '83.8500001', '0.000000001', '83.851']) {
+    assert.match(problem(solo, '102.4').message, /^Your weight: use up to two decimal places\.$/, solo);
+  }
+  // Exponent notation is never a plain kilogram reading, however small or large.
+  for (const solo of ['1e-9', '1e2', '8.385E1']) assert.match(problem(solo, '102.4').message, /plain kilograms/, solo);
+  assert.match(problem('83.85', '1e17').message, /^The combined weight: enter plain kilograms/);
+  // Readings above the cap never reach the subtraction (1e17 + 9 would round to 1e17 + 16).
+  assert.equal(problem('100000000000000000', '100000000000000009').message, 'Your weight must be at most 500 kg.');
+  assert.equal(problem('480', '500.01').message, 'The combined weight must be at most 500 kg.');
+  assert.equal(api.weighInCheck('480', '500').kg, 20, 'a 500 kg reading is allowed');
 });
 
 test('weigh-in field: two iPhone decimal inputs, one hidden net value and no stored readings', () => {

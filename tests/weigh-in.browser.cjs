@@ -130,7 +130,30 @@ async function main() {
     assert.equal(await error().isVisible(), false);
     assert.equal(await combined().getAttribute('aria-invalid'), null);
     assert.equal(await result().isVisible(), true, 'the live preview returns once typing resumes');
-    pass('Save is blocked for combined <= solo, empty, zero, negative, unfinished, >2 dp and out-of-range readings');
+    // Extra digits and absurd magnitudes are refused before any subtraction (Codex).
+    for (const [soloText, combinedText, message] of [
+      ['83.850000001', '102.4', 'Your weight: use up to two decimal places.'],
+      ['1e-9', '102.4', 'Your weight: enter plain kilograms, like 83.85.'],
+      ['100000000000000000', '100000000000000009', 'Your weight must be at most 500 kg.'],
+    ]) {
+      await solo().fill(soloText); await combined().fill(combinedText);
+      if (soloText === '83.850000001') assert.equal(await solo().evaluate(el => el.validity.stepMismatch), true, 'agrees with the native step check');
+      await save().click();
+      assert.equal(await error().textContent(), message, soloText);
+      assert.equal(await net().inputValue(), '', 'no net figure is derived');
+    }
+    assert.deepEqual(await calls(), [], 'nothing reached the save handler');
+    // Correcting the other reading clears both readings' error state (Codex).
+    await solo().fill('83.85'); await combined().fill('80');
+    await save().click();
+    assert.equal(await combined().getAttribute('aria-invalid'), 'true');
+    await solo().fill('60');
+    assert.equal(await combined().getAttribute('aria-invalid'), null, 'the corrected pair leaves no stale invalid state');
+    assert.equal(await solo().getAttribute('aria-invalid'), null);
+    assert.equal(await error().isVisible(), false);
+    assert.equal(await result().textContent(), 'Murphy’s weight: 20.00 kg');
+    await solo().fill('83.85'); await combined().fill('102.4');
+    pass('Save is blocked for combined <= solo, empty, zero, negative, unfinished, >2 dp, exponent and over-cap readings; fixing either reading clears both errors');
 
     // 5. Cancel resets the temporary readings and the net value
     await cancel().click();
@@ -172,21 +195,56 @@ async function main() {
     assert.match(await page.locator(`[data-weight-hint][data-date="${TODAY}"]`).textContent(), /Saved weight 18\.55 kg/);
     pass('saving queues {weight: 18.55, weightMissed: false, weightBeforeMissed: null} and resets both readings');
 
-    // 7. Unsaved readings survive a reload as a draft, and still save only the net figure
-    await solo().fill('70.1'); await combined().fill('88.8');
-    await page.waitForTimeout(400);
+    // 7. Readings stay in page memory only: never in device storage, even when a draft rewrite fails
+    const storage = () => page.evaluate(() => Object.keys(localStorage).filter(k => !k.startsWith('test-')).map(k => k + '=' + localStorage.getItem(k)).join('\n'));
+    const noReadings = async label => { const all = await storage(); assert.doesNotMatch(all, /70\.13|89\.03/, label); };
+    if (!await page.locator(`#notes-${TODAY}`).evaluate(el => el.open)) await page.locator(`#notes-${TODAY} > summary`).click();
+    await page.locator(`#in-notes-${TODAY}`).fill('Unrelated note kept open');
+    await solo().fill('70.13'); await combined().fill('89.03');
+    assert.equal(await result().textContent(), 'Murphy’s weight: 18.90 kg');
+    await page.evaluate(() => testApp.open('review')); await page.evaluate(() => testApp.open('today'));
+    assert.equal(await solo().inputValue(), '70.13', 'in-app navigation keeps the readings in memory');
+    assert.equal(await combined().inputValue(), '89.03');
+    assert.equal(await result().textContent(), 'Murphy’s weight: 18.90 kg');
+    await page.evaluate(() => testApp.persistDrafts());
     const draft = await page.evaluate(() => JSON.parse(localStorage.getItem(testApp.draftKey())));
-    assert.deepEqual(draft.fields.find(f => f.key === 'weight'), { id: `in-weight-${TODAY}`, date: TODAY, key: 'weight', value: '18.7', solo: '70.1', combined: '88.8' });
+    assert.deepEqual(draft.fields.find(f => f.key === 'weight'), { id: `in-weight-${TODAY}`, date: TODAY, key: 'weight', value: '18.9' },
+      'the stored draft holds only the net weight, exactly as the single field did');
+    await noReadings('readings are never written to device storage');
+    // A reload restores the net figure as unsaved; both readings must be weighed again.
     await page.reload(); await ready();
-    await page.waitForFunction(t => document.getElementById('in-weightcombined-' + t)?.value === '88.8', TODAY);
-    assert.equal(await solo().inputValue(), '70.1');
-    assert.equal(await result().textContent(), 'Murphy’s weight: 18.70 kg');
+    await page.waitForFunction(t => document.getElementById('in-weight-' + t)?.value === '18.9', TODAY);
+    assert.equal(await solo().inputValue(), ''); assert.equal(await combined().inputValue(), '');
+    assert.equal(await result().textContent(), 'Unsaved 18.90 kg from an earlier entry. Enter both readings to save it.');
     assert.equal(await page.locator(`#todo-${TODAY}-unsaved-in-weight-${TODAY}`).textContent(), 'Weight typed, not saved');
+    assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'Unrelated note kept open');
     await resetCalls();
     await save().click();
-    await page.waitForFunction(t => testApp.S.days[t].weight === 18.7, TODAY);
-    assert.deepEqual(await calls(), [[TODAY, { weight: 18.7, weightMissed: false, weightBeforeMissed: null }]]);
-    pass('unsaved readings are restored after reload, still unsaved, then save as 18.7 kg (88.8 − 70.1)');
+    assert.equal(await error().textContent(), 'Enter your weight on the scales alone.');
+    assert.deepEqual(await calls(), []);
+    // Codex's quota case: the draft rewrite after Save fails, with the note draft still open.
+    await solo().fill('70.13'); await combined().fill('89.03');
+    await page.evaluate(() => {
+      window.weighRealSetItem = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key.startsWith('murphy-draft')) throw new DOMException('Synthetic quota', 'QuotaExceededError');
+        return window.weighRealSetItem.call(this, key, value);
+      };
+    });
+    await page.evaluate(() => testApp.persistDrafts());
+    await save().click();
+    await page.waitForFunction(t => testApp.S.days[t].weight === 18.9, TODAY);
+    assert.deepEqual(await calls(), [[TODAY, { weight: 18.9, weightMissed: false, weightBeforeMissed: null }]]);
+    await noReadings('a failed draft rewrite after Save leaves no reading behind');
+    await solo().fill('70.13'); await combined().fill('89.04');
+    await page.evaluate(() => testApp.persistDrafts());
+    await cancel().click();
+    await noReadings('a failed draft rewrite after Cancel leaves no reading behind');
+    await page.evaluate(() => { Storage.prototype.setItem = window.weighRealSetItem; });
+    await page.locator(`[data-form][data-key="notes"] [data-act="cancelinput"]`).click();
+    await page.evaluate(() => testApp.persistDrafts());
+    await noReadings('nothing after recovery either');
+    pass('readings stay in memory: never in device storage, even after a failed draft rewrite; a reload keeps only the unsaved net figure');
 
     // 8. History editor: same flow; edits replace the saved net weight only
     await page.evaluate(d => testApp.open('day', { date: d }), YESTERDAY);
@@ -208,6 +266,59 @@ async function main() {
     assert.equal(await net(YESTERDAY).isDisabled(), true);
     assert.deepEqual(await page.evaluate(d => testApp.S.days[d].weightBeforeMissed, YESTERDAY), { kg: 18.96 });
     pass('History edits use the same two readings and replace only the saved net weight; Weight missed locks both');
+
+    // 9. A recovered older draft: unrounded net, stored readings and an unfinished flag, on a day
+    //    another device has since marked Weight missed, with an unrelated note draft open.
+    {
+      const recoveryContext = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+      const recovery = { version: 2, savedAt: Date.parse('2026-11-01T20:00:00Z'), tab: 'today', cursor: null, viewDate: TODAY, expanded: [], stool: null, stools: [],
+        fields: [
+          { id: `in-weight-${TODAY}`, date: TODAY, key: 'weight', value: '18.55000000000001', solo: '83.85', combined: '102.4', incomplete: true },
+          { id: `in-notes-${TODAY}`, date: TODAY, key: 'notes', value: 'Note from the same session' },
+        ] };
+      await recoveryContext.addInitScript(({ expectedOrigin, recovery, today }) => {
+        if (location.origin !== expectedOrigin || localStorage.getItem('weigh-recovery-seeded')) return;
+        localStorage.setItem('test-day-overrides', JSON.stringify({ [today]: { weightMissed: true, weightBeforeMissed: { kg: 18.7 } } }));
+        localStorage.setItem('murphy-draft-v2:draft-test:older-weigh-session', JSON.stringify(recovery));
+        localStorage.setItem('weigh-recovery-seeded', '1');
+      }, { expectedOrigin: origin, recovery, today: TODAY });
+      await recoveryContext.route('**/*', route => {
+        const url = new URL(route.request().url());
+        if (url.origin !== origin) { external.push(url.href); return route.abort(); }
+        if (url.pathname === '/index.html') return route.fulfill({ contentType: 'text/html', body: html });
+        if (url.pathname === '/firebase-stub.js') return route.fulfill({ contentType: 'application/javascript', body: stub });
+        return route.fulfill({ status: 404, body: '' });
+      });
+      const r = await recoveryContext.newPage();
+      r.on('pageerror', error => errors.push(error.message));
+      r.on('dialog', dialog => { dialogs.push(dialog.message()); dialog.accept(); });
+      await r.goto(origin + '/index.html'); await r.waitForFunction(() => window.testApp?.S.ready);
+      assert.equal(await r.locator(`#in-weightsolo-${TODAY}`).isDisabled(), true, 'Weight missed locks the readings');
+      await r.locator('[data-act="recoverdraft"]').click();
+      const rSolo = r.locator(`#in-weightsolo-${TODAY}`), rCombined = r.locator(`#in-weightcombined-${TODAY}`), rNet = r.locator(`#in-weight-${TODAY}`);
+      // Stored readings are ignored; the unrounded net value is shown and kept at 2 dp.
+      assert.equal(await rSolo.inputValue(), ''); assert.equal(await rCombined.inputValue(), '');
+      assert.equal(await rNet.inputValue(), '18.55');
+      assert.equal(await r.locator(`#weigh-result-${TODAY}`).textContent(), 'Unsaved 18.55 kg from an earlier entry. Enter both readings to save it.');
+      assert.equal(await rSolo.isDisabled(), false, 'a recovered weight stays editable');
+      // The unfinished flag survives until a reading is typed again.
+      await r.evaluate(t => { document.getElementById('in-weightsolo-' + t).value = '83.85'; document.getElementById('in-weightcombined-' + t).value = '102.4'; }, TODAY);
+      await r.locator(`[data-form][data-key="weight"] [data-act="saveinput"]`).click();
+      assert.equal(await r.locator(`#in-weight-${TODAY}-error`).textContent(), 'This number was unfinished. Enter it again, or cancel the entry.');
+      assert.equal(await r.evaluate(t => testApp.S.days[t].weightMissed, TODAY), true, 'nothing was saved');
+      assert.equal(await r.evaluate(() => testApp.queuedWrites().length), 0);
+      // Cancel with the note draft still open (full render deferred): Weight missed applies again.
+      await r.locator(`[data-form][data-key="weight"] [data-act="cancelinput"]`).click();
+      for (const el of [rSolo, rCombined, rNet]) assert.equal(await el.isDisabled(), true, 'readings are locked again after Cancel');
+      assert.equal(await r.locator(`#weight-missed-${TODAY}`).getAttribute('aria-checked'), 'true');
+      assert.equal(await r.evaluate(() => document.activeElement.id), `weight-missed-${TODAY}`);
+      assert.match(await rSolo.getAttribute('aria-describedby'), new RegExp(`^weight-missed-${TODAY}-help `));
+      assert.equal(await r.locator(`#in-notes-${TODAY}`).inputValue(), 'Note from the same session', 'the note draft is untouched');
+      assert.equal(await r.locator('[data-form][data-key="notes"][data-dirty]').count(), 1);
+      assert.doesNotMatch(await r.evaluate(() => Object.values(localStorage).join('\n')), /"solo"|"combined"/, 'the rewritten draft drops the stored readings');
+      await recoveryContext.close();
+    }
+    pass('recovered drafts ignore stored readings, round the net figure, honour the unfinished flag, and Cancel re-applies Weight missed');
 
     assert.deepEqual(dialogs, [], 'no confirm dialogs: readings stayed within 5% of the mean');
     assert.deepEqual(errors, []);
