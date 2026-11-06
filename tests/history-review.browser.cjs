@@ -43,7 +43,8 @@ function buildFixtureDays() {
     };
   }
 
-  // Latest completed week (Mon 19 Oct – Sun 25 Oct 2026): ~19.10 kg (+2.69% -> triggers ration reduction advice since BCS is 5.5 > hold 5)
+  // Latest completed week (Mon 19 Oct – Sun 25 Oct 2026): ~19.10 kg.
+  // BCS 5.5 determines the reduction; the +2.69% weight change is informational.
   for (let d = 19; d <= 25; d++) {
     const iso = `2026-10-${String(d).padStart(2, '0')}`;
     days[iso] = {
@@ -387,12 +388,10 @@ async function main() {
 
       // Verify Apply ration advice and Not now on Pro-Fibre preserve exact calculation/action semantics
       const rationText = await page.locator('#main').textContent();
-      const stepMatch = rationText.match(/Reduce DARF by (\d+) g on every recipe/);
-      assert.ok(stepMatch, 'Review displays the exact reduction grams');
-      const expectedStep = -Number(stepMatch[1]);
+      assert.match(rationText, /Reduce DARF by 5 g on every recipe/, 'assessment-week BCS 5.5 recommends exactly -5 g');
       await page.locator('[data-act="applyadv"]').click();
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 1);
-      assert.equal(await page.evaluate(() => testApp.S.changes.at(-1).deltaG), expectedStep);
+      assert.equal(await page.evaluate(() => testApp.S.changes.at(-1).deltaG), -5, 'Apply records the independently expected BCS adjustment');
 
       await page.locator('[data-act="dismissfibre"]').click();
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 1, 'postponing Pro-Fibre advice is device-only and queues no Firestore write');
@@ -478,7 +477,7 @@ async function main() {
     }
     passed++; console.log('PASS offline, failed-save draft badges, legacy route recovery, dark/forced-colors and 200% text scale hold at 375px');
 
-    // 5. Held ration alert, Pro-Fibre vet-review alert, Refuse/Apply fibre actions, and legacy 'day'/'more' route recovery
+    // 5. BCS-only ration results, Pro-Fibre vet-review alert, Refuse/Apply fibre actions, and legacy 'day' route recovery
     {
       const legacyDayKey = 'murphy-draft:draft-test:legacy-v1-day';
       const legacyDayDraft = {
@@ -507,33 +506,55 @@ async function main() {
       assert.equal(await page.locator('#in-notes-2026-10-29').inputValue(), 'Legacy v1 day editor note');
       await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
 
-      // Configure BCS <= 5 (holds ration reduction) and 5 g Pro-Fibre for >14 days with >=4 loose/mucus days (triggers Review with the vet)
-      const heldDays = buildFixtureDays();
-      for (const iso of Object.keys(heldDays)) {
-        if (heldDays[iso].bcs) heldDays[iso].bcs = 4.5;
+      // The previous completed week's BCS drives advice, even when the weight
+      // trend points the other way or BCS outside that assessment week differs.
+      // Keep the independent 5 g / >14-day loose-stool Pro-Fibre vet alert too.
+      for (const { bcs, headline, actionable } of [
+        { bcs: 4.5, headline: 'Increase DARF by 5 g on every recipe', actionable: true },
+        { bcs: 5, headline: 'No ration change', actionable: false },
+        { bcs: 5.5, headline: 'Reduce DARF by 5 g on every recipe', actionable: true },
+      ]) {
+        for (const { previousKg, currentKg, weightChange } of [
+          { previousKg: 18.6, currentKg: 19.1, weightChange: '+2.69%' },
+          { previousKg: 19.1, currentKg: 18.6, weightChange: '-2.62%' },
+        ]) {
+          const adviceDays = buildFixtureDays(), outsideBcs = bcs < 5 ? 5.5 : 4.5;
+          for (const day of Object.values(adviceDays)) if (Number.isFinite(day.bcs)) day.bcs = outsideBcs;
+          for (let d = 12; d <= 18; d++) adviceDays[`2026-10-${d}`].weight = previousKg;
+          for (let d = 19; d <= 25; d++) Object.assign(adviceDays[`2026-10-${d}`], { bcs, weight: currentKg });
+          for (let d = 26; d <= 31; d++) {
+            const iso = `2026-10-${d}`;
+            adviceDays[iso] = {
+              ...(adviceDays[iso] || { date: iso }),
+              bcs: outsideBcs,
+              stools: [{ id: `vetfib-${d}`, time: '08:00', bristol: 6, mucus: true, blood: false }],
+            };
+          }
+          adviceDays[TODAY].bcs = outsideBcs;
+          await loadSyntheticDays(page, adviceDays, {
+            fibreSchedule: [{ from: '2026-10-01', g: 5 }], regimeChanges: [],
+          });
+          await page.locator('#tabbar [data-tab="review"]').click();
+          const ration = page.locator('#review-ration-details').locator('..');
+          assert.equal(await ration.locator(':scope > .note > b').textContent(), headline, `BCS ${bcs} with weight ${weightChange}`);
+          assert.match(await ration.textContent(), /Week of 26 Oct 2026 \(12 Oct 2026 to 25 Oct 2026\)/);
+          assert.equal(await ration.locator('[data-act="applyadv"]').count(), actionable ? 1 : 0);
+          assert.equal(await ration.locator('[data-act="refuseadv"]').count(), actionable ? 1 : 0);
+          const explanation = await page.locator('#review-ration-details').textContent();
+          assert.ok(explanation.includes(`Weekly weight change: ${weightChange}`), 'weight trend remains informational');
+          if (bcs === 5) assert.match(explanation, /Body condition score is ideal \(5\.0 \/ 9\): hold current ration/);
+          const reviewText = await page.locator('#main').textContent();
+          assert.match(reviewText, /Review with the vet/);
+          assert.match(reviewText, /1 Nov 2026 · dose since 1 Oct 2026/);
+          assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'viewing ration and fibre advice creates no writes');
+        }
       }
-      for (let d = 26; d <= 31; d++) {
-        const iso = `2026-10-${d}`;
-        heldDays[iso] = {
-          ...(heldDays[iso] || { date: iso }),
-          bcs: 4.5,
-          stools: [{ id: `vetfib-${d}`, time: '08:00', bristol: 6, mucus: true, blood: false }],
-        };
-      }
-      await loadSyntheticDays(page, heldDays, {
-        fibreSchedule: [{ from: '2026-10-01', g: 5 }],
-      });
-      await page.locator('#tabbar [data-tab="review"]').click();
-      const reviewText = await page.locator('#main').textContent();
-      assert.match(reviewText, /Ration reduction held/);
-      assert.match(reviewText, /Week of 26 Oct 2026 \(12 Oct 2026 to 25 Oct 2026\)/);
-      assert.match(reviewText, /Review with the vet/);
-      assert.match(reviewText, /1 Nov 2026 · dose since 1 Oct 2026/);
-      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
 
       // Verify Diet or routine changed label (CC-D4), then test Keep current ration this week and Apply Pro-Fibre advice
       await loadSyntheticDays(page, buildFixtureDays(), { regimeChanges: ['2026-10-20'] });
       assert.match(await page.locator('#main').textContent(), /Diet or routine changed 20 Oct 2026 · windows 12 Oct 2026 to 25 Oct 2026/);
+      assert.equal(await page.locator('[data-act="applyadv"], [data-act="refuseadv"]').count(), 0, 'a regime change suppresses ration actions');
+      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'suppressed advice remains read-only');
       await loadSyntheticDays(page, buildFixtureDays(), { regimeChanges: [] });
       await page.locator('[data-act="refuseadv"]').click();
       assert.equal(await page.evaluate(() => testApp.S.changes.at(-1).refused), true);
@@ -544,7 +565,7 @@ async function main() {
 
       await context.close();
     }
-    passed++; console.log('PASS held ration alert, Pro-Fibre vet review alert, Keep current ration/Apply fibre actions and legacy v1 day recovery work cleanly');
+    passed++; console.log('PASS BCS-only increase/hold/reduce ignore weight direction and current-week BCS, with Pro-Fibre vet alert, ration/fibre actions and legacy v1 recovery intact');
 
     // 6. CX-D1, CC-D1 & CC-D3: Recovered earlier-date v2 Today draft keeps actual current advice date, and 10 historical blood dates stay compact on Today while full on Review
     for (const viewport of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
