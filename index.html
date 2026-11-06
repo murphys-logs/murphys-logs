@@ -202,6 +202,7 @@ textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .weigh-result{display:block;margin-top:var(--s1);padding:6px var(--s3);
   border:1px solid var(--rule);border-radius:8px;background:var(--surface-2);font-size:.9375rem;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere;transition:border-color .15s ease}
 .weigh-result b{font-size:1.0625rem;font-weight:650;color:var(--ink);font-variant-numeric:tabular-nums}
+.weigh-note{display:block;font-size:.875rem;font-weight:500;color:var(--ink-2);font-variant-numeric:tabular-nums}
 .weigh-result[data-state="ready"]{border-color:var(--accent)}
 .weigh-result[data-state="invalid"]{border:2px dashed var(--watch);color:var(--watch);font-weight:600}
 /* After a blocked Save the field error says it once; the live hint returns on the next keystroke. */
@@ -2318,9 +2319,14 @@ function syncWeighIn(form,derive=true){
   const net=$('input',form), out=$('[data-weigh-result]',form), check=readWeighIn(parts);
   const untouched=parts.every(p=>p.value==='');
   if(derive){net.value=check.kg===null?'':String(check.kg);delete net.dataset.incompleteNumber;}
-  const [state,html]=check.kg!==null?['ready',`Murphy’s weight: <b>${check.kg.toFixed(2)} kg</b>`]:
+  // A comma is a decimal point (weighInCheck). Say how each comma reading was read,
+  // so a thousands-style 1,000 shows as 1.00 kg before it can be saved.
+  const commas=parts.map(p=>p.value.trim()).filter(v=>/^\d*,\d*$/.test(v)&&Number.isFinite(Number(v.replace(',','.'))));
+  const note=commas.length?`<small class="weigh-note">${commas.map(v=>`${esc(v)} is read as ${Number(v.replace(',','.')).toFixed(2)} kg`).join(' · ')}</small>`:'';
+  const [state,text]=check.kg!==null?['ready',`Murphy’s weight: <b>${check.kg.toFixed(2)} kg</b>`]:
     check.empty||untouched?['idle',weighInIdle(form.dataset.date,untouched&&form.hasAttribute('data-dirty')?net.value:null)]:
     ['invalid',esc(check.problem.message)];
+  const html=text+note;
   if(out.dataset.state!==state)out.dataset.state=state;
   if(out.innerHTML!==html)out.innerHTML=html;
 }

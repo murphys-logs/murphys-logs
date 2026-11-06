@@ -125,15 +125,25 @@ async function main() {
     // Codex: typing 8,5 into a number field read as 85 and saved 17.4 kg. The comma is now kept.
     await combined().fill('102.4'); await solo().fill(''); await solo().click(); await page.keyboard.type('8,5');
     assert.equal(await solo().inputValue(), '8,5');
-    assert.equal(await result().textContent(), 'That makes Murphy 93.90 kg, outside 10–30 kg. Check both readings.');
+    const note = () => result().locator('.weigh-note');
+    assert.match(await result().textContent(), /^That makes Murphy 93\.90 kg, outside 10–30 kg\. Check both readings\./);
+    assert.equal(await note().textContent(), '8,5 is read as 8.50 kg', 'the preview says how the comma was read');
     await save().click();
     assert.equal(await error().textContent(), 'That makes Murphy 93.90 kg, outside 10–30 kg. Check both readings.');
     // A single decimal comma is a decimal point.
     await solo().fill(''); await solo().click(); await page.keyboard.type('83,85');
     await combined().fill(''); await combined().click(); await page.keyboard.type('102,4');
-    assert.equal(await result().textContent(), 'Murphy’s weight: 18.55 kg');
+    assert.equal(await result().textContent(), 'Murphy’s weight: 18.55 kg83,85 is read as 83.85 kg · 102,4 is read as 102.40 kg');
     assert.equal(await net().inputValue(), '18.55');
-    await combined().fill('');
+    // Codex: 1,000 is a decimal 1.00, not a thousand. The preview says so before Save.
+    await solo().fill('1,000'); await combined().fill('19.55');
+    assert.equal(await result().locator('b').textContent(), '18.55 kg');
+    assert.equal(await note().textContent(), '1,000 is read as 1.00 kg');
+    await solo().fill('1.000');
+    assert.equal(await note().count(), 0, 'no note without a comma');
+    await solo().fill(','); await combined().fill('');
+    assert.equal(await note().count(), 0, 'no note for a comma that is not a number');
+    await solo().fill(''); await combined().fill('');
     assert.deepEqual(await calls(), [], 'nothing reached the save handler');
     assert.equal(await page.evaluate(t => testApp.S.days[t].weight, TODAY), 18.7);
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);

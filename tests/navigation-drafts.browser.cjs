@@ -669,12 +669,13 @@ async function main() {
       } });
     }
 
-    await scenario('an incomplete native number can never become a clearing write after navigation', async ({ page, field, tab, queued }) => {
+    await scenario('non-numeric weight text survives navigation and can never become a clearing write', async ({ page, field, tab, queued }) => {
       await reading(page, 'solo').fill(''); await reading(page, 'solo').press('e');
       assert.equal(await reading(page, 'solo').inputValue(), 'e', 'weight readings keep typed text');
       await page.locator('#tabbar [data-tab="review"]').click();
-      // A narrow guard for unrepresentable native number text is also safe.
-      if (await page.evaluate(() => testApp.S.tab) !== 'today') await tab('today');
+      assert.equal(await page.evaluate(() => testApp.S.tab), 'review', 'the trip to Review really happens');
+      await tab('today');
+      assert.equal(await reading(page, 'solo').inputValue(), 'e', 'the typed text survives the return to Today');
       await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight), 18.7);
       assert.equal(await queued(), 0);

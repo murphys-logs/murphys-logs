@@ -300,7 +300,7 @@ async function main() {
     assert.equal(await reading('combined').getAttribute('aria-invalid'), 'true');
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
     await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
-    passed++; console.log('PASS step validation, IME composition and native incomplete numbers never queue invalid edits');
+    passed++; console.log('PASS step validation, IME composition and non-numeric weight text never queue invalid edits');
 
     await page.locator('[data-act="editstool"][data-id="draft-existing"]').click();
     await page.locator('#st-t').fill('22:17');
