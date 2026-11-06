@@ -292,10 +292,10 @@ async function main() {
     await reading('combined').evaluate(input => input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true})));
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
     await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
-    // Native invalid partial numbers must never become a clear operation.
+    // Non-numeric weight text must never become a clear operation.
     await reading('solo').fill('70');
     await reading('combined').fill('');await reading('combined').press('e');
-    assert.equal(await reading('combined').evaluate(input => input.validity.badInput), true);
+    assert.equal(await reading('combined').inputValue(), 'e');
     await reading('combined').press('Enter');
     assert.equal(await reading('combined').getAttribute('aria-invalid'), 'true');
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);

@@ -606,9 +606,16 @@ test('weigh-in validation blocks empty, non-numeric, non-positive, inverted and 
     assert.equal(problem('83.85', bad).part, 'combined', `combined ${bad}`);
   }
   assert.match(problem('0', '102.4').message, /above zero/);
-  // Unparseable text held by a native number input (value reads as '')
-  assert.match(problem('', '102.4', { solo: true }).message, /^Finish entering your weight/);
-  assert.equal(problem('83.85', '', { combined: true }).part, 'combined');
+  // Readings are text exactly as typed, so nothing a keyboard sends is dropped.
+  assert.match(problem('e', '102.4').message, /^Your weight: enter plain kilograms/);
+  assert.match(problem('83.85', ',').message, /^The combined weight: enter plain kilograms/);
+  for (const text of ['1,2,3', '83,85.1', '83.85.1', '+83.85']) assert.match(problem(text, '102.4').message, /plain kilograms/, text);
+  // One decimal comma reads as a point, for keypads that show a comma.
+  assert.equal(api.weighInCheck('83,85', '102,4').kg, 18.55);
+  assert.equal(api.weighInCheck(' 83,850 ', '102,40').kg, 18.55);
+  assert.match(problem('83,855', '102.4').message, /two decimal places/);
+  // Codex: a native number field turned '8,5' into '85' and saved 17.4 kg; it now reads 8.5.
+  assert.match(problem('8,5', '102.4').message, /^That makes Murphy 93\.90 kg/);
   // More than two decimal places
   assert.match(problem('83.855', '102.4').message, /two decimal places/);
   // Combined must be strictly greater than solo
@@ -641,7 +648,8 @@ test('weigh-in field: two iPhone decimal inputs, one hidden net value and no sto
   const html = h.api.weighInField(TODAY);
   for (const part of ['solo', 'combined']) {
     const input = html.match(new RegExp(`<input id="in-weight${part}-${TODAY}"[^>]*>`))[0];
-    assert.match(input, /type="number"/); assert.match(input, /inputmode="decimal"/); assert.match(input, /step="0\.01"/);
+    assert.match(input, /type="text"/); assert.match(input, /inputmode="decimal"/); assert.doesNotMatch(input, /step=|min=/);
+    assert.match(input, /autocorrect="off"/); assert.match(input, /spellcheck="false"/);
     assert.doesNotMatch(input, /value=/, 'readings always start empty; they are never stored');
   }
   assert.match(html, new RegExp(`<label for="in-weightsolo-${TODAY}">Your weight \\(solo\\), kg</label>`));

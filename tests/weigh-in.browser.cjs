@@ -52,7 +52,7 @@ async function main() {
     for (const input of [solo(), combined()]) {
       assert.equal(await input.isVisible(), true);
       assert.equal(await input.getAttribute('inputmode'), 'decimal');
-      assert.equal(await input.getAttribute('step'), '0.01');
+      assert.equal(await input.getAttribute('type'), 'text', 'text keeps every typed character; a number field drops a comma');
       assert.equal(await input.inputValue(), '');
       const box = await input.boundingBox();
       assert.ok(box.height >= 44 && box.width >= 44, `44px target: ${JSON.stringify(box)}`);
@@ -119,9 +119,21 @@ async function main() {
     await save().click();
     assert.equal(await error().textContent(), 'The combined weight: use up to two decimal places.');
     await combined().fill(''); await combined().press('e');
-    assert.equal(await combined().evaluate(el => el.validity.badInput), true);
+    assert.equal(await combined().inputValue(), 'e', 'the typed text is kept, never silently dropped');
     await save().click();
-    assert.equal(await error().textContent(), 'Finish entering the combined weight holding Murphy, or clear it.');
+    assert.equal(await error().textContent(), 'The combined weight: enter plain kilograms, like 83.85.');
+    // Codex: typing 8,5 into a number field read as 85 and saved 17.4 kg. The comma is now kept.
+    await combined().fill('102.4'); await solo().fill(''); await solo().click(); await page.keyboard.type('8,5');
+    assert.equal(await solo().inputValue(), '8,5');
+    assert.equal(await result().textContent(), 'That makes Murphy 93.90 kg, outside 10–30 kg. Check both readings.');
+    await save().click();
+    assert.equal(await error().textContent(), 'That makes Murphy 93.90 kg, outside 10–30 kg. Check both readings.');
+    // A single decimal comma is a decimal point.
+    await solo().fill(''); await solo().click(); await page.keyboard.type('83,85');
+    await combined().fill(''); await combined().click(); await page.keyboard.type('102,4');
+    assert.equal(await result().textContent(), 'Murphy’s weight: 18.55 kg');
+    assert.equal(await net().inputValue(), '18.55');
+    await combined().fill('');
     assert.deepEqual(await calls(), [], 'nothing reached the save handler');
     assert.equal(await page.evaluate(t => testApp.S.days[t].weight, TODAY), 18.7);
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
@@ -137,7 +149,6 @@ async function main() {
       ['100000000000000000', '100000000000000009', 'Your weight must be at most 500 kg.'],
     ]) {
       await solo().fill(soloText); await combined().fill(combinedText);
-      if (soloText === '83.850000001') assert.equal(await solo().evaluate(el => el.validity.stepMismatch), true, 'agrees with the native step check');
       await save().click();
       assert.equal(await error().textContent(), message, soloText);
       assert.equal(await net().inputValue(), '', 'no net figure is derived');
@@ -244,6 +255,20 @@ async function main() {
     await page.locator(`[data-form][data-key="notes"] [data-act="cancelinput"]`).click();
     await page.evaluate(() => testApp.persistDrafts());
     await noReadings('nothing after recovery either');
+    // Codex: an unfinished combined reading, then a cold reload. Both readings come back blank,
+    // so the message is neutral and lands on the first blank reading.
+    await solo().fill('83.85'); await combined().fill('1e-');
+    await page.evaluate(() => testApp.persistDrafts());
+    await page.reload(); await ready();
+    await page.waitForSelector(`${form()} [data-act="saveinput"]`);
+    assert.equal(await solo().inputValue(), ''); assert.equal(await combined().inputValue(), '');
+    assert.equal(await result().textContent(), 'Enter both readings again, or cancel this entry.');
+    await save().click();
+    assert.equal(await error().textContent(), 'Enter your weight on the scales alone.');
+    assert.equal(await page.evaluate(() => document.activeElement.id), `in-weightsolo-${TODAY}`);
+    assert.equal(await combined().getAttribute('aria-invalid'), null, 'no reading is blamed for text that no longer exists');
+    await cancel().click();
+    await noReadings('no partial reading is stored either');
     pass('readings stay in memory: never in device storage, even after a failed draft rewrite; a reload keeps only the unsaved net figure');
 
     // 8. History editor: same flow; edits replace the saved net weight only
@@ -301,10 +326,12 @@ async function main() {
       assert.equal(await rNet.inputValue(), '18.55');
       assert.equal(await r.locator(`#weigh-result-${TODAY}`).textContent(), 'Unsaved 18.55 kg from an earlier entry. Enter both readings to save it.');
       assert.equal(await rSolo.isDisabled(), false, 'a recovered weight stays editable');
+      assert.equal(await r.locator(`#in-weight-${TODAY}-error`).textContent(), 'Enter both readings again, or cancel the entry.', 'restoring an unfinished entry asks for both readings, neutrally');
+      assert.equal(await rSolo.getAttribute('aria-invalid'), 'true', 'on the first blank reading');
       // The unfinished flag survives until a reading is typed again.
       await r.evaluate(t => { document.getElementById('in-weightsolo-' + t).value = '83.85'; document.getElementById('in-weightcombined-' + t).value = '102.4'; }, TODAY);
       await r.locator(`[data-form][data-key="weight"] [data-act="saveinput"]`).click();
-      assert.equal(await r.locator(`#in-weight-${TODAY}-error`).textContent(), 'This number was unfinished. Enter it again, or cancel the entry.');
+      assert.equal(await r.locator(`#in-weight-${TODAY}-error`).textContent(), 'Enter both readings again, or cancel the entry.', 'a neutral message: the stored flag cannot say which reading');
       assert.equal(await r.evaluate(t => testApp.S.days[t].weightMissed, TODAY), true, 'nothing was saved');
       assert.equal(await r.evaluate(() => testApp.queuedWrites().length), 0);
       // Cancel with the note draft still open (full render deferred): Weight missed applies again.

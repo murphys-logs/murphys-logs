@@ -1797,18 +1797,19 @@ const recordedWeight=day=>day?.weightMissed===true?null:validWeight(day?.weight)
 // difference is exact, and absurd values (1e17) never reach the subtraction.
 const WEIGH_IN_RANGE=Object.freeze({minKg:10,maxKg:30,maxReadingKg:500});
 const netWeightKg=(soloKg,combinedKg)=>Math.round((combinedKg-soloKg)*100)/100;
-// Readings come straight from the inputs as text. `bad` flags a native number
-// input holding unparseable text (its value then reads as ''). Precision is read
-// from the typed digits, not the parsed number, so 83.850000001 is refused.
-function weighInCheck(soloText,combinedText,bad={}){
+// Readings arrive exactly as typed (text inputs with a decimal keypad), so no
+// character is silently dropped: a native number field turns '8,5' into '85'.
+// One decimal comma reads as a point (83,85 = 83.85). Precision is counted from
+// the typed digits, not the parsed number, so 83.850000001 is refused.
+function weighInCheck(soloText,combinedText){
   const parts=[['solo',soloText,'your weight on the scales alone','Your weight'],['combined',combinedText,'the combined weight holding Murphy','The combined weight']];
   const kg={};
   for(const [part,text,name,Name] of parts){
-    const raw=String(text??'').trim(), n=raw===''?NaN:Number(raw);
+    const typed=String(text??'').trim(), raw=/^\d*,\d*$/.test(typed)?typed.replace(',','.'):typed, n=raw===''?NaN:Number(raw);
     const fail=message=>({kg:null,empty:false,problem:{part,message}});
-    if(bad[part])return fail(`Finish entering ${name}, or clear it.`);
     if(raw==='')return {kg:null,empty:true,problem:{part,message:`Enter ${name}.`}};
-    if(!Number.isFinite(n)||n<=0)return fail(`${Name} must be a number above zero.`);
+    if(!Number.isFinite(n))return fail(`${Name}: enter plain kilograms, like 83.85.`);
+    if(n<=0)return fail(`${Name} must be a number above zero.`);
     if(!/^(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw))return fail(`${Name}: enter plain kilograms, like 83.85.`);
     if((raw.split('.')[1]||'').replace(/0+$/,'').length>2)return fail(`${Name}: use up to two decimal places.`);
     if(n>WEIGH_IN_RANGE.maxReadingKg)return fail(`${Name} must be at most ${WEIGH_IN_RANGE.maxReadingKg} kg.`);
@@ -2289,7 +2290,7 @@ function weightSwitch(iso,d){
 function weighInField(iso){
   const d=S.days[iso]||{}, id='in-weight-'+iso, missed=d.weightMissed===true;
   const lock=missed?`disabled aria-describedby="weight-missed-${iso}-help ${id}-error"`:`aria-describedby="${id}-error"`;
-  const reading=(part,label,hint)=>`<div class="field"><label for="in-weight${part}-${iso}">${label}</label><input id="in-weight${part}-${iso}" type="number" inputmode="decimal" enterkeyhint="${hint}" min="0" step="0.01" autocomplete="off" data-weigh="${part}" ${lock} placeholder="—"></div>`;
+  const reading=(part,label,hint)=>`<div class="field"><label for="in-weight${part}-${iso}">${label}</label><input id="in-weight${part}-${iso}" type="text" inputmode="decimal" enterkeyhint="${hint}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-weigh="${part}" ${lock} placeholder="—"></div>`;
   return `<div data-form data-date="${iso}" data-key="weight" data-save-label="Murphy’s weight">
     <input id="${id}" type="number" step="any" value="${esc(recordedWeight(d)??'')}" hidden ${missed?'disabled':''}>
     <div class="weigh-in" role="group" aria-label="Pre-feed weigh-in: Murphy’s weight is worked out from two readings">
@@ -2299,8 +2300,9 @@ function weighInField(iso){
     <p class="field-error hide" id="${id}-error" data-field-error role="alert"></p>
   </div>`;
 }
-function weighInIdle(iso,draft=''){
-  if(draft!=='')return `Unsaved ${Number(draft).toFixed(2)} kg from an earlier entry. Enter both readings to save it.`;
+// draft: the unsaved net value of an open entry whose readings are blank (null if none is open).
+function weighInIdle(iso,draft=null){
+  if(draft!==null)return draft!==''?`Unsaved ${Number(draft).toFixed(2)} kg from an earlier entry. Enter both readings to save it.`:'Enter both readings again, or cancel this entry.';
   const kg=recordedWeight(S.days[iso]);
   return kg===null?'Before feeding: weigh alone, then holding Murphy.':`Saved ${weightNumber(kg)} kg · weigh again to replace it.`;
 }
@@ -2309,15 +2311,15 @@ const weighInParts=form=>{
   const parts=[$('[data-weigh="solo"]',form),$('[data-weigh="combined"]',form)];
   return parts.every(Boolean)?parts:null;
 };
-const readWeighIn=([solo,combined])=>weighInCheck(solo.value,combined.value,{solo:solo.validity.badInput,combined:combined.validity.badInput});
+const readWeighIn=([solo,combined])=>weighInCheck(solo.value,combined.value);
 // derive=false only refreshes the preview: a restored draft keeps its value.
 function syncWeighIn(form,derive=true){
   const parts=weighInParts(form);if(!parts)return;
   const net=$('input',form), out=$('[data-weigh-result]',form), check=readWeighIn(parts);
-  const untouched=parts.every(p=>p.value===''&&!p.validity.badInput);
+  const untouched=parts.every(p=>p.value==='');
   if(derive){net.value=check.kg===null?'':String(check.kg);delete net.dataset.incompleteNumber;}
   const [state,html]=check.kg!==null?['ready',`Murphy’s weight: <b>${check.kg.toFixed(2)} kg</b>`]:
-    check.empty||untouched?['idle',weighInIdle(form.dataset.date,untouched&&form.hasAttribute('data-dirty')?net.value:'')]:
+    check.empty||untouched?['idle',weighInIdle(form.dataset.date,untouched&&form.hasAttribute('data-dirty')?net.value:null)]:
     ['invalid',esc(check.problem.message)];
   if(out.dataset.state!==state)out.dataset.state=state;
   if(out.innerHTML!==html)out.innerHTML=html;
@@ -3463,7 +3465,7 @@ function captureDrafts(){
     const input=$('input,textarea',form), parts=weighInParts(form);
     return input?{form,field:{id:input.id,date:form.dataset.date,key:form.dataset.key||'feeding',value:input.value,
       ...(parts?{solo:parts[0].value,combined:parts[1].value}:{}),
-      ...(input.type==='number'&&(input.validity.badInput||input.dataset.incompleteNumber||parts?.some(part=>part.validity.badInput))?{incomplete:true}:{})}}:null;
+      ...(input.type==='number'&&(input.validity.badInput||input.dataset.incompleteNumber)?{incomplete:true}:{})}}:null;
   }).filter(Boolean);
   const represented=new Set(visible.map(v=>fieldDraftId(v.field)));
   const fields=visible.filter(v=>v.form.hasAttribute('data-dirty')).map(v=>v.field);
@@ -3691,7 +3693,8 @@ function restoreDraftInputs(){
     }
     if(field.incomplete){
       input.dataset.incompleteNumber='true';
-      fieldError(parts?.find(part=>part.value==='')||parts?.[0]||input,'This number was unfinished. Enter it again, or cancel the entry.',false);
+      // Readings are never stored, so the flag cannot say which one was unfinished.
+      fieldError(parts?.find(part=>part.value==='')||parts?.[0]||input,parts?'Enter both readings again, or cancel the entry.':'This number was unfinished. Enter it again, or cancel the entry.',false);
     }
     if(parts)syncWeighIn(form,false);
     for(let parent=form.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
@@ -3762,7 +3765,7 @@ async function confirmInput(form){
     // Both readings are required; only the rounded net figure continues below.
     for(const part of parts)clearFieldError(part);
     // A restored unfinished reading must be typed again; typing clears the flag (syncWeighIn).
-    if(el.dataset.incompleteNumber){fieldError(parts.find(part=>part.value==='')||parts[0],'This number was unfinished. Enter it again, or cancel the entry.');return;}
+    if(el.dataset.incompleteNumber){fieldError(parts.find(part=>part.value==='')||parts[0],'Enter both readings again, or cancel the entry.');return;}
     const check=readWeighIn(parts);
     if(check.problem){fieldError(parts[check.problem.part==='solo'?0:1],check.problem.message);return;}
     el.value=String(check.kg);
@@ -3794,13 +3797,13 @@ async function confirmInput(form){
 document.addEventListener('keydown',ev=>{
   if(ev.key!=='Enter'||ev.isComposing||ev.keyCode===229||ev.repeat||ev.ctrlKey||ev.metaKey||ev.altKey||ev.shiftKey)return;
   const input=ev.target;
-  if(!input.matches('input[type="number"]')||input.disabled)return;
+  if(!input.matches('input[type="number"],input[data-weigh]')||input.disabled)return;
   const form=input.closest('[data-form]');
   if(!form)return;
   ev.preventDefault();
   // Return on the solo reading moves on to the combined one while it is empty.
   const combined=input.dataset.weigh==='solo'&&weighInParts(form)?.[1];
-  if(combined&&combined.value===''&&!combined.validity.badInput){combined.focus();return;}
+  if(combined&&combined.value===''){combined.focus();return;}
   void confirmInput(form);
 });
 

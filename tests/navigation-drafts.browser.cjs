@@ -671,7 +671,7 @@ async function main() {
 
     await scenario('an incomplete native number can never become a clearing write after navigation', async ({ page, field, tab, queued }) => {
       await reading(page, 'solo').fill(''); await reading(page, 'solo').press('e');
-      assert.equal(await reading(page, 'solo').evaluate(el => el.validity.badInput), true);
+      assert.equal(await reading(page, 'solo').inputValue(), 'e', 'weight readings keep typed text');
       await page.locator('#tabbar [data-tab="review"]').click();
       // A narrow guard for unrepresentable native number text is also safe.
       if (await page.evaluate(() => testApp.S.tab) !== 'today') await tab('today');
