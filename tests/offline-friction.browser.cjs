@@ -520,13 +520,19 @@ async function main() {
     // AG-14: an invalid stool date explains itself beside the form.
     {
       const ctx = await context();
-      const page = await open(ctx, fixture({ days: {} }));
-      await page.locator(`#quick-stool-${TODAY}-4`).click();
+      // Quick ratings save immediately. Exercise validation through the real
+      // editor for a saved stool, without creating a new write during setup.
+      const stool = { id: 'invalid-date', time: '08:00', bristol: 4, mucus: false, blood: false };
+      const page = await open(ctx, fixture({ days: { [TODAY]: { date: TODAY, stools: [stool] } } }));
+      const before = await page.evaluate(() => testApp.S.days);
+      await page.locator(`[data-act="editstool"][data-id="${stool.id}"]`).click();
       await page.locator('#st-date').evaluate(el => { el.removeAttribute('max'); el.value = '2026-11-09'; });
       await page.locator('[data-act="savestool"]').click();
       assert.equal(await page.locator('#st-error').textContent(), 'Choose a date on or before today.');
       assert.equal(await page.evaluate(() => document.activeElement.id), 'st-date');
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0);
+      assert.deepEqual(await page.evaluate(() => testApp.S.days), before, 'invalid edits leave every saved record unchanged');
+      assert.equal(await page.locator('#st-date').inputValue(), '2026-11-09', 'validation retains the attempted date for correction');
       await ctx.close();
       passed++; console.log('PASS AG-14 a future stool date shows a message and focuses the date');
     }

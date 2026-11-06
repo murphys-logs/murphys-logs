@@ -12,6 +12,17 @@ const legacyDraft = (value, date = TODAY) => ({
   cursor: null, viewDate: date, expanded: [], stool: null,
   fields: [{ id: 'in-notes-' + date, date, key: 'notes', value }]
 });
+// New-entry drafts can still arrive from pre-instant-save versions. Exercise
+// their real recovery route rather than inventing a no-type quick-log button.
+const newStoolDraft = (id, bristol, date = TODAY, time = '22:16') => ({
+  date, record: { id, time, bristol, mucus: false, blood: false }, original: null,
+  time, selectedDate: date, returnFocus: '#add-stool-' + date
+});
+const recoveredStools = (stools, tab = 'review') => ({
+  version: 2, savedAt: Date.parse('2026-11-01T22:00:00Z'), tab, cursor: null,
+  viewDate: tab === 'today' ? TODAY : null, expanded: [], fields: [],
+  stool: tab === 'today' ? stools.at(-1) : null, stools
+});
 
 // Today folds optional sections. Before typing or tapping, open any closed section
 // around the control by its summary, as a person would; reads pass straight through.
@@ -97,10 +108,11 @@ async function main() {
       } finally { await context.close(); }
     }
 
-    await scenario('notes, weight and a stool survive ordinary navigation without writes or discard prompts', async ({ page, field, tab, day, queued }) => {
+    const ordinaryStool = { id: 'ordinary-edit', time: '07:30', bristol: 4, mucus: false, blood: false };
+    await scenario('notes, weight and an unsaved stool edit survive ordinary navigation without writes or discard prompts', async ({ page, field, tab, day, queued }) => {
       await field('notes').fill('Keep this note\nSecond line');
       await field('weight').fill('18.75');
-      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="4"]`).click();
+      await page.locator('[data-act="editstool"][data-id="ordinary-edit"]').click();
       await page.locator('#st-t').fill('22:17');
       await page.locator('[data-act="tog-mucus"]').click();
       await tab('review');
@@ -113,8 +125,8 @@ async function main() {
       assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
       assert.equal(await queued(), 0);
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight), 18.7);
-      assert.equal(await page.evaluate(() => (testApp.S.days['2026-11-01'].stools || []).length), 0);
-    });
+      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-11-01'].stools), [ordinaryStool], 'navigation never confirms the stool edit');
+    }, { local: { 'test-day-overrides': JSON.stringify({ [TODAY]: { stools: [ordinaryStool] } }) } });
 
     await scenario('different History dates retain independent notes and Save or Cancel removes only its own draft', async ({ page, field, day, flush, drafts, queued }) => {
       await day('2026-10-30'); await field('notes').fill('Friday draft');
@@ -233,43 +245,44 @@ async function main() {
       await flush(); assert.equal(await drafts(), null); assert.equal(await queued(), 0);
     });
 
-    await scenario('a new quick-log tap never resumes an older hidden new-stool draft', async ({ page, flush, drafts, queued }) => {
-      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="4"]`).click();
-      await page.locator('[data-act="savestool"]').click();
-      const savedId = await page.evaluate(() => testApp.S.days['2026-11-01'].stools[0].id);
-      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="6"]`).click();
-      await page.locator('#st-t').fill('22:16'); await flush();
-      const hiddenId = (await drafts()).stool.record.id;
+    const hiddenNewStool = newStoolDraft('recovered-hidden-new', 6);
+    await scenario('an instant quick-log creates a distinct observation and preserves an older recovered new-stool draft', async ({ page, flush, drafts, queued }) => {
+      await page.locator('[data-act="recoverdraft"]').click();
+      assert.equal(await page.locator('#st-t').inputValue(), '22:16');
+      const savedId = ordinaryStool.id, hiddenId = hiddenNewStool.record.id;
       await page.locator(`[data-act="editstool"][data-date="${TODAY}"][data-id="${savedId}"]`).click();
       await page.locator('[data-act="cancelstool"]').click();
+      assert.equal(await queued(), 0, 'recovery and cancelling an edit do not save either observation');
       await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="1"]`).click();
-      assert.equal(await page.locator('[data-act="stooltype"][data-b="1"]').getAttribute('aria-pressed'), 'true');
       await flush();
-      assert.notEqual((await drafts()).stool.record.id, hiddenId, 'a new type tap creates a distinct observation');
-      await page.locator('[data-act="savestool"]').click();
-      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-11-01'].stools.map(s => s.bristol)), [4, 1]);
-      assert.equal(await queued(), 2);
+      const saved = await page.evaluate(() => testApp.S.days['2026-11-01'].stools);
+      assert.deepEqual(saved.map(s => s.bristol), [4, 1]);
+      assert.deepEqual(saved[0], ordinaryStool);
+      assert.notEqual(saved[1].id, hiddenId, 'a quick rating saves a distinct observation, not the hidden draft');
+      assert.equal(saved[1].time, '23:59');
+      assert.equal(await queued(), 1, 'the rating tap itself queues exactly one write');
       const retained = (await drafts()).stools.find(s => s.record.id === hiddenId);
       assert.equal(retained.record.bristol, 6); assert.equal(retained.time, '22:16');
       await page.locator(`[data-act="resumedraft"][data-id="${hiddenId}"]`).click();
       assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true');
       assert.equal(await page.locator('#st-t').inputValue(), '22:16');
-      assert.equal(await queued(), 2, 'resuming the old draft must not save it');
-    });
+      assert.equal(await queued(), 1, 'resuming the old draft must not save it');
+    }, { local: {
+      'test-day-overrides': JSON.stringify({ [TODAY]: { stools: [ordinaryStool] } }),
+      'murphy-draft-v2:draft-test:hidden-new-session': JSON.stringify(recoveredStools([hiddenNewStool], 'today'))
+    } });
 
-    await scenario('same-date stool drafts resume the last-used entry and same-minute links distinguish their Bristol types', async ({ page, tab, day, reload, flush, drafts, queued }) => {
-      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="4"]`).click();
-      await page.locator('[data-act="savestool"]').click();
-      const savedId = await page.evaluate(() => testApp.S.days['2026-11-01'].stools[0].id);
-      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="6"]`).click();
-      await page.locator('#st-t').fill('22:16'); await flush();
-      const olderId = (await drafts()).stool.record.id;
-      await page.locator(`[data-act="editstool"][data-date="${TODAY}"][data-id="${savedId}"]`).click();
-      await page.locator('[data-act="cancelstool"]').click();
-      await page.locator(`[data-act="openstool"][data-date="${TODAY}"][data-b="1"]`).click();
+    const sameDateNewDrafts = [newStoolDraft('same-date-older', 6), newStoolDraft('same-date-newer', 1)];
+    await scenario('recovered same-date new-stool drafts resume the last-used entry and same-minute links distinguish their Bristol types', async ({ page, tab, day, reload, flush, drafts, queued }) => {
+      await page.locator('[data-act="recoverdraft"]').click();
+      const olderId = sameDateNewDrafts[0].record.id, newerId = sameDateNewDrafts[1].record.id;
+      await page.locator(`[data-act="resumedraft"][data-id="${olderId}"]`).click();
+      await page.locator('#st-t').fill('22:16');
+      await tab('review');
+      await page.locator(`[data-act="resumedraft"][data-id="${newerId}"]`).click();
       await page.locator('#st-t').fill('22:16');
       await page.locator('[data-act="tog-mucus"]').click(); await flush();
-      const newerId = (await drafts()).stool.record.id;
+      assert.equal((await drafts()).stool.record.id, newerId);
       assert.notEqual(newerId, olderId);
 
       await tab('review'); await tab('today');
@@ -306,9 +319,12 @@ async function main() {
       assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'), 'true');
       const retainedNewer = (await drafts()).stools.find(s => s.record.id === newerId);
       assert.equal(retainedNewer.record.bristol, 1); assert.equal(retainedNewer.record.mucus, true); assert.equal(retainedNewer.time, '22:16');
-      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-11-01'].stools.map(s => s.bristol)), [4]);
-      assert.equal(await queued(), 1, 'resuming and navigating must not confirm either draft');
-    });
+      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-11-01'].stools), [ordinaryStool]);
+      assert.equal(await queued(), 0, 'resuming and navigating must not confirm either recovered draft');
+    }, { local: {
+      'test-day-overrides': JSON.stringify({ [TODAY]: { stools: [ordinaryStool] } }),
+      'murphy-draft-v2:draft-test:same-date-new-session': JSON.stringify(recoveredStools(sameDateNewDrafts))
+    } });
 
     const recoverySourceStools = [
       { id: 'recovery-a', time: '07:10', bristol: 4, mucus: false, blood: false },
@@ -343,6 +359,7 @@ async function main() {
       assert.equal(await queued(), 0, 'recovery restores drafts without confirming any record');
     }, { local: { [olderRecoveryKey]: JSON.stringify(olderRecovery) } });
 
+    const discardStool = { id: 'discard-hidden-edit', time: '07:30', bristol: 6, mucus: false, blood: false };
     await scenario('discarding inaccessible supplement and stool drafts requires confirmation and preserves a visible failed note', async ({ page, field, tab, day, flush, drafts, queued, expectDialog }) => {
       await page.locator(`#recipe-${TODAY}`).selectOption('fish');
       await page.locator(`#meal-fed-action-${TODAY}`).click();
@@ -375,7 +392,7 @@ async function main() {
       await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
       await page.evaluate(() => { Storage.prototype.setItem = window.navigationRealSetItem; });
       await day(YESTERDAY);
-      await page.locator(`[data-act="openstool"][data-date="${YESTERDAY}"][data-b="6"]`).click();
+      await page.locator(`[data-act="editstool"][data-date="${YESTERDAY}"][data-id="${discardStool.id}"]`).click();
       await page.locator('#st-t').fill('21:06');
       await page.evaluate(() => {
         Storage.prototype.setItem = function(key, value) {
@@ -418,7 +435,8 @@ async function main() {
       assert.equal(await page.evaluate(() => window.appCanUpdate()), true);
       assert.equal(await page.locator('#state').textContent(), 'Saved locally; syncing', 'both failed drafts were deliberately cancelled');
       assert.equal(await queued(), beforeWrites);
-    });
+      assert.deepEqual(await page.evaluate(() => testApp.S.days['2026-10-31'].stools), [discardStool], 'discarding a failed edit leaves the saved observation intact');
+    }, { local: { 'test-day-overrides': JSON.stringify({ [YESTERDAY]: { stools: [discardStool] } }) } });
 
     const retiredKey = 'murphy-draft-v2:draft-test:retired-field-session';
     const retiredDraft = { version: 2, ownerLock: true, savedAt: Date.parse('2026-11-01T22:00:00Z'), tab: 'status', cursor: '2026-10-29', viewDate: null, expanded: [], stool: null, stools: [],
@@ -591,24 +609,26 @@ async function main() {
     });
 
     for (const existing of [false, true]) {
-      await scenario(`History follows a ${existing ? 'moved existing' : 'new backdated'} stool without losing destination drafts`, async ({ page, field, day, tab, flush, drafts, queued }) => {
-        const destination = '2026-10-30', source = '2026-10-29';
+      const destination = '2026-10-30', source = '2026-10-29';
+      const destinationStool = { id: 'destination-original', time: '07:00', bristol: 4, mucus: false, blood: false };
+      const sourceStool = { id: 'source-original', time: '10:00', bristol: 3, mucus: false, blood: false };
+      const recoveredSource = newStoolDraft('recovered-new-source', 3, source, '10:00');
+      await scenario(`History follows a ${existing ? 'moved existing' : 'recovered new backdated'} stool without losing destination drafts`, async ({ page, field, day, tab, flush, drafts, queued }) => {
+        if (!existing) await page.locator('[data-act="recoverdraft"]').click();
         await day(destination);
         await field('notes').fill('Destination note must stay unfinished');
-        await page.locator(`[data-act="openstool"][data-date="${destination}"][data-b="4"]`).click();
+        await page.locator(`[data-act="editstool"][data-date="${destination}"][data-id="${destinationStool.id}"]`).click();
         await page.locator('#st-t').fill('08:15');
         await page.locator('[data-act="tog-mucus"]').click();
         await flush();
         const destinationDraftId = (await drafts()).stools.find(s => s.date === destination).record.id;
 
         await day(source);
-        await page.locator(`[data-act="openstool"][data-date="${source}"][data-b="3"]`).click();
-        await page.locator('#st-t').fill('10:20');
         if (existing) {
-          await page.locator('[data-act="savestool"]').click();
-          const savedId = await page.evaluate(date => testApp.S.days[date].stools[0].id, source);
-          await page.locator(`[data-act="editstool"][data-date="${source}"][data-id="${savedId}"]`).click();
+          await page.locator(`[data-act="editstool"][data-date="${source}"][data-id="${sourceStool.id}"]`).click();
         }
+        await page.locator('#st-t').fill('10:20');
+        assert.equal(await queued(), 0, 'fixture loading, recovery and unsaved edits never queue a write');
         await page.locator('#st-date').fill(destination);
         await page.locator('[data-act="savestool"]').click();
         await page.waitForFunction(date => testApp.S.tab === 'day' && testApp.S.cursor === date, destination);
@@ -618,10 +638,14 @@ async function main() {
         assert.equal(await page.locator('#st-date').inputValue(), destination);
         assert.equal(await page.locator('[data-act="stooltype"][data-b="4"]').getAttribute('aria-pressed'), 'true');
         assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'), 'true');
-        assert.deepEqual(await page.evaluate(date => testApp.S.days[date].stools.map(s => [s.time, s.bristol]), destination), [['10:20', 3]]);
+        const saved = await page.evaluate(date => testApp.S.days[date].stools, destination);
+        assert.deepEqual(saved[0], destinationStool, 'the unfinished destination edit must not change its saved original');
+        assert.deepEqual(saved.map(s => [s.id, s.time, s.bristol]), [
+          [destinationStool.id, '07:00', 4], [existing ? sourceStool.id : recoveredSource.record.id, '10:20', 3]
+        ]);
         assert.equal(await page.evaluate(date => testApp.S.days[date].notes, destination), undefined);
         assert.equal(await page.evaluate(date => (testApp.S.days[date]?.stools || []).length, source), 0);
-        assert.equal(await queued(), existing ? 2 : 1);
+        assert.equal(await queued(), 1, 'only the explicit Save confirms the moved or recovered observation');
 
         await flush();
         const persisted = await drafts();
@@ -631,8 +655,14 @@ async function main() {
         assert.equal(await field('notes').inputValue(), 'Destination note must stay unfinished');
         assert.equal(await page.locator('#st-t').inputValue(), '08:15');
         assert.equal((await drafts()).stools.find(s => s.record.id === destinationDraftId).record.mucus, true);
-        assert.equal(await queued(), existing ? 2 : 1, 'restoring the destination never confirms its drafts');
-      });
+        assert.equal(await queued(), 1, 'restoring the destination never confirms its drafts');
+      }, { local: {
+        'test-day-overrides': JSON.stringify({
+          [destination]: { date: destination, stools: [destinationStool] },
+          [source]: { date: source, stools: existing ? [sourceStool] : [] }
+        }),
+        ...(!existing ? { 'murphy-draft-v2:draft-test:backdated-new-session': JSON.stringify(recoveredStools([recoveredSource])) } : {})
+      } });
     }
 
     await scenario('an incomplete native number can never become a clearing write after navigation', async ({ page, field, tab, queued }) => {

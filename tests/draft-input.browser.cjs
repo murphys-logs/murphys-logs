@@ -41,6 +41,10 @@ const stub = `
   export const onAuthStateChanged=(_auth,cb)=>{queueMicrotask(()=>cb({uid:localStorage.getItem('test-user')||'draft-test'}));return()=>{};};
   export const onSnapshot=(ref,_options,cb)=>{
     const data=ref.col==='days'?{[today]:{date:today,weight:18.7,bcs:5},[yesterday]:{date:yesterday,meal:{recipe:'lamb',fedAt:localStorage.getItem('test-planned-meal')?'':'18:00',darfFed:100}}}:{};
+    // Opt-in saved-record fixtures for tests that exercise the real Edit UI.
+    // The default shared fixture is unchanged; these are synthetic snapshots.
+    if(ref.col==='days')for(const [date,patch] of Object.entries(JSON.parse(localStorage.getItem('test-day-overrides')||'{}')))
+      data[date]={...data[date],date,...patch};
     queueMicrotask(()=>cb(ref.id?{exists:()=>false,metadata:{fromCache:true}}:
       {docChanges:()=>Object.entries(data).map(([id,value])=>({type:'added',doc:{id,data:()=>value}})),metadata:{fromCache:true}}));
     return()=>{};
@@ -72,6 +76,13 @@ async function main() {
   const errors = [], external = [];
   try {
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, serviceWorkers: 'block' });
+    const existingStool={id:'draft-existing',time:'07:30',bristol:4,mucus:false,blood:false};
+    await context.addInitScript(({record,expectedOrigin})=>{
+      if(location.origin===expectedOrigin&&!localStorage.getItem('draft-input-seeded')){
+        localStorage.setItem('test-day-overrides',JSON.stringify({'2026-11-01':{stools:[record]}}));
+        localStorage.setItem('draft-input-seeded','1');
+      }
+    },{record:existingStool,expectedOrigin:origin});
     await context.route('**/*', route => {
       const url = new URL(route.request().url());
       if(url.origin !== origin) { external.push(url.href); return route.abort(); }
@@ -182,14 +193,22 @@ async function main() {
 
     await page.evaluate(() => testApp.setStatus('Saved locally; retry sync','warn'));
     await blockWrites();
-    await page.locator('[data-act="openstool"][data-b="4"]').first().click();
+    await page.locator('[data-act="editstool"][data-id="draft-existing"]').click();
+    await page.locator('#st-t').fill('09:15');
+    await page.locator('[data-act="tog-mucus"]').click();
     await page.locator('[data-act="savestool"]').click();
     assert.equal(await page.locator('#state').textContent(),'Not saved');
     assert.equal(await page.locator('[data-act="retrysync"]').count(),1,'sync retry survives a separate local-save error');
+    assert.equal(await page.locator('#st-t').inputValue(),'09:15','failed Save keeps the edited time');
+    assert.equal(await page.locator('[data-act="tog-mucus"]').getAttribute('aria-pressed'),'true');
+    assert.deepEqual(await page.evaluate(()=>testApp.S.days['2026-11-01'].stools),[existingStool]);
+    assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),0);
     await page.locator('[data-act="dismiss-banner"]').click();
+    assert.equal(await page.locator('#state').textContent(),'Not saved','Dismiss does not discard an unsaved stool edit');
     await page.locator('[data-act="cancelstool"]').click();
     assert.equal(await page.locator('#state').textContent(),'Saved locally; retry sync');
     assert.equal(await page.locator('[data-act="retrysync"]').count(),1);
+    assert.deepEqual(await page.evaluate(()=>testApp.S.days['2026-11-01'].stools),[existingStool],'Cancel preserves the original stool');
     await page.locator('.previous-meal summary').first().click();
     await page.locator('#fed-time-2026-10-31').fill('19:45');
     await page.locator('[data-act="savefeedingtime"]').first().click();
@@ -279,9 +298,8 @@ async function main() {
     await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
     passed++; console.log('PASS step validation, IME composition and native incomplete numbers never queue invalid edits');
 
-    await page.locator('[data-act="openstool"]').first().click();
+    await page.locator('[data-act="editstool"][data-id="draft-existing"]').click();
     await page.locator('#st-t').fill('22:17');
-    await page.locator('[data-act="stooltype"][data-b="4"]').click();
     await page.locator('[data-act="tog-mucus"]').click();
     await page.locator('.previous-meal summary').first().click();
     await page.locator('#fed-time-2026-10-31').fill('19:45');
@@ -289,6 +307,8 @@ async function main() {
     await page.evaluate(() => { Object.defineProperty(document,'hidden',{configurable:true,value:true});document.dispatchEvent(new Event('visibilitychange')); });
     draft = await savedDraft();
     assert.equal(draft.stool.time, '22:17');assert.equal(draft.stool.record.bristol, 4);assert.equal(draft.stool.record.mucus, true);
+    assert.equal(draft.stool.record.id,existingStool.id);
+    assert.deepEqual(await page.evaluate(()=>testApp.S.days['2026-11-01'].stools),[existingStool],'typing an edit does not change the saved stool');
     await page.evaluate(() => localStorage.setItem('test-clock',String(Date.parse('2026-11-02T00:01:00Z'))));
     await reload();
     assert.equal(await page.locator('#st-t').inputValue(), '22:17');
@@ -299,8 +319,9 @@ async function main() {
     assert.equal(await field('activeMin').evaluate(input => input.closest('[data-form]').dataset.date), '2026-10-31');
     assert.equal(await page.locator('.moment').textContent(), 'Unfinished entries');
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
-    await page.locator('[data-act="jump"][data-k="stool"]').click();
-    assert.equal(await page.evaluate(() => document.activeElement.id),'stools-2026-11-01');
+    await page.locator('[data-act="jump"][data-k="unsaved"][data-field="stool"]').click();
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.act),'savestool','unfinished-stool shortcut focuses its Save control');
+    assert.equal(await page.locator('#st-date').inputValue(),'2026-11-01');
     passed++; console.log('PASS hidden/midnight reload preserves complete stool, explicit meal time and original activity date');
 
     await page.evaluate(() => { testApp.persistDrafts();sessionStorage.removeItem('murphy-draft-session'); });
@@ -338,6 +359,7 @@ async function main() {
     assert.equal(await savedDraft(),null);
     assert.equal(await page.locator('.moment').textContent(),'Today');
     assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].stools[0].time),'22:17');
+    assert.deepEqual(await page.evaluate(()=>testApp.S.days['2026-11-01'].stools),[{...existingStool,time:'22:17',mucus:true}],'Save updates the original identity without duplicating it');
     await reload();
     assert.equal(await page.locator('[data-stool]').count(),0);
     passed++; console.log('PASS confirmed stool is saved on its original date and completed drafts never reopen');
@@ -409,15 +431,49 @@ async function main() {
     passed++;console.log('PASS a recovered bowl shortcut keeps its displayed date and the previous-day note');
 
     await page.locator('#tabbar [data-tab="today"]').click();
-    const beforeQuick=await page.evaluate(()=>testApp.queuedWrites().length);
+    const beforeQuickWrites=await page.evaluate(()=>testApp.queuedWrites());
+    const beforeQuick=beforeQuickWrites.length;
+    const beforeQuickKeys=new Set(beforeQuickWrites.map(([key])=>key));
+    const quickDate=await page.evaluate(()=>testApp.londonNow().date);
+    const beforeQuickStools=await page.evaluate(date=>testApp.S.days[date]?.stools||[],quickDate);
+    await blockWrites();
     await page.locator('[data-act="openstool"][data-b="6"]').first().click();
-    assert.equal(await page.locator('[data-act="stooltype"][data-b="6"]').getAttribute('aria-pressed'),'true');
-    assert.equal(await page.evaluate(()=>document.activeElement.dataset.act),'stooltype');
+    assert.equal(await page.locator('#state').textContent(),'Not saved');
+    assert.deepEqual(await page.evaluate(date=>testApp.S.days[date]?.stools||[],quickDate),beforeQuickStools,'failed quick logging creates no record');
     assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),beforeQuick);
+    assert.equal(await page.locator('[data-stool]').count(),0,'quick-save failure does not invent an edit form');
+    assert.equal(await page.evaluate(()=>document.activeElement.id),'add-stool-'+quickDate);
+    await allowWrites();
+    await page.locator('[data-act="openstool"][data-b="6"]').first().click();
+    const quickStools=await page.evaluate(date=>testApp.S.days[date].stools,quickDate);
+    assert.equal(quickStools.length,beforeQuickStools.length+1,'retry saves exactly one stool');
+    assert.deepEqual(quickStools.slice(0,-1),beforeQuickStools,'retry retains all prior stools');
+    const quickRecord=quickStools.at(-1);
+    assert.ok(quickRecord.id);
+    assert.deepEqual(quickRecord,{id:quickRecord.id,time:'00:01',bristol:6,mucus:false,blood:false});
+    assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),beforeQuick+1,'one rating tap queues one durable operation');
+    const quickWrites=await page.evaluate(()=>testApp.queuedWrites());
+    assert.deepEqual(quickWrites.filter(([key])=>beforeQuickKeys.has(key)),beforeQuickWrites,'quick logging preserves every previously queued operation');
+    const addedQuickWrites=quickWrites.filter(([key])=>!beforeQuickKeys.has(key));
+    assert.equal(addedQuickWrites.length,1,'identify the new durable operation independently of queue order');
+    const quickOperation=addedQuickWrites[0][1];
+    assert.equal(quickOperation.col,'days');assert.equal(quickOperation.id,quickDate);
+    assert.deepEqual(quickOperation.stools,{put:[quickRecord],drop:[]},'the outbox preserves the exact quick entry');
+    assert.equal(await page.evaluate(()=>testApp.S.localSaveError),null);
+    assert.equal(await page.locator('[data-stool]').count(),0,'single-tap save needs no confirmation');
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.act),'editstool');
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.id),quickRecord.id);
+    await page.locator(`[data-act="editstool"][data-id="${quickRecord.id}"]`).click();
+    await page.locator('#st-t').fill('00:05');
+    await page.locator('[data-act="tog-blood"]').click();
     await page.locator('[data-act="cancelstool"]').click();
-    assert.equal(await page.evaluate(()=>document.activeElement.dataset.b),'6');
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.act),'editstool');
+    assert.equal(await page.evaluate(()=>document.activeElement.dataset.id),quickRecord.id);
+    assert.deepEqual(await page.evaluate(date=>testApp.S.days[date].stools,quickDate),quickStools,'Cancel keeps the saved quick entry unchanged');
+    const afterQuick=await page.evaluate(()=>testApp.queuedWrites().length);
+    assert.equal(afterQuick,beforeQuick+1,'opening, editing and cancelling create no new operation');
     assert.equal(await savedDraft(),null);
-    passed++;console.log('PASS quick logging preselects only the tapped type, requires confirmation and restores focus on Cancel');
+    passed++;console.log('PASS failed quick logging retries once without duplicates; immediate save and cancelled edits preserve identity and focus');
 
     await page.locator('#tabbar [data-tab="history"]').click();
     await page.locator('#open-day-2026-10-31').click();
@@ -440,12 +496,50 @@ async function main() {
     assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
     assert.equal(await field('notes').inputValue(),'History draft survives changing dates');
     assert.equal(await page.locator('#history-date').inputValue(),'2026-10-29');
-    assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),beforeQuick);
+    assert.equal(await page.evaluate(()=>testApp.queuedWrites().length),afterQuick);
     await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
     await page.locator('#history-date').fill('2027-01-01');
     assert.equal(await page.locator('#history-date').getAttribute('aria-invalid'),'true');
     assert.equal(await page.evaluate(()=>testApp.S.cursor),'2026-10-29');
     passed++;console.log('PASS History date changes respect typed-entry commit, bounds and preserved drafts');
+
+    // Retain the separate missing-stool shortcut coverage: an older new-entry
+    // draft can recover after midnight while its original day still has no stool.
+    {
+      const recoveryContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block'});
+      const retainedDate='2026-11-01';
+      const stool={date:retainedDate,record:{id:'midnight-missing-stool',time:'22:17',bristol:4,mucus:true,blood:false},
+        original:null,time:'22:17',selectedDate:retainedDate,returnFocus:'#add-stool-'+retainedDate};
+      const recovery={version:2,savedAt:Date.parse('2026-11-01T23:58:00Z'),tab:'today',cursor:null,
+        viewDate:retainedDate,expanded:[],fields:[],stool,stools:[stool]};
+      await recoveryContext.addInitScript(({expectedOrigin,recovery})=>{
+        if(location.origin!==expectedOrigin||localStorage.getItem('midnight-shortcut-seeded'))return;
+        localStorage.setItem('test-clock',String(Date.parse('2026-11-02T00:01:00Z')));
+        localStorage.setItem('murphy-draft-v2:draft-test:midnight-shortcut-session',JSON.stringify(recovery));
+        localStorage.setItem('midnight-shortcut-seeded','1');
+      },{expectedOrigin:origin,recovery});
+      await recoveryContext.route('**/*',route=>{
+        const url=new URL(route.request().url());
+        if(url.origin!==origin){external.push(url.href);return route.abort();}
+        if(url.pathname==='/index.html')return route.fulfill({contentType:'text/html',body:html});
+        if(url.pathname==='/firebase-stub.js')return route.fulfill({contentType:'application/javascript',body:stub});
+        return route.fulfill({status:404,body:''});
+      });
+      const recoveryPage=await recoveryContext.newPage();
+      await boot(recoveryPage);
+      assert.equal(await recoveryPage.evaluate(()=>testApp.londonNow().date),'2026-11-02');
+      await recoveryPage.locator('[data-act="recoverdraft"]').click();
+      const recovered=await recoveryPage.evaluate(()=>testApp.captureDrafts());
+      assert.deepEqual(recovered.stool,stool);
+      await recoveryPage.locator(`[data-act="jump"][data-k="stool"][data-date="${retainedDate}"]`).click();
+      assert.equal(await recoveryPage.evaluate(()=>document.activeElement.id),'stools-'+retainedDate);
+      assert.equal(await recoveryPage.locator('#st-date').inputValue(),retainedDate);
+      assert.deepEqual(await recoveryPage.evaluate(()=>testApp.captureDrafts()),recovered,'the missing-stool shortcut preserves the recovered draft');
+      assert.equal(await recoveryPage.evaluate(()=>Object.values(testApp.S.days).flatMap(day=>day.stools||[]).length),0,'recovery and navigation do not save a stool');
+      assert.equal(await recoveryPage.evaluate(()=>testApp.queuedWrites().length),0);
+      await recoveryContext.close();
+    }
+    passed++;console.log('PASS the missing-stool shortcut keeps a recovered new-entry draft on its original date after midnight without writes');
 
     assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
     console.log(JSON.stringify({passed,externalRequests:external,pageErrors:errors}));
