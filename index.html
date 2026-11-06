@@ -432,6 +432,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   .switch-row[aria-checked="true"] .switch-thumb{background:HighlightText}
   :is(.chip,.seg button,.scale button,.bristol button,.tabbar button).on{outline:2px solid Highlight;outline-offset:-4px}
   :is(.chip,.seg button,.scale button,.bristol button,.tabbar button).on:focus-visible{outline:3px dashed CanvasText;outline-offset:-6px}
+  :is(.date-choice,.date-jump):has(.date-overlay:focus-visible){outline:3px solid Highlight;outline-offset:2px}
   :focus-visible{outline:3px solid CanvasText}
   button:not(:disabled):active{opacity:1}
   button:disabled{color:GrayText}
@@ -449,7 +450,7 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 /* iPhone shell: keep the desktop shell unchanged, including touch-screen PCs. */
 @supports(-webkit-touch-callout:none){
   @media(hover:none) and (pointer:coarse) and (max-width:600px), (hover:none) and (pointer:coarse) and (orientation:landscape) and (max-width:1023px) and (max-height:600px){
-    .tabbar{grid-template-columns:repeat(4,minmax(0,1fr));padding-inline:0;max-width:none;margin:0;border-inline:0;border-bottom:0;border-radius:0}
+    .tabbar{grid-template-columns:repeat(4,minmax(0,1fr));padding-inline:max(0px,env(safe-area-inset-left)) max(0px,env(safe-area-inset-right));max-width:none;margin:0;border-inline:0;border-bottom:0;border-radius:0}
     .tabbar button{border-radius:0}
   }
   @media(hover:none) and (pointer:coarse) and (max-width:600px) and (orientation:portrait){
@@ -497,10 +498,10 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   <div id="weight-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="history-announcement" role="status" aria-live="polite" aria-atomic="true"></div>
   <nav class="tabbar" id="tabbar" aria-label="Primary navigation">
-    <button data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></svg>Today</button>
-    <button data-tab="history"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
-    <button data-tab="review"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Review<span class="dotmark hide" aria-hidden="true"></span><span class="sr-only hide" id="review-attention">, needs attention</span></button>
-    <button data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m4 0h7M4 17h9m4 0h3M9 4v6m4 4v6"/></svg>Settings</button>
+    <button id="tab-today" data-tab="today"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7"/></svg>Today</button>
+    <button id="tab-history" data-tab="history"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>History</button>
+    <button id="tab-review" data-tab="review"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Review<span class="dotmark hide" aria-hidden="true"></span><span class="sr-only hide" id="review-attention">, needs attention</span></button>
+    <button id="tab-settings" data-tab="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5m4 0h7M4 17h9m4 0h3M9 4v6m4 4v6"/></svg>Settings</button>
   </nav>
 </div>
 <script>
@@ -2038,7 +2039,7 @@ function refreshSelectionStates(){
   syncBcsGuidance();
 }
 function undoNote(u){
-  return `<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
+  return `<div class="note plain"><b>${esc(u.label)}</b><span>Undo restores this item and keeps newer entries.</span><div class="feedback-actions"><button id="undo-removal" class="link" data-act="undo" aria-label="Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>${S.undoBusy?'Restoring…':'Undo'}</button><button id="dismiss-undo" class="link" data-act="dismiss-undo" aria-label="Dismiss Undo: ${esc(u.label)}" ${S.undoBusy?'disabled':''}>Dismiss</button></div></div>`;
 }
 // Feedback has its own persistent region, including while a form defers rendering.
 function renderFeedback(){
@@ -2048,7 +2049,7 @@ function renderFeedback(){
   // Another notice can replace the detailed sync error without resolving it.
   if(recordStatus.text==='Saved locally; retry sync'&&!b?.retry)
     html+='<div class="note warn"><b>Sync pending</b><div class="feedback-actions"><button id="retry-sync" class="link" data-act="retrysync">Retry sync</button></div></div>';
-  if(draftRecovery&&draftUser===S.user.uid)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button class="link" data-act="recoverdraft">Restore entries</button><button class="link" data-act="dismissdraft">Later</button></div></div>`;
+  if(draftRecovery&&draftUser===S.user.uid)html+=`<div class="note plain"><b>Unfinished entries available</b><span>A previous app session left entries on this device. Restore them to review before saving.</span><div class="feedback-actions"><button id="recover-draft" class="link" data-act="recoverdraft">Restore entries</button><button id="dismiss-draft" class="link" data-act="dismissdraft">Later</button></div></div>`;
   html+=hiddenDraftLinks();
   if(u&&(undoSticky(u)||S.undoBusy))html+=undoNote(u);
   scheduleUndoExpiry(u);
@@ -2126,9 +2127,9 @@ function viewToday(){
   const actualToday=localToday(), today=draftToday||actualToday;
   const adv=weeklyAdvice(), {fib}=insights(), vet=currentVetItems(insights().vet,actualToday);
   let head='';
-  if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>formatVetAlertHeadline(v,actualToday)).join('. '))}. <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
-  if (adv.applied) head += `<div class="note warn"><b>This week’s ration advice is waiting · ${fmtShortYear(adv.weekStart)}</b>${esc(`${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g (${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}).`)} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
-  else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre · ${fmtShortYear(actualToday)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</b>${esc(fib.advice.text)} <button class="link" data-act="go" data-tab="review">Open Review</button></div>`;
+  if (vet.length) head += `<div class="note bad"><b>${vet.length===1?'One vet item':vet.length+' vet items'}</b>${esc(vet.map(v=>formatVetAlertHeadline(v,actualToday)).join('. '))}. <button id="today-open-review-vet" class="link" data-act="go" data-tab="review">Open Review</button></div>`;
+  if (adv.applied) head += `<div class="note warn"><b>This week’s ration advice is waiting · ${fmtShortYear(adv.weekStart)}</b>${esc(`${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g (${fmtShortYear(adv.previousWindow[0])} to ${fmtShortYear(adv.currentWindow[1])}).`)} <button id="today-open-review-ration" class="link" data-act="go" data-tab="review">Open Review</button></div>`;
+  else if (fibreAdviceVisible(fib)) head += `<div class="note warn"><b>Pro-Fibre · ${fmtShortYear(actualToday)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</b>${esc(fib.advice.text)} <button id="today-open-review-fibre" class="link" data-act="go" data-tab="review">Open Review</button></div>`;
 
   // Actionable logging leads; the read-only assessment folds to one line.
   return `<span class="moment">${today===actualToday?'Today':'Unfinished entries'}</span><h2 class="screen">${fmtDate(today)}</h2>`+head+todoCard(today)+weightConditionFold(today)+
@@ -2444,7 +2445,7 @@ function mealEditor(iso,live=false,details='',previous=false,attributedMeal=null
   // Today's live meal uses todayMealCard; a live editor here is a recovered earlier day.
   const feedingControls=`<div data-feeding data-date="${iso}"><label class="inline-lab" for="fed-time-${iso}">Actual feeding time · ${fmtDate(iso)}</label>
       <input class="tin" id="fed-time-${iso}" type="time" required value="${fed?esc(m.fedAt):''}">
-      <div class="btnrow"><button class="btn sm" data-act="${fed?'savefeedingtime':'fed'}" data-fed-time="explicit" data-date="${iso}">${fed?'Save feeding time':'Mark as fed'}</button><button class="btn ghost sm" data-act="cancelfeedingtime" data-date="${iso}">Cancel</button>${fed?`<button class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button>`:''}</div>
+      <div class="btnrow"><button id="meal-save-fed-${iso}" class="btn sm" data-act="${fed?'savefeedingtime':'fed'}" data-fed-time="explicit" data-date="${iso}">${fed?'Save feeding time':'Mark as fed'}</button><button id="meal-cancel-feeding-${iso}" class="btn ghost sm" data-act="cancelfeedingtime" data-date="${iso}">Cancel</button>${fed?`<button id="meal-unfeed-${iso}" class="btn ghost sm" data-act="unfeed" data-date="${iso}">Undo Fed</button>`:''}</div>
       <p class="sub">${fed?'Changing the time keeps the saved meal amounts.':'Enter the time this meal was actually fed, then press Mark as fed. Amounts stay as recorded.'}</p></div>`;
   const body=`${recipeSelect(iso,m,r)}
     ${!live&&m.recipe&&!fed?'<p class="sub">Planned only — not recorded as fed.</p>':''}
@@ -2510,7 +2511,7 @@ function stoolsCard(iso,previousMeal=false){
     return `<div class="stool"><span class="dot ${b.band}"></span><div class="body"><span class="t">${time} · Bristol ${esc(s.bristol)}, ${b.word}${s.mucus?' · mucus':''}${s.blood?' · blood':''}</span>
       <div class="stool-meta"><span class="attr">${attr}</span><span class="stool-actions">
       <button class="link" id="stool-actions-${iso}-${id}" data-act="editstool" data-date="${iso}" data-id="${id}" aria-label="Edit stool at ${time}">Edit</button>
-      <button class="link danger-link" data-act="delstool" data-date="${iso}" data-id="${id}" aria-label="Delete stool at ${time}">Delete</button></span></div></div></div>`;
+      <button class="link danger-link" id="delstool-${iso}-${id}" data-act="delstool" data-date="${iso}" data-id="${id}" aria-label="Delete stool at ${time}">Delete</button></span></div></div></div>`;
   }).join('');
   const f=stoolDraft;
   // Type first; time defaults to now and the date to this card, side by side.
@@ -2518,10 +2519,10 @@ function stoolsCard(iso,previousMeal=false){
     <p class="inline-lab" id="st-type-label">Bristol type</p>
     <div role="group" aria-labelledby="st-type-label">${bristolButtons(b=>`${choice(f.bristol===b.n,b.band)} aria-label="Bristol ${b.n}, ${b.word}" data-act="stooltype" data-b="${b.n}"`)}</div>
     <p class="field-error hide" id="st-error" role="alert"></p>
-    <div class="chips">${['mucus','blood'].map(k=>`<button ${choice(f[k],'chip')} data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
+    <div class="chips">${['mucus','blood'].map(k=>`<button id="stool-tog-${k}-${iso}" ${choice(f[k],'chip')} data-act="tog-${k}">${k==='mucus'?'Mucus':'Blood'}</button>`).join('')}</div>
     <div class="stool-when"><div><label class="inline-lab" for="st-t">Time</label><input class="tin" id="st-t" type="time" required value="${esc(f.time)}"></div>
       <div><label class="inline-lab" for="st-date">Date</label><input class="tin" id="st-date" type="date" required max="${localToday()}" value="${iso}"></div></div>
-    <div class="btnrow"><button class="btn" data-act="savestool">Save stool</button><button class="btn ghost" data-act="cancelstool">Cancel</button></div>
+    <div class="btnrow"><button id="save-stool-${iso}" class="btn" data-act="savestool">Save stool</button><button id="cancel-stool-${iso}" class="btn ghost" data-act="cancelstool">Cancel</button></div>
   </div>`:`<div class="quick-stool" role="group" id="add-stool-${iso}" tabindex="-1" aria-labelledby="add-stool-${iso}-label"><p class="inline-lab" id="add-stool-${iso}-label">Add a stool: tap its type</p>
     ${bristolButtons(b=>`id="quick-stool-${iso}-${b.n}" class="${b.band}" data-act="openstool" data-date="${iso}" data-b="${b.n}" aria-label="Add stool: Bristol ${b.n}, ${b.word}"`)}</div>`;
   const previous=previousMeal?`<div class="previous-meal">${mealEditor(shiftDate(iso,-1),false,'',true,meal)}</div>`:'';
@@ -3641,7 +3642,7 @@ function hiddenDraftLinks(){
     (unavailable.some(f=>f.key==='mealamount'&&S.days[f.date]?.meal?.recipe&&isEditablePlan(f.date,S.days[f.date].meal))?
       'Supplement corrections are available once this meal is marked Fed. ':'')+
     'Keep it for later, or discard hidden entries.':'Review before saving.';
-  return routes.size?`<div class="note plain"><b>Unfinished entries</b><span>${explanation}</span><div class="feedback-actions">${[...routes.values()].map(r=>`<button class="link" data-act="resumedraft" data-tab="${r.tab}" data-date="${r.date}" ${r.stoolId?`data-id="${esc(r.stoolId)}"`:''}>${esc(r.label)}</button>`).join('')}<button class="link" data-act="discardhiddendrafts">Discard hidden entries</button></div></div>`:'';
+  return routes.size?`<div class="note plain"><b>Unfinished entries</b><span>${explanation}</span><div class="feedback-actions">${[...routes.values()].map(r=>`<button id="resume-draft-${r.tab}-${r.date}${r.stoolId?'-'+esc(r.stoolId):''}" class="link" data-act="resumedraft" data-tab="${r.tab}" data-date="${r.date}" ${r.stoolId?`data-id="${esc(r.stoolId)}"`:''}>${esc(r.label)}</button>`).join('')}<button id="discard-hidden-drafts" class="link" data-act="discardhiddendrafts">Discard hidden entries</button></div></div>`:'';
 }
 function discardHiddenDrafts(){
   if(!S.user||!S.ready||draftUser!==S.user.uid||pendingDraft)return;
@@ -3682,7 +3683,7 @@ function markInputDirty(input){
   form.setAttribute('data-dirty','');
   syncDraftMarkers();refreshTodoCard();
   if(form.hasAttribute('data-feeding'))return;
-  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc(form.dataset.saveLabel||$('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
+  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button id="save-${input.id}" class="btn sm" data-act="saveinput" aria-label="Save ${esc(form.dataset.saveLabel||$('label',form).textContent)}">Save</button><button id="cancel-${input.id}" class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
   if(form.dataset.key==='weight'){
     const toggle=document.getElementById('weight-missed-'+form.dataset.date);
     if(toggle){toggle.disabled=true;$('.switch-detail',toggle).textContent='Save or cancel the weight entry before marking it missed.';}

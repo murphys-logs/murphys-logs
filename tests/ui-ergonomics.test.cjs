@@ -1662,3 +1662,35 @@ test('Trends chart: condition chart draws target line at fixed 5.0 clinical idea
   assert.match(forcedChart, /y1="50"/, 'target line is drawn at y=50% representing fixed 5.0');
   assert.doesNotMatch(forcedChart, /y1="25"/, 'target line is not drawn at y=25% representing 6.0');
 });
+
+test('stable element IDs are present across navigation tabs, notices, stool actions, and dirty inputs', () => {
+  assert.match(html, /<button id="tab-today" data-tab="today">/);
+  assert.match(html, /<button id="tab-history" data-tab="history">/);
+  assert.match(html, /<button id="tab-review" data-tab="review">/);
+  assert.match(html, /<button id="tab-settings" data-tab="settings">/);
+
+  // Landscape and forced-colors styles
+  assert.ok(css.includes('padding-inline:max(0px,env(safe-area-inset-left)) max(0px,env(safe-area-inset-right))'));
+  assert.ok(css.includes(':is(.date-choice,.date-jump):has(.date-overlay:focus-visible){outline:3px solid Highlight;outline-offset:2px}'));
+
+  // Feedback notice actions have IDs
+  assert.match(moduleSource, /id="dismiss-undo"/);
+  assert.match(moduleSource, /id="recover-draft"/);
+  assert.match(moduleSource, /id="dismiss-draft"/);
+  assert.match(moduleSource, /id="discard-hidden-drafts"/);
+  assert.match(moduleSource, /id="resume-draft-/);
+
+  // Today notices, meal editor, stool log, and dirty inputs have IDs
+  assert.match(moduleSource, /id="today-open-review-vet"/);
+  assert.match(moduleSource, /id="today-open-review-ration"/);
+  assert.match(moduleSource, /id="today-open-review-fibre"/);
+  assert.match(moduleSource, /id="meal-save-fed-\$\{iso\}"/);
+  assert.match(moduleSource, /id="meal-cancel-feeding-\$\{iso\}"/);
+  assert.match(moduleSource, /id="meal-unfeed-\$\{iso\}"/);
+  assert.match(moduleSource, /id="delstool-\$\{iso\}-\$\{id\}"/);
+  assert.match(moduleSource, /id="stool-tog-\$\{k\}-\$\{iso\}"/);
+  assert.match(moduleSource, /id="save-stool-\$\{iso\}"/);
+  assert.match(moduleSource, /id="cancel-stool-\$\{iso\}"/);
+  assert.match(moduleSource, /id="save-\$\{input\.id\}"/);
+  assert.match(moduleSource, /id="cancel-\$\{input\.id\}"/);
+});

@@ -100,6 +100,23 @@ async function main() {
       pass('cached Review explains data limits and leaves unrelated disclosure focus intact');
       await context.close();
     }
+    {
+      const { context, page } = await open();
+      await page.evaluate(() => {
+        testApp.S.undo = { label: 'Deleted stool', createdAt: Date.now(), fn: () => {} };
+        testApp.renderFeedback();
+      });
+      const dismissBtn = page.locator('#dismiss-undo');
+      assert.equal(await dismissBtn.count(), 1, 'dismiss-undo is rendered in feedback');
+      await dismissBtn.focus();
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'dismiss-undo');
+      await page.evaluate(() => {
+        testApp.renderFeedback();
+      });
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'dismiss-undo', 'focus on dismiss-undo survives feedback re-render');
+      pass('feedback focus: #dismiss-undo retains focus across renderFeedback');
+      await context.close();
+    }
     assert.deepEqual(errors, []); assert.deepEqual(external, []);
     console.log(`${passed}/${passed} scenarios passed; no page errors or external app requests.`);
   } finally { await browser.close(); }
