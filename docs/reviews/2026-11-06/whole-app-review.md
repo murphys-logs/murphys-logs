@@ -34,15 +34,15 @@ No production account was used, and no production Firebase data, rules or resour
 
 **PERF-01, P2, measured and deferred:** All History eagerly creates 1,827 cards and about 71,311 DOM nodes for five years; All Review creates about 58,094 nodes even with disclosures collapsed. This is a demonstrated large-history bottleneck. Default 14-day screens are substantially smaller. Incremental history rendering or deferred chart tables need a focused follow-up preserving accessibility, browser find, scrolling and navigation; no speculative performance refactor or dependency was added.
 
-`history-benchmark.cjs` uses 31, 365 and 1,826 days, daily weight/BCS/activity/meal/notes and three stools per day. Windows Edge 156.0.4314.58, 390×844 touch/mobile emulation, unthrottled local hardware, synthetic SDK. Five warm forced-render samples; timings include forced layout and DOM measurement, **exclude paint, cold startup and real network/Firebase costs**.
+`history-benchmark.cjs` uses 31, 365 and 1,826 days, daily weight/BCS/activity/meal/notes and three stools per day. The table and PR description now cite one run: **6 November 2026 original-review final validation**, Windows Edge 156.0.4314.58, Node 20.18.0, 390×844 touch/mobile emulation, unthrottled local hardware, synthetic SDK. Its [retained raw output](evidence/history-benchmark-original-final.jsonl) records the environment and results but does not embed a commit SHA; it is historical evidence, not a new-head benchmark. Five warm forced-render samples; timings include script, forced layout and DOM measurement, **exclude paint, cold startup and real network/Firebase costs**.
 
 | Fixture | JSON bytes | All History nodes | All History median | All Review median |
 |---|---:|---:|---:|---:|
-| Month, 31 days | 18,015 | 1,306 | 8.7 ms | 3.6 ms |
-| Year, 365 days | 213,353 | 14,332 | 88.3 ms | 18.7 ms |
-| Five years, 1,826 days | 1,071,188 | 71,311 | 501.0 ms | 84.2 ms |
+| Month, 31 days | 18,015 | 1,306 | 9.1 ms | 4.3 ms |
+| Year, 365 days | 213,353 | 14,332 | 86.7 ms | 18.2 ms |
+| Five years, 1,826 days | 1,071,188 | 71,311 | 465.9 ms | 95.1 ms |
 
-These initial audit measurements describe the unchanged rendering model, not an improvement claim. Another five-year History run measured 617 ms, illustrating variability. Five-year default first forced renders through layout were Today 14.9 ms, History 6.8 ms and Review 10.8 ms. The script prints fresh measurements when rerun. There were no horizontal overflows, page errors or external requests in the 15 size/view combinations.
+These historical measurements describe the unchanged rendering model, not an improvement claim. They replace the earlier unlabeled run in this table (CC20F-01). In the same retained run, five-year default first forced renders through layout were Today 13.7 ms, History 7.1 ms and Review 11.5 ms. The script prints fresh measurements when rerun; results vary by environment and run. There were no horizontal overflows, page errors or external requests in the 15 size/view combinations.
 
 The final HTML is approximately 297 KB uncompressed / 92 KB locally gzip-compressed; compression is a local estimate, not a hosting-header measurement. The app has one 2,960-byte PNG and no new assets/dependencies. Startup and asset-loading paths were inspected and worker loading exercised locally; no real-iPhone startup, radio/battery, CDN timing or hosting compression claim is made.
 
@@ -116,7 +116,7 @@ git diff --check f28696bc8027c2d1788d167cc2119e8063627c68
 
 Baseline: **218/218 Node cases; 102/102 existing Edge browser scenarios**. Current targeted checks: **13 Review focus scenarios; 6 worker/outbox/draft scenarios with synthetic record availability and sender; 240 layout combinations (192 standard + 48 with Review advice); 15 history size/view measurements**. The final PR description records the final rerun totals and its exact head. Early sandbox `spawn EPERM` attempts did not execute tests; direct Node imports and approved isolated browser launches were used. A stale export-version assertion found during validation was corrected; its content assertions were not weakened.
 
-The offline reproducer completes 15 defect/edge/control scenarios; the domain reproducer completes six. Do not add them to passing product-regression counts. No real iPhone/Safari, installed-app cold start, actual browser zoom, native keyboard, VoiceOver, real Firebase SDK transactions/cache/Auth, production rules or storage-pressure test was available. The older physical-device checklist remains applicable with the current version and a synthetic isolated account. Claude Code and Antigravity reviewed `5e2b04f`; their independent follow-up reviews of these changes remain pending. This PR is not a merge/deployment recommendation.
+The offline reproducer completes 15 defect/edge/control scenarios; the domain reproducer completes six. Do not add them to passing product-regression counts. No real iPhone/Safari, installed-app cold start, actual browser zoom, native keyboard, VoiceOver, real Firebase SDK transactions/cache/Auth, production rules or storage-pressure test was available. The older physical-device checklist remains applicable with the current version and a synthetic isolated account. Claude Code and Antigravity have now reviewed `7dccc7a`, with no remaining code blocker; their dispositions are recorded in the [reconciliation](review-reconciliation.md). The later documentation-only correction requires focused re-review under `docs/review-handoff.md` §6. Merge readiness remains pending that re-review; no merge or deployment is authorized.
 
 ## Explicit Firebase and protected-data diff audit
 
