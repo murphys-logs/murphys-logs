@@ -31,7 +31,8 @@ assert.equal(omitPresentation(after('index.html')), omitPresentation(html),
   'Outside the three reviewed presentation functions and app release IDs, index.html must be identical');
 assert.equal(after('sw.js'), before('sw.js').replace("const VERSION = '3.12.0';", "const VERSION = '3.12.1';"),
   'Worker must be identical apart from the application release identifier');
-const changed = git(['diff', '--name-only', base]).trim().split(/\r?\n/).filter(Boolean);
+const changed = (git(['diff', '--name-only', base]) + git(['ls-files', '--others', '--exclude-standard']))
+  .trim().split(/\r?\n/).filter(Boolean);
 for (const file of changed) assert.ok(['index.html', 'sw.js'].includes(file) || /^(tests|docs)\//.test(file), `Unexpected changed file: ${file}`);
 console.log(JSON.stringify({ base, allowedPresentationFunctions: ['render', 'viewReview', 'syncSectionBody'],
-  result: 'PASS: Firebase integration, SDK/version/config, authentication, subscriptions, all save/sync/outbox/draft handlers, calculations and export/import schemas unchanged; worker release ID only.' }));
+  result: 'PASS: source outside the three presentation functions and app release IDs is identical; worker release ID only. Manually review the permitted function diffs before concluding the Firebase/data boundary audit.' }));
