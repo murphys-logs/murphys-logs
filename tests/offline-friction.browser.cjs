@@ -49,6 +49,13 @@ const stub = `
   export const signInWithEmailAndPassword=forbidden,deleteDoc=forbidden,runTransaction=forbidden;
 `;
 
+// Weight is weighed by difference: Murphy = combined (holding Murphy) − solo.
+// The hidden #in-weight-<date> input holds the derived net value the draft stores.
+const weighIn = async (page, kg) => {
+  await page.locator(`#in-weightsolo-${TODAY}`).fill('70');
+  await page.locator(`#in-weightcombined-${TODAY}`).fill((70 + Number(kg)).toFixed(2));
+};
+
 async function main() {
   const browser = await chromium.launch({ headless: true,
     ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
@@ -207,7 +214,7 @@ async function main() {
     {
       const ctx = await context(native);
       const page = await open(ctx, fixture({ days: {} }));
-      await page.locator(`#in-weight-${TODAY}`).fill('19.2');
+      await weighIn(page, '19.2');
       await page.waitForSelector(`#todo-${TODAY}-unsaved-in-weight-${TODAY}`);
       assert.equal(await page.locator(`#todo-${TODAY}-unsaved-in-weight-${TODAY}`).textContent(), 'Weight typed, not saved');
       await page.waitForTimeout(400);
@@ -224,7 +231,7 @@ async function main() {
       // Control: when another window may own the draft (lock unavailable), the prompt remains.
       const shared = await context();
       const a = await open(shared, fixture({ days: {} }));
-      await a.locator(`#in-weight-${TODAY}`).fill('19.3');
+      await weighIn(a, '19.3');
       await a.waitForTimeout(400);
       await a.close();
       const b = await open(shared, null);
@@ -239,7 +246,7 @@ async function main() {
     {
       const ctx = await context();
       const page = await open(ctx, fixture({ days: { [TODAY]: { date: TODAY, meal: { recipe: 'lamb' } } } }));
-      await page.locator(`#in-weight-${TODAY}`).fill('19.1');
+      await weighIn(page, '19.1');
       const out = await page.evaluate(t => {
         const before = document.getElementById('meal-fed-action-' + t), editor = before.closest('[data-meal-editor]');
         testApp.render();
@@ -321,7 +328,7 @@ async function main() {
       const ctx = await context(native);
       const a = await open(ctx, fixture({ days: {} }));
       const b = await open(ctx, null);
-      await b.locator(`#in-weight-${TODAY}`).fill('19.3');
+      await weighIn(b, '19.3');
       await b.waitForTimeout(400);
       const bKey = await b.evaluate(() => Object.keys(localStorage).find(k => k.startsWith('murphy-draft-v2:') && localStorage.getItem(k).includes('19.3')));
       assert.ok(bKey, 'B persisted its draft');
@@ -340,12 +347,12 @@ async function main() {
     // R1: duplicated tabs copy sessionStorage, but must not share a writable draft key.
     {
       const ctx=await context(native),a=await open(ctx,fixture({days:{}}));
-      await a.locator(`#in-weight-${TODAY}`).fill('19.3');await a.waitForTimeout(400);
+      await weighIn(a, '19.3');await a.waitForTimeout(400);
       const owner=await a.evaluate(()=>({session:sessionStorage.getItem('murphy-draft-session'),key:Object.keys(localStorage).find(k=>k.startsWith('murphy-draft-v2:'))}));
       const duplicate=await open(ctx,{}, {session:owner.session});await duplicate.waitForTimeout(300);
       assert.equal(await duplicate.locator(`#in-weight-${TODAY}`).inputValue(),'','a copied session must not activate a live draft');
       assert.equal(await duplicate.locator('[data-act="recoverdraft"]').count(),1,'the duplicate offers explicit recovery');
-      await duplicate.locator(`#in-weight-${TODAY}`).fill('19.8');await duplicate.waitForTimeout(400);
+      await weighIn(duplicate, '19.8');await duplicate.waitForTimeout(400);
       const out=await duplicate.evaluate(key=>({owner:localStorage.getItem(key),drafts:Object.keys(localStorage).filter(k=>k.startsWith('murphy-draft-v2:')).map(k=>localStorage.getItem(k))}),owner.key);
       assert.match(out.owner,/19\.3/);assert.equal(out.drafts.length,2);assert.ok(out.drafts.some(raw=>raw.includes('19.8')));
       assert.equal(await duplicate.evaluate(()=>testApp.queuedWrites().length),0,'both values remain unsaved');
@@ -361,7 +368,7 @@ async function main() {
         Object.defineProperty(navigator,'locks',{value:{request:(name,...args)=>name.startsWith('murphy-draft-owner:')?Promise.reject(Error('Synthetic owner claim failure')):locks.request(name,...args)}});
       });
       await owner.goto(origin+'/index.html');await owner.waitForFunction(()=>window.testApp?.S.ready);
-      await owner.locator(`#in-weight-${TODAY}`).fill('19.7');await owner.waitForTimeout(400);
+      await weighIn(owner, '19.7');await owner.waitForTimeout(400);
       const original=await owner.evaluate(()=>{const key=Object.keys(localStorage).find(k=>k.startsWith('murphy-draft-v2:'));return {key,raw:localStorage.getItem(key)};});
       const newcomer=await open(ctx,null);await newcomer.waitForTimeout(150);
       assert.equal(await newcomer.locator(`#in-weight-${TODAY}`).inputValue(),'','a missing owner claim does not prove that writer is closed');

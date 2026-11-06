@@ -198,6 +198,14 @@ input:disabled{color:var(--ink-3);opacity:1;border-style:dashed}
 .tin[type="date"],.tin[type="time"]{min-width:0;-webkit-appearance:none;appearance:none}
 textarea.tin{min-height:64px;resize:vertical;font-family:var(--sans)}
 .inline-lab{display:block;font-size:.9375rem;color:var(--ink-2);margin:0 0 var(--s2)}
+/* Weigh-in by difference: two readings, one live net figure for Murphy. */
+.weigh-result{display:block;margin-top:var(--s1);padding:6px var(--s3);
+  border:1px solid var(--rule);border-radius:8px;background:var(--surface-2);font-size:.9375rem;color:var(--ink-2);line-height:1.45;overflow-wrap:anywhere;transition:border-color .15s ease}
+.weigh-result b{font-size:1.0625rem;font-weight:650;color:var(--ink);font-variant-numeric:tabular-nums}
+.weigh-result[data-state="ready"]{border-color:var(--accent)}
+.weigh-result[data-state="invalid"]{border:2px dashed var(--watch);color:var(--watch);font-weight:600}
+/* After a blocked Save the field error says it once; the live hint returns on the next keystroke. */
+[data-form]:has(.field-error:not(.hide)) .weigh-result[data-state="invalid"]{display:none}
 
 /* chips */
 .chips{display:flex;flex-wrap:wrap;gap:var(--s2)}
@@ -1781,6 +1789,31 @@ function cached(key,fn){
 }
 const validWeight=value=>Number.isFinite(value)&&value>0;
 const recordedWeight=day=>day?.weightMissed===true?null:validWeight(day?.weight)?day.weight:null;
+// Weigh-in by difference: the person weighs alone, then holding Murphy. Only
+// Murphy's net weight is ever saved; the two readings never leave this form.
+// Rounded to 2 dp so IEEE 754 artefacts (102.4 − 83.85 = 18.55000000000001)
+// never reach the screen or the record.
+const WEIGH_IN_RANGE=Object.freeze({minKg:10,maxKg:30});
+const netWeightKg=(soloKg,combinedKg)=>Math.round((combinedKg-soloKg)*100)/100;
+// Readings come straight from the inputs as text. `bad` flags a native number
+// input holding unparseable text (its value then reads as '').
+function weighInCheck(soloText,combinedText,bad={}){
+  const parts=[['solo',soloText,'your weight on the scales alone','Your weight'],['combined',combinedText,'the combined weight holding Murphy','The combined weight']];
+  const kg={};
+  for(const [part,text,name,Name] of parts){
+    const raw=String(text??'').trim(), n=raw===''?NaN:Number(raw);
+    if(bad[part])return {kg:null,empty:false,problem:{part,message:`Finish entering ${name}, or clear it.`}};
+    if(raw==='')return {kg:null,empty:true,problem:{part,message:`Enter ${name}.`}};
+    if(!Number.isFinite(n)||n<=0)return {kg:null,empty:false,problem:{part,message:`${Name} must be a number above zero.`}};
+    if(Math.abs(n*100-Math.round(n*100))>1e-6)return {kg:null,empty:false,problem:{part,message:`${Name}: use up to two decimal places.`}};
+    kg[part]=n;
+  }
+  if(kg.combined<=kg.solo)return {kg:null,empty:false,problem:{part:'combined',message:'The combined weight must be more than your weight alone.'}};
+  const net=netWeightKg(kg.solo,kg.combined);
+  if(net<WEIGH_IN_RANGE.minKg||net>WEIGH_IN_RANGE.maxKg)return {kg:null,empty:false,problem:{part:'combined',
+    message:`That makes Murphy ${net.toFixed(2)} kg, outside ${WEIGH_IN_RANGE.minKg}–${WEIGH_IN_RANGE.maxKg} kg. Check both readings.`}};
+  return {kg:net,empty:false,problem:null};
+}
 // A missed marker suspends, rather than destroys, an existing reading. Only explicit
 // weight edits move this value; opening old databases never rewrites their records.
 function weightMissedPatch(day){
@@ -2244,14 +2277,53 @@ function weightSwitch(iso,d){
   const detail=d.weightMissed===true?'Excluded from averages. Switch off '+(validWeight(previous)?`to restore ${previous} kg.`:'to enter a weight.'):'Mark this day as having no measurement.';
   return switchRow('weight-missed-'+iso,'Weight missed',d.weightMissed===true,detail,`data-act="missed" data-date="${iso}"`);
 }
+// The hidden #in-weight-<date> input is the form's one saved value (Murphy's net
+// weight), so drafts, Save/Cancel and saveDay see the same single figure as
+// before. The two visible readings only derive it (syncWeighIn).
+function weighInField(iso){
+  const d=S.days[iso]||{}, id='in-weight-'+iso, missed=d.weightMissed===true;
+  const lock=missed?`disabled aria-describedby="weight-missed-${iso}-help ${id}-error"`:`aria-describedby="${id}-error"`;
+  const reading=(part,label,hint)=>`<div class="field"><label for="in-weight${part}-${iso}">${label}</label><input id="in-weight${part}-${iso}" type="number" inputmode="decimal" enterkeyhint="${hint}" min="0" step="0.01" autocomplete="off" data-weigh="${part}" ${lock} placeholder="—"></div>`;
+  return `<div data-form data-date="${iso}" data-key="weight" data-save-label="Murphy’s weight">
+    <input id="${id}" type="number" step="any" value="${esc(recordedWeight(d)??'')}" hidden ${missed?'disabled':''}>
+    <div class="weigh-in" role="group" aria-label="Pre-feed weigh-in: Murphy’s weight is worked out from two readings">
+      ${reading('solo','Your weight (solo), kg','next')}${reading('combined','Combined weight (holding Murphy), kg','done')}
+      <output class="weigh-result" id="weigh-result-${iso}" for="in-weightsolo-${iso} in-weightcombined-${iso}" aria-live="polite" aria-atomic="true" data-weigh-result data-state="idle">${weighInIdle(iso)}</output>
+    </div>
+    <p class="field-error hide" id="${id}-error" data-field-error role="alert"></p>
+  </div>`;
+}
+function weighInIdle(iso,draft=''){
+  if(draft!=='')return `Unsaved ${esc(draft)} kg from an earlier entry. Enter both readings to save it.`;
+  const kg=recordedWeight(S.days[iso]);
+  return kg===null?'Before feeding: weigh alone, then holding Murphy.':`Saved ${weightNumber(kg)} kg · weigh again to replace it.`;
+}
+const weighInParts=form=>{
+  if(form?.dataset.key!=='weight')return null;
+  const parts=[$('[data-weigh="solo"]',form),$('[data-weigh="combined"]',form)];
+  return parts.every(Boolean)?parts:null;
+};
+const readWeighIn=([solo,combined])=>weighInCheck(solo.value,combined.value,{solo:solo.validity.badInput,combined:combined.validity.badInput});
+// derive=false only refreshes the preview: a restored draft keeps its value.
+function syncWeighIn(form,derive=true){
+  const parts=weighInParts(form);if(!parts)return;
+  const net=$('input',form), out=$('[data-weigh-result]',form), check=readWeighIn(parts);
+  const untouched=parts.every(p=>p.value===''&&!p.validity.badInput);
+  if(derive){net.value=check.kg===null?'':String(check.kg);delete net.dataset.incompleteNumber;}
+  const [state,html]=check.kg!==null?['ready',`Murphy’s weight: <b>${check.kg.toFixed(2)} kg</b>`]:
+    check.empty||untouched?['idle',weighInIdle(form.dataset.date,untouched&&form.hasAttribute('data-dirty')?net.value:'')]:
+    ['invalid',esc(check.problem.message)];
+  if(out.dataset.state!==state)out.dataset.state=state;
+  if(out.innerHTML!==html)out.innerHTML=html;
+}
 function weightCard(iso){
-  return panel('Weight',inputField(iso,'weight','Pre-feed weight, kg',10,30,.01)+weightSwitch(iso,S.days[iso]||{})+weightHint(iso));
+  return panel('Weight',weighInField(iso)+weightSwitch(iso,S.days[iso]||{})+weightHint(iso));
 }
 // Today: weight and condition are scored together. The target, range and means
 // are in the Weight & condition assessment above, so the hint here is brief.
 function weightConditionCard(iso){
   const d=S.days[iso]||{};
-  return panel('Weigh-in &amp; condition',inputField(iso,'weight','Pre-feed weight, kg',10,30,.01)+weightSwitch(iso,d)+weightHint(iso,true)+
+  return panel('Weigh-in &amp; condition',weighInField(iso)+weightSwitch(iso,d)+weightHint(iso,true)+
     `<div class="condition-entry" id="condition-${iso}" tabindex="-1" role="group" aria-labelledby="condition-label-${iso}"><p class="inline-lab" id="condition-label-${iso}">Condition score</p>${bcsScale(iso,d.bcs)}<p class="sub" data-bcs-guidance data-date="${iso}">${bcsDescription(d.bcs)}</p></div>`,
     'weight-'+iso);
 }
@@ -3382,9 +3454,10 @@ function draftKey(){
 }
 function captureDrafts(){
   const visible=$$('#main [data-form],#main [data-feeding]').map(form=>{
-    const input=$('input,textarea',form);
+    const input=$('input,textarea',form), parts=weighInParts(form);
     return input?{form,field:{id:input.id,date:form.dataset.date,key:form.dataset.key||'feeding',value:input.value,
-      ...(input.type==='number'&&(input.validity.badInput||input.dataset.incompleteNumber)?{incomplete:true}:{})}}:null;
+      ...(parts?{solo:parts[0].value,combined:parts[1].value}:{}),
+      ...(input.type==='number'&&(input.validity.badInput||input.dataset.incompleteNumber||parts?.some(part=>part.validity.badInput))?{incomplete:true}:{})}}:null;
   }).filter(Boolean);
   const represented=new Set(visible.map(v=>fieldDraftId(v.field)));
   const fields=visible.filter(v=>v.form.hasAttribute('data-dirty')).map(v=>v.field);
@@ -3587,7 +3660,7 @@ function markInputDirty(input){
   form.setAttribute('data-dirty','');
   syncDraftMarkers();refreshTodoCard();
   if(form.hasAttribute('data-feeding'))return;
-  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc($('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
+  form.insertAdjacentHTML('beforeend',`<div class="btnrow" data-confirm><button class="btn sm" data-act="saveinput" aria-label="Save ${esc(form.dataset.saveLabel||$('label',form).textContent)}">Save</button><button class="btn ghost sm" data-act="cancelinput">Cancel</button></div>`);
   if(form.dataset.key==='weight'){
     const toggle=document.getElementById('weight-missed-'+form.dataset.date);
     if(toggle){toggle.disabled=true;$('.switch-detail',toggle).textContent='Save or cancel the weight entry before marking it missed.';}
@@ -3600,10 +3673,13 @@ function restoreDraftInputs(){
     if(!form||form.hasAttribute('data-dirty')||(field.key!=='setnum'&&form.dataset.date!==field.date)||(form.dataset.key||'feeding')!==field.key)continue;
     // A recovered weight remains editable even if another device marked it missed.
     input.disabled=false;input.value=field.value;markInputDirty(input);
+    const parts=weighInParts(form);
+    if(parts)parts.forEach((part,i)=>{const v=field[['solo','combined'][i]];part.disabled=false;part.value=typeof v==='string'?v:'';});
     if(field.incomplete){
       input.dataset.incompleteNumber='true';
-      fieldError(input,'This number was unfinished. Enter it again, or cancel the entry.',false);
+      fieldError(parts?.find(part=>part.value==='')||parts?.[0]||input,'This number was unfinished. Enter it again, or cancel the entry.',false);
     }
+    if(parts)syncWeighIn(form,false);
     for(let parent=form.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
   }
   if(data.stool){
@@ -3634,11 +3710,15 @@ function clearFieldError(input){
   if(error){error.textContent='';error.classList.add('hide');}
 }
 function finishInput(form,keep){
-  const input=$('input,textarea',form);
+  const input=$('input,textarea',form), parts=weighInParts(form);
+  // The hidden net weight cannot take focus; return it to the reading in use.
+  const focusId=parts?(parts.includes(document.activeElement)?document.activeElement:parts[0]).id:input.id;
   delete input.dataset.incompleteNumber;
   clearFieldError(input);
   clearSaveError('form:'+input.id);
   if (keep) input.defaultValue=input.value; else input.value=input.defaultValue;
+  // Saved or closed: the two temporary readings are never kept.
+  if(parts)for(const part of parts){part.value='';clearFieldError(part);}
   form.removeAttribute('data-dirty'); $('[data-confirm]',form)?.remove();
   syncDraftMarkers();refreshTodoCard();
   persistDrafts();
@@ -3646,16 +3726,25 @@ function finishInput(form,keep){
     const safeDate=esc(form.dataset.date);
     const toggle=document.getElementById('weight-missed-'+safeDate);
     if(toggle) toggle.outerHTML=weightSwitch(safeDate,S.days[safeDate]||{});
+    syncWeighIn(form,false);
   }
   if(renderPending) render();
-  if(document.activeElement.id!==input.id) refocus(input.id);
+  if(document.activeElement.id!==focusId) refocus(focusId);
 }
 async function confirmInput(form){
   if (!form.hasAttribute('data-dirty')||confirmingInputs.has(form)) return;
   confirmingInputs.add(form);
   try{
-  const el=$('input,textarea',form), k=form.dataset.key, iso=form.dataset.date, v=el.value;
+  const el=$('input,textarea',form), k=form.dataset.key, iso=form.dataset.date, parts=weighInParts(form);
   clearFieldError(el);
+  if(parts){
+    // Both readings are required; only the rounded net figure continues below.
+    for(const part of parts)clearFieldError(part);
+    const check=readWeighIn(parts);
+    if(check.problem){fieldError(parts[check.problem.part==='solo'?0:1],check.problem.message);return;}
+    el.value=String(check.kg);delete el.dataset.incompleteNumber;
+  }
+  const v=el.value;
   const setting=form.dataset.setting, spec=k==='setnum'?settingsSpec[setting]:null;
   const n=v===''?null:Number(v);
   if(el.validity.badInput||el.dataset.incompleteNumber){fieldError(el,'Finish entering a number, or clear the field.');return;}
@@ -3685,7 +3774,11 @@ document.addEventListener('keydown',ev=>{
   if(!input.matches('input[type="number"]')||input.disabled)return;
   const form=input.closest('[data-form]');
   if(!form)return;
-  ev.preventDefault();void confirmInput(form);
+  ev.preventDefault();
+  // Return on the solo reading moves on to the combined one while it is empty.
+  const combined=input.dataset.weigh==='solo'&&weighInParts(form)?.[1];
+  if(combined&&combined.value===''&&!combined.validity.badInput){combined.focus();return;}
+  void confirmInput(form);
 });
 
 document.addEventListener('click', async (ev)=>{
@@ -3764,7 +3857,7 @@ document.addEventListener('click', async (ev)=>{
       // Same page: move straight to the control. Weight focuses its field, so the keypad opens.
       // The meal shortcut lands on the card so its amounts show above Mark as fed.
       const stool=$('#add-stool-'+iso)?'#add-stool-':'#stools-';
-      focusAfterRender(({weight:'#in-weight-',stool,meal:'#meal-section-'}[k]||'#condition-')+iso);
+      focusAfterRender(({weight:'#in-weightsolo-',stool,meal:'#meal-section-'}[k]||'#condition-')+iso);
     }
     return;
   }
@@ -4142,6 +4235,8 @@ document.addEventListener('click', async (ev)=>{
 
 document.addEventListener('input',ev=>{
   if(ev.target.matches('input,textarea')){delete ev.target.dataset.incompleteNumber;clearFieldError(ev.target);}
+  // Live net-weight preview; also keeps the hidden net value the draft stores in step.
+  if(ev.target.dataset?.weigh)syncWeighIn(ev.target.closest('[data-form]'));
   if(ev.target.dataset?.act==='historydate')$('#history-date-error')?.classList.add('hide');
   const form=ev.target.closest('[data-form]'), fresh=!!form&&!form.hasAttribute('data-dirty');
   markInputDirty(ev.target);

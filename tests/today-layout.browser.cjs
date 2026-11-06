@@ -123,6 +123,7 @@ async function main() {
         await assertCard();
         assert.equal(await missed.getAttribute('aria-checked'), String(checked));
         assert.equal(await page.locator(`#in-weight-${TODAY}`).isDisabled(), checked);
+        for (const part of ['solo', 'combined']) assert.equal(await page.locator(`#in-weight${part}-${TODAY}`).isDisabled(), checked, `${part} reading locked with Weight missed`);
         assert.equal(await page.evaluate(() => document.activeElement.id), `weight-missed-${TODAY}`);
         assert.equal(await noteNode.evaluate(el => el.isConnected), true, 'the unfinished note is not replaced');
         assert.equal(await note.inputValue(), 'Unfinished CC-01 note');
@@ -164,6 +165,7 @@ async function main() {
         assert.equal(await page.locator(`#condition-${TODAY} [data-act="bcs"]`).count(), 7);
         assert.equal(await conditionNode.evaluate(el => el.isConnected), true, 'History condition card is untouched');
         assert.equal(await page.locator(`#in-weight-${TODAY}`).isDisabled(), checked);
+        for (const part of ['solo', 'combined']) assert.equal(await page.locator(`#in-weight${part}-${TODAY}`).isDisabled(), checked, `${part} reading locked with Weight missed`);
         assert.equal(await page.evaluate(() => document.activeElement.id), `weight-missed-${TODAY}`);
         assert.equal(await page.locator(`#in-notes-${TODAY}`).inputValue(), 'History draft');
       }
