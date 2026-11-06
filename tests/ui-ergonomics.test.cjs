@@ -82,7 +82,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
       weightAssessment, weightNumber, weightDeviation, weightOverview, fiveEntryWeightMean, weightMeanContent, weightHintContent, netWeightKg, weighInCheck, weighInField, WEIGH_IN_RANGE, lineChart, toDay, toIso, computeDarfAdjustment,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; }, write, flushWrites, queuedWrites, saveDay, resyncIfPending, onResumeOrReconnect,
-      pendingFlush: () => flushTask };
+      unreadableOutbox: () => unreadableOutbox, pendingFlush: () => flushTask };
   `, context, { filename: htmlPath, timeout: 5000 });
   const { api } = context;
   api.S.user = { uid: 'ui-test-only', email: 'test.invalid' };
@@ -936,7 +936,7 @@ test('release identifiers stay aligned across HTML shell, module and service wor
   const htmlVer = html.match(/<html[^>]*data-version="([^"]+)"/)?.[1];
   const swVer = swSource.match(/const VERSION = '([^']+)'/)?.[1];
   const h = makeHarness();
-  assert.equal(htmlVer, '3.12.2');
+  assert.equal(htmlVer, '3.12.3');
   assert.equal(h.api.APP_VERSION, htmlVer);
   assert.equal(swVer, htmlVer);
 });
@@ -1054,7 +1054,7 @@ test('Settings monthly export handles 1 November and year/leap boundaries, expor
   // Separate Full backup exports everything as JSON:
   await h.click('exportall');
   assert.equal(h.api.downloads[3][0], 'Murphy_Log_backup_2026-11-01.json');
-  assert.match(h.api.downloads[3][1], /"version": "3\.12\.2"/);
+  assert.match(h.api.downloads[3][1], /"version": "3\.12\.3"/);
   assert.equal(h.storage.size, 0, 'selecting months, formats and exporting writes nothing to storage');
 
   // Empty-account check on 1 November, 1 January and leap-year 1 March:
@@ -1661,4 +1661,56 @@ test('Trends chart: condition chart draws target line at fixed 5.0 clinical idea
   const forcedChart = h.api.lineChart([{ x: h.api.toDay('2026-10-20'), y: 5.0 }], 'bcs', [3, 7]);
   assert.match(forcedChart, /y1="50"/, 'target line is drawn at y=50% representing fixed 5.0');
   assert.doesNotMatch(forcedChart, /y1="25"/, 'target line is not drawn at y=25% representing 6.0');
+});
+
+test('stable element IDs are present across navigation tabs, notices, stool actions, and dirty inputs', () => {
+  assert.match(html, /<button id="tab-today" data-tab="today">/);
+  assert.match(html, /<button id="tab-history" data-tab="history">/);
+  assert.match(html, /<button id="tab-review" data-tab="review">/);
+  assert.match(html, /<button id="tab-settings" data-tab="settings">/);
+
+  // Landscape and forced-colors styles
+  assert.ok(css.includes('padding-inline:max(0px,env(safe-area-inset-left)) max(0px,env(safe-area-inset-right))'));
+  assert.ok(css.includes(':is(.date-choice,.date-jump):has(.date-overlay:focus-visible){outline:3px solid Highlight;outline-offset:2px}'));
+
+  // Feedback notice actions have IDs
+  assert.match(moduleSource, /id="dismiss-undo"/);
+  assert.match(moduleSource, /id="recover-draft"/);
+  assert.match(moduleSource, /id="dismiss-draft"/);
+  assert.match(moduleSource, /id="discard-hidden-drafts"/);
+  assert.match(moduleSource, /id="resume-draft-/);
+
+  // Today notices, meal editor, stool log, and dirty inputs have IDs
+  assert.match(moduleSource, /id="today-open-review-vet"/);
+  assert.match(moduleSource, /id="today-open-review-ration"/);
+  assert.match(moduleSource, /id="today-open-review-fibre"/);
+  assert.match(moduleSource, /id="meal-save-fed-\$\{iso\}"/);
+  assert.match(moduleSource, /id="meal-cancel-feeding-\$\{iso\}"/);
+  assert.match(moduleSource, /id="meal-unfeed-\$\{iso\}"/);
+  assert.match(moduleSource, /id="delstool-\$\{iso\}-\$\{id\}"/);
+  assert.match(moduleSource, /id="stool-tog-\$\{k\}-\$\{iso\}"/);
+  assert.match(moduleSource, /id="save-stool-\$\{iso\}"/);
+  assert.match(moduleSource, /id="cancel-stool-\$\{iso\}"/);
+  assert.match(moduleSource, /id="save-\$\{primaryId\}"/);
+  assert.match(moduleSource, /id="cancel-\$\{primaryId\}"/);
+});
+
+test('offline event handler accurately reflects held unreadable outbox in status and warning styling', () => {
+  const h = makeHarness();
+  const offlineListeners = h.windowListeners.get('offline') || [];
+  assert.equal(offlineListeners.length, 1, 'offline listener is registered on window');
+
+  // Case 1: no pending writes or unreadable outbox entries
+  offlineListeners[0]();
+  assert.equal(h.api.S.status, 'Offline · saved records available');
+  assert.equal(h.element('#state').className, 'state ');
+
+  // Case 2: unreadable outbox entry in storage while queued valid writes is empty
+  h.storage.set('murphy-outbox-v2:ui-test-only:1000-corrupt', '{corrupted-json');
+  assert.equal(h.api.queuedWrites().length, 0, 'no valid queued writes');
+  assert.equal(h.api.unreadableOutbox().length, 1, 'one unreadable outbox entry detected');
+
+  offlineListeners[0]();
+  assert.equal(h.api.S.status, 'Offline · saved on this device');
+  assert.equal(h.element('#state').className, 'state warn');
 });

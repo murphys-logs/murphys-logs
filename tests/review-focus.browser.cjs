@@ -100,6 +100,60 @@ async function main() {
       pass('cached Review explains data limits and leaves unrelated disclosure focus intact');
       await context.close();
     }
+    {
+      const { context, page } = await open();
+      await page.evaluate(() => {
+        testApp.S.undo = { label: 'Deleted stool', createdAt: Date.now(), fn: () => {} };
+        testApp.renderFeedback();
+      });
+      const dismissBtn = page.locator('#dismiss-undo');
+      assert.equal(await dismissBtn.count(), 1, 'dismiss-undo is rendered in feedback');
+      await dismissBtn.focus();
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'dismiss-undo');
+      await page.evaluate(() => {
+        testApp.renderFeedback();
+      });
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'dismiss-undo', 'focus on dismiss-undo survives feedback re-render');
+      pass('feedback focus: #dismiss-undo retains focus across renderFeedback');
+      await context.close();
+    }
+    {
+      const { context, page } = await open();
+      await page.evaluate(() => testApp.open('today'));
+
+      // 1. Dirty form Save button retains focus across forced render and restore
+      await page.locator('#activity-2026-11-01 > summary').click();
+      const walkInput = page.locator('#in-walkMin-2026-11-01');
+      await walkInput.fill('45');
+      const saveWalk = page.locator('#save-in-walkMin-2026-11-01');
+      assert.equal(await saveWalk.count(), 1, 'save button is rendered with primary input id');
+      await saveWalk.focus();
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'save-in-walkMin-2026-11-01');
+      await page.evaluate(() => {
+        testApp.captureDrafts();
+        testApp.persistDrafts();
+        testApp.render(true);
+      });
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'save-in-walkMin-2026-11-01', 'focus on save button survives forced render and draft restore');
+      pass('inline dirty form focus: #save-in-walkMin retains focus across render(true)');
+
+      // 2. Weigh-in solo input typing sets stable id save-in-weight-... across restore
+      const soloInput = page.locator('#in-weightsolo-2026-11-01');
+      await soloInput.fill('82.5');
+      const saveWeight = page.locator('#save-in-weight-2026-11-01');
+      assert.equal(await saveWeight.count(), 1, 'weigh-in save button is keyed to primary weight input id');
+      await saveWeight.focus();
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'save-in-weight-2026-11-01');
+      await page.evaluate(() => {
+        testApp.captureDrafts();
+        testApp.persistDrafts();
+        testApp.render(true);
+      });
+      assert.equal(await page.evaluate(() => document.activeElement.id), 'save-in-weight-2026-11-01', 'weigh-in save button retains stable id and focus across render(true)');
+      pass('weigh-in focus: #save-in-weight retains stable id and focus across render(true)');
+
+      await context.close();
+    }
     assert.deepEqual(errors, []); assert.deepEqual(external, []);
     console.log(`${passed}/${passed} scenarios passed; no page errors or external app requests.`);
   } finally { await browser.close(); }
