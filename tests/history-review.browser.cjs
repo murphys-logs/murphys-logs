@@ -536,7 +536,7 @@ async function main() {
           });
           await page.locator('#tabbar [data-tab="review"]').click();
           const ration = page.locator('#review-ration-details').locator('..');
-          assert.equal(await ration.locator(':scope > .note > b').textContent(), headline, `BCS ${bcs} with weight ${weightChange}`);
+          assert.equal(await ration.locator('#review-ration-result > .note > b').textContent(), headline, `BCS ${bcs} with weight ${weightChange}`);
           assert.match(await ration.textContent(), /Week of 26 Oct 2026 \(12 Oct 2026 to 25 Oct 2026\)/);
           assert.equal(await ration.locator('[data-act="applyadv"]').count(), actionable ? 1 : 0);
           assert.equal(await ration.locator('[data-act="refuseadv"]').count(), actionable ? 1 : 0);

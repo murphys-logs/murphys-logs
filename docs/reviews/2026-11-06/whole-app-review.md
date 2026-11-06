@@ -79,7 +79,7 @@ Working-tree pattern scanning found no private-key/service-token match. Renderin
 
 ## 5. Correctness and regression coverage
 
-No calculation, historical interpretation, backup schema, import/export data meaning or logging workflow was changed. The app's 62 calculation self-checks remain part of the Node suite (not an additional 62 Node cases). New focused coverage protects Review focus and real local-worker lifecycle; existing offline wording assertions were strengthened. Version assertions now expect 3.12.1, and the worker upgrade fixture covers 3.12.0 → 3.12.1.
+No calculation, historical interpretation, backup schema, import/export data meaning or logging workflow was changed. The app's 62 calculation self-checks remain part of the Node suite (not an additional 62 Node cases). New focused coverage protects Review focus and real local-worker lifecycle; existing offline wording assertions were strengthened. The existing ration regression now locates its headline inside the new focusable result wrapper, retaining all BCS/weight/advice assertions. Version assertions now expect 3.12.1, and the worker upgrade fixture covers 3.12.0 → 3.12.1.
 
 Existing domain probes still reproduce these issues, left unchanged because this request preserves calculations, historical interpretation and export formats:
 
