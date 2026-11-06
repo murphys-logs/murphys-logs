@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.12.0">
+<html lang="en-GB" data-version="3.12.2">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -626,7 +626,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.12.0';
+const APP_VERSION = '3.12.2';
 
 /* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
    Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'
@@ -2091,11 +2091,15 @@ function render(force=false){
   if(!force&&html===rendered){syncDraftMarkers();return;}
   rendered=html;
   const active=document.activeElement, focus=active?.id, summaryId=!focus&&active?.tagName==='SUMMARY'?active.parentElement?.id:'';
+  // Review actions disappear after a decision. Keep keyboard focus on their
+  // updated result, while a still-available action (including a failed save)
+  // keeps its own focus. This is presentation only; saving is unchanged.
+  const focusResult=active?.closest?.('[data-review-result]')?.id;
   const expanded=$$('#main details[id]').map(e=>[e.id,e.open]);
   replaceRenderedHtml($('#main'),html);
   for(const [id,open] of expanded){const e=document.getElementById(id);if(e)e.open=open;}
   if(!pendingDraft){
-    if(focus&&document.activeElement?.id!==focus)refocus(focus);
+    if(focus&&document.activeElement?.id!==focus)refocus(document.getElementById(focus)?focus:focusResult);
     else if(summaryId)document.getElementById(summaryId)?.querySelector(':scope > summary')?.focus({preventScroll:true});
   }
   restoreDraftInputs();
@@ -2696,8 +2700,8 @@ function viewReview(){
   let advResult;
   if (adv.applied){
     advResult = `<div class="note warn"><b>${adv.adjustmentG>0?'Increase':'Reduce'} DARF by ${Math.abs(adv.adjustmentG)} g on every recipe</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${esc(adv.reason)}</p></div>
-      <div class="btnrow"><button class="btn sm" data-act="applyadv">Apply</button>
-      <button class="btn ghost sm" data-act="refuseadv">Keep current ration this week</button></div>`;
+      <div class="btnrow"><button class="btn sm" id="review-apply-ration" data-act="applyadv">Apply</button>
+      <button class="btn ghost sm" id="review-keep-ration" data-act="refuseadv">Keep current ration this week</button></div>`;
   } else if (adv.held){
     advResult = `<div class="note hold"><b>Ration reduction held</b> <span class="alert-dates">${esc(rationDateInfo)}</span><p class="alert-detail">${esc(adv.reason)}</p></div>`;
   } else {
@@ -2725,8 +2729,8 @@ function viewReview(){
 
   let fibResult = row('Current dose',`${fib.dose} g${fib.since?` · since ${fmtShortYear(fib.since)}`:''}`);
   if (fibreAdviceVisible(fib)) fibResult += `<div class="note warn" style="margin-top:9px"><b>${fib.advice.kind==='up'?'Step up':'Step back'}</b> <span class="alert-dates">${fmtShortYear(today)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</span><p class="alert-detail">${esc(fib.advice.text)}</p></div>
-    <div class="btnrow"><button class="btn sm" data-act="applyfibre" data-g="${fib.advice.toG}">Apply</button>
-    <button class="btn ghost sm" data-act="dismissfibre">Not now</button></div>`;
+    <div class="btnrow"><button class="btn sm" id="review-apply-fibre" data-act="applyfibre" data-g="${fib.advice.toG}">Apply</button>
+    <button class="btn ghost sm" id="review-postpone-fibre" data-act="dismissfibre">Not now</button></div>`;
   else if(fib.advice)fibResult+=`<p class="sub">Advice postponed until ${fmtShortYear(S.fibreSnoozedUntil||shiftDate(today,1))}. The current dose is unchanged.</p>`;
   if (fib.review) fibResult += `<div class="note bad" style="margin-top:9px"><b>Review with the vet</b> <span class="alert-dates">${fmtShortYear(today)}${fib.since?` · dose since ${fmtShortYear(fib.since)}`:''}</span><p class="alert-detail">${esc(fib.note)}</p></div>`;
   const fibExplain = `<details class="review-disclosure" id="review-fibre-details"><summary>Clean-day streak and Pro-Fibre rules</summary>
@@ -2745,10 +2749,10 @@ function viewReview(){
     return row(r.short,b.darfG+' g');}).join('');
   const rangeLabel=range===9999?'All recorded days':`Last ${range} days`;
 
-  return '<h2 class="screen">Review</h2>'+
+  return '<h2 class="screen">Review</h2><p class="sub range-note" id="review-data-context">Based on records available on this device. Missing records or changes waiting to sync can change these results.</p>'+
     panel('Vet items',vetHtml)+
-    panel("This week’s ration",advResult+rationExplain)+
-    panel('Pro-Fibre',fibResult+fibExplain)+
+    panel("This week’s ration",`<div id="review-ration-result" data-review-result role="group" aria-label="This week’s ration result" tabindex="-1">${advResult}</div>`+rationExplain)+
+    panel('Pro-Fibre',`<div id="review-fibre-result" data-review-result role="group" aria-label="Pro-Fibre result" tabindex="-1">${fibResult}</div>`+fibExplain)+
     `<details class="card weight-condition" id="review-weight-condition"><summary class="sec">Weight &amp; condition <span class="assessment-strip" data-weight-strip data-date="${today}">${weightConditionStrip(today)}</span></summary><div class="sec"><div data-weight-summary="body" data-date="${today}">${weightConditionContent(today,false)}</div><div class="review-subsec"><p class="lab">Weight averages</p>${meanRows(today,true,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}</div><div class="review-subsec"><p class="lab">Condition averages</p>${meanRows(today,false,[14,28])||'<p class="muted">No readings in the last 28 days.</p>'}<p class="sub">Excellent range 4.5–5.5; ideal centre 5.0. Body Condition Score (BCS) directly governs weekly DARF ration adjustments, while weight trends and the 5-entry mean are tracked for ongoing health monitoring.</p></div></div></details>`+
     `<details class="card" id="review-week-context"><summary class="sec">This week against last <span class="fold-strip">Walks, bowl, treats and extras</span></summary><div class="sec">${ctx}</div></details>`+
     `<details class="card" id="review-trends"><summary class="sec">Trends &amp; charts <span class="fold-strip">${rangeLabel} · weight, condition and stools</span></summary><div class="sec"><div class="chips data-range" role="group" aria-label="Trend range" aria-describedby="trend-range-note">${rangeChips(range,'range')}</div><p class="sub range-note" id="trend-range-note">Applies to History and Review.</p><p class="lab">Weight, kg</p><p class="chart-summary">Target ${WEIGHT_TARGET_TEXT} · acceptable range ${WEIGHT_RANGE_TEXT}.</p>${lineChart(W.map(w=>({x:toDay(w.date),y:w.kg})),'kg',null,null,chartRange)}</div><div class="sec"><p class="lab">Condition</p>${lineChart(B.map(b=>({x:toDay(b.date),y:b.v})),'bcs',[3,7],5.0,chartRange)}</div><div class="sec"><p class="lab">Stools</p>${stoolChart(isos)}</div></details>`+
@@ -3009,12 +3013,12 @@ function syncSectionBody(){
   const oldest=stamps.sort((a,b)=>a-b)[0];
   const waiting=n?`<b>${n} change${n===1?'':'s'} waiting</b> on this device${oldest?`, the oldest saved at ${clockText(oldest)}`:''}. `+
     (held?`<b>Sending is held</b> because ${unreadableOutbox.length===1?'one change can’t':unreadableOutbox.length+' changes can’t'} be read. Save a recovery file, then set ${unreadableOutbox.length===1?'it':'them'} aside to let the rest sync.`:
-      `${n===1?'It syncs':'They sync'} automatically when there is signal.`):'No changes are waiting on this device.';
+      'Keep the app open while connected to finish syncing. If it was closed, reopen it and check the sync status.'):'No changes are waiting on this device.';
   const recovery=held||setAside?`<div class="btnrow"><button class="btn ghost sm" id="settings-outbox-recovery" data-act="outboxrecovery">Save recovery file</button>${held?'<button class="btn ghost sm" id="settings-outbox-set-aside" data-act="outboxsetaside">Set aside and continue syncing</button>':''}</div>`+
     (setAside?`<p class="sub">${setAside} unreadable change${setAside===1?' is':'s are'} set aside on this device. ${setAside===1?'It is':'They are'} never sent, and ${setAside===1?'is':'are'} included in recovery files and Full backup.</p>`:''):'';
   const confirmed=S.lastConfirmed?`Last confirmed with the server at ${clockText(S.lastConfirmed)}.`:'Not yet confirmed with the server on this device.';
-  const storage={persisted:'Storage is protected: iOS will not clear this app’s saved data automatically.',
-    'best-effort':'Storage is not protected: iOS may clear this app’s data if the phone runs short of space. Keep the app on the Home Screen and save a Full backup regularly.',
+  const storage={persisted:'Storage is protected from automatic browser clearing. Space is still limited, and clearing website data removes local records. Save a Full backup regularly.',
+    'best-effort':'Storage is not protected: this browser may clear local data under storage pressure. Keep the app on the Home Screen and save a Full backup regularly.',
     unsupported:'Storage protection cannot be checked in this browser.',unknown:'Storage protection could not be checked.'}[S.storageProtection]||'Checking storage protection…';
   const old=S.undo&&!undoSticky(S.undo)&&!S.undoBusy?`<div class="review-subsec"><h5 class="lab">Recently removed</h5>${undoNote(S.undo)}</div>`:'';
   return `<p class="chart-summary" id="settings-sync-status">${esc(S.status)}</p><p class="sub">${waiting}</p><p class="sub">${confirmed}</p><p class="sub">${storage}</p>`+
