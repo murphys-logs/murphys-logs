@@ -39,6 +39,10 @@ const revealing = (page, locator) => new Proxy(locator, { get(target, prop) {
   return typeof value === 'function' ? value.bind(target) : value;
 } });
 
+// Weight is weighed by difference: Murphy = combined (holding Murphy) − solo.
+const reading = (page, part) => page.locator(`[data-form][data-key="weight"] [data-weigh="${part}"]`).first();
+const weighIn = async (page, kg) => { await reading(page, 'solo').fill('70'); await reading(page, 'combined').fill((70 + kg).toFixed(2)); };
+
 async function main() {
   const browser = await chromium.launch({ headless: true,
     ...(process.env.BROWSER_EXECUTABLE ? { executablePath: process.env.BROWSER_EXECUTABLE } : {}) });
@@ -111,7 +115,7 @@ async function main() {
     const ordinaryStool = { id: 'ordinary-edit', time: '07:30', bristol: 4, mucus: false, blood: false };
     await scenario('notes, weight and an unsaved stool edit survive ordinary navigation without writes or discard prompts', async ({ page, field, tab, day, queued }) => {
       await field('notes').fill('Keep this note\nSecond line');
-      await field('weight').fill('18.75');
+      await weighIn(page, 18.75);
       await page.locator('[data-act="editstool"][data-id="ordinary-edit"]').click();
       await page.locator('#st-t').fill('22:17');
       await page.locator('[data-act="tog-mucus"]').click();
@@ -665,17 +669,18 @@ async function main() {
       } });
     }
 
-    await scenario('an incomplete native number can never become a clearing write after navigation', async ({ page, field, tab, queued }) => {
-      await field('weight').fill(''); await field('weight').press('e');
-      assert.equal(await field('weight').evaluate(el => el.validity.badInput), true);
+    await scenario('non-numeric weight text survives navigation and can never become a clearing write', async ({ page, field, tab, queued }) => {
+      await reading(page, 'solo').fill(''); await reading(page, 'solo').press('e');
+      assert.equal(await reading(page, 'solo').inputValue(), 'e', 'weight readings keep typed text');
       await page.locator('#tabbar [data-tab="review"]').click();
-      // A narrow guard for unrepresentable native number text is also safe.
-      if (await page.evaluate(() => testApp.S.tab) !== 'today') await tab('today');
+      assert.equal(await page.evaluate(() => testApp.S.tab), 'review', 'the trip to Review really happens');
+      await tab('today');
+      assert.equal(await reading(page, 'solo').inputValue(), 'e', 'the typed text survives the return to Today');
       await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight), 18.7);
       assert.equal(await queued(), 0);
-      assert.equal(await field('weight').getAttribute('aria-invalid'), 'true');
-      await field('weight').fill('18.8');
+      assert.equal(await reading(page, 'solo').getAttribute('aria-invalid'), 'true');
+      await weighIn(page, 18.8);
       await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
       assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight), 18.8);
       assert.equal(await queued(), 1);

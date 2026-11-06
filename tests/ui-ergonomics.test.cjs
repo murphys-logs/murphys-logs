@@ -79,7 +79,7 @@ function makeHarness({ days = {}, dirty = false, now = TODAY + 'T10:00:00Z', sou
     download = (...args) => globalThis.testDownloads.push(args);
     globalThis.api = { S, setStatus, storeError, bindSaveError, clearSaveError, resetSaveFeedback, feedback: realRenderFeedback, stoolsCard, todoCard, viewToday, viewDay, viewHistory, viewReview, viewSettings, navigateTo, normalizeTab, navDestination, formatAlertDates, formatVetAlertHeadline, rationAlertDateText, weeklyAdvice, insights, todayMealCard, foldSummary, WEIGHT_TARGET_TEXT, WEIGHT_RANGE_TEXT,
       exportMonthCsv, exportMonthMd, exportAll, previousMonth, exportMonthOptions, selectedExportMonth, exportOutputNote, refreshSettingsReadOnly, APP_VERSION, downloads: globalThis.testDownloads,
-      weightAssessment, weightNumber, weightDeviation, weightOverview, fiveEntryWeightMean, weightMeanContent, weightHintContent, lineChart, toDay, toIso, computeDarfAdjustment,
+      weightAssessment, weightNumber, weightDeviation, weightOverview, fiveEntryWeightMean, weightMeanContent, weightHintContent, netWeightKg, weighInCheck, weighInField, WEIGH_IN_RANGE, lineChart, toDay, toIso, computeDarfAdjustment,
       setDraftToday: value => { draftToday = value; },
       draft: () => stoolDraft, setDraft: (draft, original = null) => { stoolDraft = draft; stoolOriginal = original; }, write, flushWrites, queuedWrites, saveDay, resyncIfPending, onResumeOrReconnect,
       pendingFlush: () => flushTask };
@@ -265,7 +265,7 @@ test('to-log shortcuts act on their own card date, including a recovered earlier
   const card = h.api.todoCard(YESTERDAY);
   assert.match(card, /data-act="jump" data-k="weight" data-date="2026-10-27"/);
   await h.click('jump', { k: 'weight', date: YESTERDAY });
-  assert.equal(h.document.activeElement.selector, '#in-weight-2026-10-27', 'not the current London date');
+  assert.equal(h.document.activeElement.selector, '#in-weightsolo-2026-10-27', 'not the current London date');
 });
 
 for (const tab of ['today', 'day']) {
@@ -564,6 +564,111 @@ test('weight classification includes both boundaries without rounding outside re
   assert.equal(api.weightDeviation(18.5), '−0.50 kg (−2.63%) from target');
 });
 
+test('weigh-in by difference rounds the subtraction to 2 dp, free of IEEE 754 artefacts', () => {
+  const { api } = makeHarness();
+  assert.notEqual(102.4 - 83.85, 18.55, 'the raw JavaScript subtraction carries an artefact (18.55000000000001)');
+  assert.equal(api.netWeightKg(83.85, 102.4), 18.55);
+  assert.deepEqual({ ...api.weighInCheck('83.85', '102.4') }, { kg: 18.55, empty: false, problem: null });
+  // Further pairs whose raw difference is not the exact 2 dp value.
+  for (const [solo, combined, kg] of [[70.1, 88.8, 18.7], [80.3, 99.75, 19.45], [64.07, 83.03, 18.96], [90.9, 110, 19.1], [75.33, 94.78, 19.45]]) {
+    assert.equal(api.netWeightKg(solo, combined), kg, `${combined} − ${solo}`);
+    assert.equal(api.weighInCheck(String(solo), String(combined)).kg, kg);
+  }
+  // Every 2 dp pair in a realistic band subtracts to its exact 2 dp result.
+  for (let s = 6000; s <= 6100; s += 7) for (let n = 1000; n <= 3000; n += 13) {
+    const solo = s / 100, combined = Number(((s + n) / 100).toFixed(2));
+    assert.equal(api.netWeightKg(solo, combined), n / 100, `${combined} − ${solo}`);
+  }
+  assert.equal(api.weighInCheck(' 83.85 ', '102.40').kg, 18.55, 'whitespace and trailing zeros are harmless');
+  assert.equal(api.weighInCheck('83.850', '102.4').kg, 18.55, 'trailing zeros are not extra precision');
+  assert.equal(api.weighInCheck('83.', '102.4').kg, 19.4, 'a trailing point is a whole number');
+  // At the 500 kg reading cap, every 2 dp pair still subtracts exactly.
+  for (let s = 47000; s <= 48000; s += 3) for (let n = 1000; n <= 3000; n += 17) {
+    const solo = s / 100, combined = Number(((s + n) / 100).toFixed(2));
+    if (combined > 500) continue;
+    assert.equal(api.weighInCheck(String(solo), String(combined)).kg, n / 100, `${combined} − ${solo}`);
+  }
+});
+
+test('weigh-in validation blocks empty, non-numeric, non-positive, inverted and out-of-range readings', () => {
+  const { api } = makeHarness();
+  const problem = (solo, combined, bad) => { const r = api.weighInCheck(solo, combined, bad); assert.equal(r.kg, null, `${solo} / ${combined}`); return r.problem; };
+  // Incomplete
+  assert.equal(problem('', '').part, 'solo');
+  assert.equal(problem('', '102.4').part, 'solo');
+  assert.equal(problem('83.85', '').part, 'combined');
+  assert.equal(problem(null, undefined).part, 'solo');
+  assert.equal(api.weighInCheck('83.85', '').empty, true, 'one empty reading is incomplete, not invalid');
+  assert.match(problem('83.85', '').message, /combined weight holding Murphy/);
+  // NaN, zero and negatives
+  for (const bad of ['abc', 'NaN', '0', '-5', 'Infinity']) {
+    assert.equal(problem(bad, '102.4').part, 'solo', `solo ${bad}`);
+    assert.equal(problem('83.85', bad).part, 'combined', `combined ${bad}`);
+  }
+  assert.match(problem('0', '102.4').message, /above zero/);
+  // Readings are text exactly as typed, so nothing a keyboard sends is dropped.
+  assert.match(problem('e', '102.4').message, /^Your weight: enter plain kilograms/);
+  assert.match(problem('83.85', ',').message, /^The combined weight: enter plain kilograms/);
+  for (const text of ['1,2,3', '83,85.1', '83.85.1', '+83.85']) assert.match(problem(text, '102.4').message, /plain kilograms/, text);
+  // One decimal comma reads as a point, for keypads that show a comma.
+  assert.equal(api.weighInCheck('83,85', '102,4').kg, 18.55);
+  assert.equal(api.weighInCheck(' 83,850 ', '102,40').kg, 18.55);
+  assert.match(problem('83,855', '102.4').message, /two decimal places/);
+  // Codex: a native number field turned '8,5' into '85' and saved 17.4 kg; it now reads 8.5.
+  assert.match(problem('8,5', '102.4').message, /^That makes Murphy 93\.90 kg/);
+  // More than two decimal places
+  assert.match(problem('83.855', '102.4').message, /two decimal places/);
+  // Combined must be strictly greater than solo
+  for (const [solo, combined] of [['83.85', '83.85'], ['102.4', '83.85'], ['83.85', '83.84']]) {
+    const p = problem(solo, combined);
+    assert.equal(p.part, 'combined');
+    assert.equal(p.message, 'The combined weight must be more than your weight alone.');
+  }
+  // Murphy's net weight keeps the single field's former 10–30 kg bounds
+  assert.deepEqual({ ...api.WEIGH_IN_RANGE }, { minKg: 10, maxKg: 30, maxReadingKg: 500 });
+  assert.match(problem('83.85', '88.85').message, /That makes Murphy 5\.00 kg, outside 10–30 kg/);
+  assert.equal(problem('50', '80.01').part, 'combined');
+  assert.equal(api.weighInCheck('50', '60').kg, 10, 'lower bound inclusive');
+  assert.equal(api.weighInCheck('50', '80').kg, 30, 'upper bound inclusive');
+  // Precision is read from the typed digits: no tolerance lets extra digits through.
+  for (const solo of ['83.850000001', '83.8500001', '0.000000001', '83.851']) {
+    assert.match(problem(solo, '102.4').message, /^Your weight: use up to two decimal places\.$/, solo);
+  }
+  // Exponent notation is never a plain kilogram reading, however small or large.
+  for (const solo of ['1e-9', '1e2', '8.385E1']) assert.match(problem(solo, '102.4').message, /plain kilograms/, solo);
+  assert.match(problem('83.85', '1e17').message, /^The combined weight: enter plain kilograms/);
+  // Readings above the cap never reach the subtraction (1e17 + 9 would round to 1e17 + 16).
+  assert.equal(problem('100000000000000000', '100000000000000009').message, 'Your weight must be at most 500 kg.');
+  assert.equal(problem('480', '500.01').message, 'The combined weight must be at most 500 kg.');
+  assert.equal(api.weighInCheck('480', '500').kg, 20, 'a 500 kg reading is allowed');
+});
+
+test('weigh-in field: two iPhone decimal inputs, one hidden net value and no stored readings', () => {
+  const h = makeHarness({ days: { [TODAY]: { weight: 18.7, bcs: 5 }, [YESTERDAY]: { weight: 18.6, weightMissed: true } } });
+  const html = h.api.weighInField(TODAY);
+  for (const part of ['solo', 'combined']) {
+    const input = html.match(new RegExp(`<input id="in-weight${part}-${TODAY}"[^>]*>`))[0];
+    assert.match(input, /type="text"/); assert.match(input, /inputmode="decimal"/); assert.doesNotMatch(input, /step=|min=/);
+    assert.match(input, /autocorrect="off"/); assert.match(input, /spellcheck="false"/);
+    assert.doesNotMatch(input, /value=/, 'readings always start empty; they are never stored');
+  }
+  assert.match(html, new RegExp(`<label for="in-weightsolo-${TODAY}">Your weight \\(solo\\), kg</label>`));
+  assert.match(html, new RegExp(`<label for="in-weightcombined-${TODAY}">Combined weight \\(holding Murphy\\), kg</label>`));
+  // The first input in the form is still the single saved value the draft and save paths read.
+  assert.match(html, new RegExp(`^<div data-form data-date="${TODAY}" data-key="weight"[^>]*>\\s*<input id="in-weight-${TODAY}" type="number" step="any" value="18.7" hidden >`));
+  assert.match(html, /data-weigh-result data-state="idle">Saved 18\.70 kg · weigh again to replace it\.<\/output>/);
+  assert.match(h.api.weighInField('2026-10-20'), /Before feeding: weigh alone, then holding Murphy\./);
+  const missed = h.api.weighInField(YESTERDAY);
+  assert.equal((missed.match(/ disabled /g) || []).length, 2, 'both readings are locked while Weight missed is on');
+  assert.match(missed, new RegExp(`<input id="in-weight-${YESTERDAY}" type="number" step="any" value="" hidden disabled>`));
+  // Both Today and History editors use it.
+  assert.match(h.api.viewToday(), new RegExp(`id="in-weightcombined-${TODAY}"`));
+  h.api.S.cursor = TODAY;
+  assert.match(h.api.viewDay(), new RegExp(`id="in-weightcombined-${TODAY}"`));
+  assert.match(css, /\.field input\{[^}]*font-size:max\(16px,/, 'inputs never trigger iOS focus zoom');
+  assert.match(css, /input,select,\.btn\{min-height:44px\}/);
+});
+
 test('rolling means and History use the new band while missing weights stay excluded', () => {
   for (const kg of [18.5, 19.5]) {
     const h = makeHarness({ days: {
@@ -630,7 +735,7 @@ test('recovered Today shortcuts use the displayed draft day rather than the curr
   const h = makeHarness({dirty:true});
   h.api.setDraftToday('2026-10-26');
   await h.click('jump',{k:'weight',date:'2026-10-26'});
-  assert.equal(h.document.activeElement.selector,'#in-weight-2026-10-26');
+  assert.equal(h.document.activeElement.selector,'#in-weightsolo-2026-10-26');
   await h.click('jump',{k:'bowl',date:'2026-10-26'});
   assert.equal(h.api.S.cursor,'2026-10-25');
 });
@@ -831,7 +936,7 @@ test('release identifiers stay aligned across HTML shell, module and service wor
   const htmlVer = html.match(/<html[^>]*data-version="([^"]+)"/)?.[1];
   const swVer = swSource.match(/const VERSION = '([^']+)'/)?.[1];
   const h = makeHarness();
-  assert.equal(htmlVer, '3.11.0');
+  assert.equal(htmlVer, '3.12.0');
   assert.equal(h.api.APP_VERSION, htmlVer);
   assert.equal(swVer, htmlVer);
 });
@@ -949,7 +1054,7 @@ test('Settings monthly export handles 1 November and year/leap boundaries, expor
   // Separate Full backup exports everything as JSON:
   await h.click('exportall');
   assert.equal(h.api.downloads[3][0], 'Murphy_Log_backup_2026-11-01.json');
-  assert.match(h.api.downloads[3][1], /"version": "3\.11\.0"/);
+  assert.match(h.api.downloads[3][1], /"version": "3\.12\.0"/);
   assert.equal(h.storage.size, 0, 'selecting months, formats and exporting writes nothing to storage');
 
   // Empty-account check on 1 November, 1 January and leap-year 1 March:

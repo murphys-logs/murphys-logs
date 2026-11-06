@@ -101,7 +101,10 @@ async function main() {
     const savedDraft = () => page.evaluate(() => JSON.parse(localStorage.getItem(testApp.draftKey())));
     const reload = async () => { await page.reload(); await page.waitForFunction(() => window.testApp?.S.ready); };
     const flush = () => page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-    await field('weight').fill('18.75');
+    // Weight is weighed by difference: Murphy = combined (holding Murphy) − solo.
+    const reading = part => revealing(page, page.locator(`[data-form][data-key="weight"] [data-weigh="${part}"]`).first());
+    const weighIn = async kg => { await reading('solo').fill('70'); await reading('combined').fill((70 + kg).toFixed(2)); };
+    await weighIn(18.75);
     await page.evaluate(() => {
       window.realSetItem=Storage.prototype.setItem;
       Storage.prototype.setItem=function(key,value){
@@ -177,7 +180,7 @@ async function main() {
     passed++;console.log('PASS dismissing a failed chip action cannot clear an unrelated failed draft');
 
     await blockWrites();
-    await field('weight').fill('18.75');
+    await weighIn(18.75);
     await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
     await field('notes').fill('Unsaved note');
     await page.locator('[data-key="notes"] [data-act="saveinput"]').click();
@@ -222,7 +225,7 @@ async function main() {
     passed++;console.log('PASS stool and feeding-time cancellation clear only their failure and retain pending-sync Retry');
 
     await blockWrites();
-    await field('weight').fill('18.75');
+    await weighIn(18.75);
     await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
     await allowWrites();
     await page.locator('[data-key="weight"] [data-act="saveinput"]').click();
@@ -271,32 +274,33 @@ async function main() {
     assert.equal((await savedDraft()).fields.length, 1);
     await page.locator('[data-key="notes"] [data-act="cancelinput"]').click();
     assert.equal(await savedDraft(), null);
-    await field('weight').fill('18.75');
-    await field('weight').evaluate(input => {
+    await weighIn(18.75);
+    await reading('combined').evaluate(input => {
       input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
       input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
     });
     assert.equal(await page.evaluate(() => testApp.S.days['2026-11-01'].weight), 18.75);
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
-    assert.equal(await field('weight').getAttribute('enterkeyhint'), 'done');
+    assert.equal(await reading('combined').getAttribute('enterkeyhint'), 'done');
     passed++; console.log('PASS numeric Enter confirms once locally; notes keep newlines; Save/Cancel clear drafts');
 
-    await field('weight').fill('18.755');
-    await field('weight').press('Enter');
-    assert.equal(await field('weight').getAttribute('aria-invalid'), 'true');
+    await reading('solo').fill('70'); await reading('combined').fill('88.755');
+    await reading('combined').press('Enter');
+    assert.equal(await reading('combined').getAttribute('aria-invalid'), 'true');
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
-    await field('weight').fill('19');
-    await field('weight').evaluate(input => input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true})));
-    assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
-    await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
-    // Native invalid partial numbers must never become a clear operation.
-    await field('weight').fill('');await field('weight').press('e');
-    assert.equal(await field('weight').evaluate(input => input.validity.badInput), true);
-    await field('weight').press('Enter');
-    assert.equal(await field('weight').getAttribute('aria-invalid'), 'true');
+    await reading('combined').fill('89');
+    await reading('combined').evaluate(input => input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',isComposing:true,bubbles:true})));
     assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
     await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
-    passed++; console.log('PASS step validation, IME composition and native incomplete numbers never queue invalid edits');
+    // Non-numeric weight text must never become a clear operation.
+    await reading('solo').fill('70');
+    await reading('combined').fill('');await reading('combined').press('e');
+    assert.equal(await reading('combined').inputValue(), 'e');
+    await reading('combined').press('Enter');
+    assert.equal(await reading('combined').getAttribute('aria-invalid'), 'true');
+    assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 2);
+    await page.locator('[data-key="weight"] [data-act="cancelinput"]').click();
+    passed++; console.log('PASS step validation, IME composition and non-numeric weight text never queue invalid edits');
 
     await page.locator('[data-act="editstool"][data-id="draft-existing"]').click();
     await page.locator('#st-t').fill('22:17');
