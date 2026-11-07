@@ -175,8 +175,8 @@ async function main() {
         assert.ok(Math.abs(unsaved.top - before) < 0.5, `${label}: no content shift on leaving the field (${before} → ${unsaved.top})`);
         await page.locator(selector).focus();
         await page.locator(selector).press('Escape');
-        // Cancelling already updates "Still to log" above the field (its "typed, not saved"
-        // chip goes), so measure only the step that pins the notices again.
+        // Cancelling already updates "Still to log" and the section's "Unsaved changes"
+        // marker above the field, so measure only the step that pins the notices again.
         const cancelled = await state(selector);
         await page.evaluate(() => document.activeElement?.blur?.());
         const settled = await state(selector);
@@ -222,22 +222,28 @@ async function main() {
 
     // A failed local save while notices are out of the way (CC-K2, accepted trade-off):
     // the "Could not save locally" alert sits with the other notices at the top of the
-    // page, outside the keyboard viewport, but the failure is never silent. The pinned
-    // status reads "Not saved", the alert keeps role="alert", the entry and its value stay
-    // open with Save still focused and visible, and nothing is queued.
-    {
+    // page, outside the keyboard viewport. The pinned status reads "Not saved", the
+    // alert keeps role="alert" (actual announcement needs VoiceOver testing), and the
+    // entry stays open. Save may lose focus while disabled or never take it on Safari;
+    // verify the enabled, visible button actually retries after storage recovers.
+    for (const activation of ['touch', 'keyboard', 'safari-touch']) {
       const [width, height, visible] = PHONES[0];
       const { context, page } = await open({ viewport: { width, height }, isMobile: true, hasTouch: true });
+      if (activation === 'safari-touch') await page.evaluate(() => document.addEventListener('mousedown', event => {
+        if (!event.target.closest?.('button')) return;
+        event.preventDefault(); document.activeElement?.blur?.();
+      }, true));
       await page.evaluate(date => testApp.open('day', { date }), YESTERDAY);
       await showNotices(page);
       await openKeyboard(page, visible);
       const selector = `#in-walkMin-${YESTERDAY}`, saveId = `save-in-walkMin-${YESTERDAY}`;
       await page.locator(selector).focus();
       await page.locator(selector).pressSequentially('45');
-      const queuedBefore = await page.evaluate(() => testApp.queuedWrites().length);
+      const before = await page.evaluate(date => ({ day: testApp.S.days[date], writes: testApp.queuedWrites() }), YESTERDAY);
       // Local storage refuses new outbox entries, as when the device is out of space.
       await page.evaluate(() => {
         const set = Storage.prototype.setItem;
+        window.restoreTestStorage = () => { Storage.prototype.setItem = set; };
         Storage.prototype.setItem = function (key, value) {
           if (String(key).startsWith('murphy-outbox')) throw new DOMException('Quota exceeded', 'QuotaExceededError');
           return set.call(this, key, value);
@@ -245,26 +251,48 @@ async function main() {
       });
       const target = await page.evaluate(id => { const r = document.getElementById(id).getBoundingClientRect();
         return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, saveId);
-      await page.touchscreen.tap(target.x, target.y);
+      if (activation === 'keyboard') {
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => document.activeElement.id), saveId, 'Tab reaches Save before confirmation');
+        await page.keyboard.press('Enter');
+      } else await page.touchscreen.tap(target.x, target.y);
       await page.waitForFunction(() => document.getElementById('state').textContent === 'Not saved');
+      await page.waitForFunction(id => document.getElementById(id)?.disabled === false, saveId);
       const failed = await page.evaluate(({ selector, saveId, visible }) => {
         const feedback = document.getElementById('feedback'), state = document.getElementById('state').getBoundingClientRect();
         const alert = [...feedback.querySelectorAll('.note')].find(n => /Could not save locally/.test(n.textContent));
-        const form = document.querySelector(selector).closest('[data-form]'), save = document.getElementById(saveId)?.getBoundingClientRect();
+        const form = document.querySelector(selector).closest('[data-form]'), button = document.getElementById(saveId);
+        const save = button?.getBoundingClientRect(), x = save ? save.left + save.width / 2 : 0, y = save ? save.top + save.height / 2 : 0;
         return { stateVisible: state.top >= 0 && state.bottom <= visible, alertRole: alert?.getAttribute('role'),
           position: getComputedStyle(feedback).position, dirty: form.hasAttribute('data-dirty'),
-          value: document.querySelector(selector).value, focus: document.activeElement?.id,
+          value: document.querySelector(selector).value, saveEnabled: !!button && !button.disabled,
+          saveHit: !!button && button.contains(document.elementFromPoint(x, y)), x, y,
           saveVisible: !!save && save.top >= document.querySelector('.topbar').getBoundingClientRect().bottom && save.bottom <= visible };
       }, { selector, saveId, visible });
       assert.ok(failed.stateVisible, 'the pinned status line shows "Not saved" inside the keyboard viewport');
-      assert.equal(failed.alertRole, 'alert', 'the failure notice is still present and announced');
+      assert.equal(failed.alertRole, 'alert', 'the failure notice retains alert semantics');
       assert.equal(failed.position, 'static', 'notices stay out of the way while the entry is still unsaved');
       assert.equal(failed.dirty, true, 'the entry stays open');
       assert.equal(failed.value, '45', 'the typed value is kept');
-      assert.equal(failed.focus, saveId, 'Save keeps focus for a retry');
+      assert.ok(failed.saveEnabled, 'Save is enabled for a retry');
       assert.ok(failed.saveVisible, 'Save stays visible above the keyboard for a retry');
-      assert.equal(await page.evaluate(() => testApp.queuedWrites().length), queuedBefore, 'nothing is queued by the failed save');
-      pass(`failed local save keeps "Not saved" pinned, the entry open and Save reachable at ${width}x${height}/${visible}px keyboard viewport`);
+      assert.ok(failed.saveHit, 'the retry button is not covered');
+      assert.deepEqual(await page.evaluate(date => testApp.S.days[date], YESTERDAY), before.day, 'the failed save leaves the saved record unchanged');
+      assert.deepEqual(await page.evaluate(() => testApp.queuedWrites()), before.writes, 'the failed save leaves the queue unchanged');
+      await page.evaluate(() => window.restoreTestStorage());
+      // No locator scrolling or retry: one tap at the visible button must complete.
+      await page.touchscreen.tap(failed.x, failed.y);
+      await page.waitForFunction(selector => !document.querySelector(selector).closest('[data-form]').hasAttribute('data-dirty'), selector);
+      assert.equal(await page.evaluate(date => testApp.S.days[date].walkMin, YESTERDAY), 45, 'one retry saves the retained value');
+      const writes = await page.evaluate(() => testApp.queuedWrites());
+      assert.equal(writes.length, before.writes.length + 1, 'one retry queues exactly one change');
+      const added = writes.filter(([key]) => !before.writes.some(([oldKey]) => oldKey === key));
+      assert.equal(added.length, 1, 'the retry adds one distinct operation');
+      assert.equal(added[0][1].col, 'days');
+      assert.equal(added[0][1].id, YESTERDAY);
+      assert.equal(added[0][1].patch.walkMin, 45);
+      assert.equal(await page.locator(selector).evaluate(el => el.closest('[data-form]').querySelector('[data-confirm]')), null, 'successful retry closes confirmation');
+      pass(`${activation} failed local save keeps "Not saved" pinned and retries exactly once at ${width}x${height}/${visible}px keyboard viewport`);
       await context.close();
     }
 
