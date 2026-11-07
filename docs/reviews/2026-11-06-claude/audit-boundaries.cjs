@@ -42,7 +42,7 @@ const guardPattern = /<script id="notice-pointer-guard">[\s\S]*?<\/script>\n/g;
 const guards = after.rest.match(guardPattern) || [];
 assert.equal(guards.length, 1, 'one isolated presentation pointer guard');
 assert.equal(createHash('sha256').update(guards[0]).digest('hex'),
-  'e2e10a11875554f11f5df2e14fba3af6fec8241284f01b98eff2a3341037c047', 'pointer guard matches its reviewed content');
+  '9d2b5f6d27e36ae8ec0a2baf35e82ebc2e78493a3bbf744a3f88b991e951a2b9', 'pointer guard matches its reviewed content');
 assert.equal(after.rest.replace(guardPattern, ''), before.rest, 'all pre-existing markup and scripts are unchanged apart from APP_VERSION');
 
 // Firebase surface, checked explicitly as well (subsumed by the comparison above).

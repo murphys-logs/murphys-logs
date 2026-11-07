@@ -219,7 +219,9 @@ async function main() {
         assert.equal(duration, '0s', 'the safety delay never animates the notices');
         assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-notice-press')), false, 'release clears the presentation marker');
         if (touchSession) {
-          // A cancelled contact must not leave notices permanently unpinned.
+          // Cancellation must clear a hold that began during keyboard entry.
+          // An ordinary contact after repinning no longer starts a hold (CC-R7).
+          await page.locator(`#in-activeMin-${YESTERDAY}`).focus();
           const cancelTarget = await page.evaluate(id => {
             const button = document.getElementById(id), box = button.getBoundingClientRect();
             scrollBy(0, box.top + box.height / 2 - (innerHeight - 100));
@@ -229,7 +231,9 @@ async function main() {
           }, target.id);
           assert.ok(cancelTarget.hit, 'cancel fixture starts on a visible main control');
           await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cancelTarget.x, y: cancelTarget.y }] });
-          assert.equal(await page.evaluate(pinned), false, 'a new contact holds notices away');
+          await page.evaluate(() => document.activeElement.blur());
+          assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-notice-press')), true, 'contact during keyboard entry starts a hold');
+          assert.equal(await page.evaluate(pinned), false, 'the hold keeps notices away after the field loses focus');
           await touchSession.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
           await waitForPinned(page);
           assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-notice-press')), false, 'cancellation clears the presentation marker');
@@ -335,6 +339,94 @@ async function main() {
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), queuedBefore, 'cancelling queues no write');
       pass(`collapsed unsaved entry leaves notices pinned at ${width}x${height}`);
       await context.close();
+    }
+
+    // CC-R7: ordinary use must not hide notices that are already pinned. Sample
+    // during pointer dispatch as well as animation frames so a brief hide/return
+    // cannot pass just because the notices have settled by the final assertion.
+    for (const [width, height] of PHONES) for (const reducedMotion of ['no-preference', 'reduce']) {
+      for (const interaction of ['meal-tap', 'scroll', 'summary-tap']) {
+        const { context, page } = await open({ viewport: { width, height }, isMobile: true, hasTouch: true, reducedMotion });
+        if (interaction !== 'summary-tap') await page.evaluate(date => testApp.open('day', { date }), YESTERDAY);
+        await showNotices(page);
+        const selector = interaction === 'summary-tap' ? `#activity-${TODAY} > summary` :
+          interaction === 'meal-tap' ? `#meal-broth-${YESTERDAY}` : `#bcs-${YESTERDAY}-4`;
+        await page.evaluate(selector => {
+          const box = document.querySelector(selector).getBoundingClientRect();
+          scrollBy(0, box.top + box.height / 2 - (innerHeight - 110));
+        }, selector);
+        await waitForPinned(page);
+        const target = await page.evaluate(selector => {
+          const el = document.querySelector(selector), box = el.getBoundingClientRect();
+          const x = box.left + box.width / 2, y = box.top + box.height / 2;
+          return { x, y, hit: el.contains(document.elementFromPoint(x, y)), scrollY,
+            dirty: document.querySelectorAll('#main [data-dirty]').length,
+            keyboardFocus: !!document.activeElement?.matches?.('#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"]))'),
+            summaryOpen: el.closest('details')?.open ?? null };
+        }, selector);
+        assert.ok(target.hit && target.scrollY > 100, 'ordinary-use fixture has a hittable control below pinned notices on a scrolled page');
+        assert.equal(target.dirty, 0, 'ordinary-use fixture has no dirty form');
+        assert.equal(target.keyboardFocus, false, 'ordinary-use fixture has no keyboard field focused');
+        if (interaction === 'summary-tap') assert.equal(target.summaryOpen, false, 'the summary starts closed');
+        const before = await page.evaluate(() => ({ banner: testApp.S.banner, undo: testApp.S.undo, writes: testApp.queuedWrites() }));
+        await page.evaluate(() => {
+          const samples = [];
+          let frame;
+          const sample = event => {
+            const feedback = document.getElementById('feedback'), box = feedback.getBoundingClientRect();
+            const header = document.querySelector('.topbar').getBoundingClientRect();
+            const y = Math.max(header.bottom + 1, box.top + box.height / 2);
+            samples.push({ event: event?.type || 'frame', at: performance.now(),
+              top: parseFloat(getComputedStyle(feedback).top),
+              held: document.documentElement.hasAttribute('data-notice-press'),
+              visible: box.bottom > header.bottom + 1 && box.top < innerHeight,
+              hittable: feedback.contains(document.elementFromPoint(box.left + box.width / 2, y)) });
+          };
+          const tick = () => { sample(); frame = requestAnimationFrame(tick); };
+          const events = ['pointerdown', 'pointerup', 'pointercancel'];
+          for (const event of events) document.addEventListener(event, sample, true);
+          tick();
+          window.finishNoticeSamples = () => {
+            cancelAnimationFrame(frame);
+            for (const event of events) document.removeEventListener(event, sample, true);
+            sample();
+            return samples;
+          };
+        });
+        if (interaction === 'scroll') {
+          const session = await context.newCDPSession(page);
+          await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: target.x, y: target.y }] });
+          for (let distance = 10; distance <= 100; distance += 10) {
+            await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: target.x, y: target.y - distance }] });
+            await page.waitForTimeout(20);
+          }
+          await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        } else await page.touchscreen.tap(target.x, target.y);
+        await page.waitForTimeout(800);
+        const samples = await page.evaluate(() => window.finishNoticeSamples());
+        assert.ok(samples.length > 10 && samples.at(-1).at - samples[0].at >= 750, 'sampling covers the gesture and the full former repin delay');
+        assert.ok(samples.some(sample => sample.event === 'pointerdown'), 'the raw gesture actually dispatched a pointer contact');
+        const hidden = samples.filter(sample => sample.top < 0 || sample.held || !sample.visible || !sample.hittable);
+        assert.deepEqual(hidden, [], `${interaction}: already-pinned notices stay visible throughout ordinary interaction`);
+        const after = await page.evaluate(date => ({ banner: testApp.S.banner, undo: testApp.S.undo,
+          writes: testApp.queuedWrites(), broth: testApp.S.days[date].meal?.broth, scrollY }), YESTERDAY);
+        assert.deepEqual(after.banner, before.banner, 'ordinary use does not dismiss or retry the banner');
+        assert.deepEqual(after.undo, before.undo, 'ordinary use does not activate Undo');
+        if (interaction === 'meal-tap') {
+          assert.equal(after.broth, true, 'one raw tap toggles the intended meal switch');
+          assert.equal(after.writes.length, before.writes.length + 1, 'the meal tap queues exactly one operation');
+          const op = after.writes.at(-1)[1];
+          assert.equal(op.col, 'days');
+          assert.equal(op.id, YESTERDAY);
+          assert.equal(op.patch.meal.broth, true, 'the queued operation records the intended meal change');
+        } else {
+          assert.deepEqual(after.writes, before.writes, 'scrolling or opening a summary queues no operation');
+          if (interaction === 'scroll') assert.ok(after.scrollY > target.scrollY + 40, 'the CDP gesture actually scrolls the page');
+          else assert.equal(await page.locator(selector).evaluate(el => el.closest('details').open), true, 'one raw tap opens the intended summary');
+        }
+        pass(`ordinary ${interaction}: pinned notices stay visible at ${width}x${height}, reduced motion ${reducedMotion}`);
+        await context.close();
+      }
     }
 
     // A failed local save while notices are out of the way (CC-K2, accepted trade-off):

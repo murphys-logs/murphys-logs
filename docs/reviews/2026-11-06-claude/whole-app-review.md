@@ -2,8 +2,10 @@
 
 **Base:** `main` at `ee42092658259605f56ef3cc9281418bb43b69f5` (app 3.12.3, after PR #21). **Result:** app 3.12.4: accessibility CSS, an isolated presentation-only pointer guard for notice timing, matching release IDs, browser regression coverage and a reproducible boundary audit. Existing application and shell logic is unchanged apart from the release identifier. The PR description records the final head SHA. Nothing is merged or deployed.
 
-**Follow-up, 7 November (Codex):** the clean-field tap correction is implemented
-with a repinning delay, isolated pointer guard and raw-coordinate regression coverage. The current
+**Follow-up, 7 November (Codex):** the clean-field tap correction uses a
+repinning delay, isolated pointer guard and raw-coordinate regression coverage.
+After Claude Code's CC-R7 review of `5fccd69`, the guard is narrowed so an
+ordinary tap or scroll cannot hide notices that are already pinned. The current
 validation and merge checklist are recorded at the end of this report and in
 [the reconciliation](review-reconciliation.md). Earlier measurements below are
 labelled with their source revision; they are not approval of the latest changes.
@@ -30,12 +32,14 @@ Severity follows the repository's scale: **P1** daily impact or data risk, **P2*
 
   *Revised after review (CX22-01):* the first version keyed only on field focus, so a Save/Cancel tap moved focus away, pinned the notices over the button and swallowed the tap. Unsaved state, rather than button focus, now carries the notices through the tap. That matters because Safari does not focus a tapped button; it only blurs the field. See [the reconciliation](review-reconciliation.md).
 
-  *Clean-field follow-up:* ending the edit does not immediately return notices over a pointer interaction. An isolated inline UI script, `notice-pointer-guard`, follows the existing classic shell script and sits outside the application module. It tracks main-area pointer IDs in a Set and applies the root `data-notice-press` marker while contact is held. It removes completed/cancelled pointers and clears the marker on window blur or pagehide. It neither suppresses events nor invokes application rendering, saving, syncing or storage.
+  *Clean-field follow-up:* ending the edit does not immediately return notices over a pointer interaction. An isolated inline UI script, `notice-pointer-guard`, follows the existing classic shell script and sits outside the application module. It adds a main-area pointer ID to its Set only when a keyboard input or textarea in `#main` currently has focus, or the notice region is already unpinned (`parseFloat(getComputedStyle(feedback).top) < 0`). The root `data-notice-press` marker then holds that existing editing/grace state through the contact. A press when notices are pinned and no keyboard field is focused does not start a hold. It removes completed/cancelled pointers and clears the marker on window blur or pagehide. It neither suppresses events nor invokes application rendering, saving, syncing or storage.
 
   CSS holds the offscreen sticky offset while that marker is present, then uses a zero-duration 600 ms delay before restoring the normal offset. This gives a short grace period after interaction settles; header-height changes can restart it, so 600 ms is not an exact wall-clock deadline after release. The delay is interaction protection, not animation, and also applies with reduced motion enabled. CSS `:active` alone did not reliably persist during touch contact: a touch beginning near the end of the grace period could lose its target while held. Regression coverage includes CDP-dispatched touch contact crossing that boundary and measures actual hit targets and notice state rather than requiring `position: static`.
 
-  The notice region keeps its normal-flow space. Tests isolate the pin/unpin transition and check that it adds no field movement; existing draft-summary and *Still to log* updates on Cancel can change content height. Clean date/time/file picker focus does not itself unpin notices. Any main-area press, including a clean picker or disclosure summary, briefly unpins them through the separate pointer marker. Editing a feeding-time value marks its form dirty, so that expanded form keeps them unpinned after blur. Restored expanded drafts also unpin notices without keyboard focus; "expanded" does not mean currently inside the viewport. A collapsed dirty section is excluded. Desktop layout behavior remains unchanged because the CSS is limited to coarse, non-hover pointers. Notices remain in the page and their live region, and the top bar's sync status stays pinned. Existing save, draft, outbox and sync code is untouched.
+  The notice region keeps its normal-flow space. Tests isolate the pin/unpin transition and check that it adds no field movement; existing draft-summary and *Still to log* updates on Cancel can change content height. Clean date/time/file picker focus does not itself unpin notices. Ordinary taps, scroll gestures and disclosure-summary presses leave already-pinned notices in place when no keyboard field is focused. A clean-picker press does not itself start a hold in that settled state; a press during the existing unpinned grace period can still extend it. Editing a feeding-time value marks its form dirty, so that expanded form keeps them unpinned after blur. Restored expanded drafts also unpin notices without keyboard focus; "expanded" does not mean currently inside the viewport. A collapsed dirty section is excluded. Desktop layout behavior remains unchanged because the CSS is limited to coarse, non-hover pointers. Notices remain in the page and their live region, and the top bar's sync status stays pinned. Existing save, draft, outbox and sync code is untouched.
 - **Clean-field tap P2 (CX22-03 / CC-R1):** On `af00e4c` and earlier heads, focusing without typing and tapping an unrelated control inside the returning notice band swallowed the first tap. A second tap at the same coordinates could activate Dismiss instead of the intended BCS control; scrolling the intended control clear was required. This was not fixed by the failed-save test change, which independently reused the ID CX22-03. The presentation follow-up above addresses this transition; current validation is recorded below, and physical Safari/Home Screen acceptance remains open.
+- **CC-R7 · P2 · correction implemented, re-review pending:** the broad guard in `5fccd69` hid already-pinned notices on every main-area tap, drag-scroll or summary press, then restored them after about 600 ms. [Claude Code reproduced that flicker](https://github.com/murphys-logs/murphys-logs/pull/22#discussion_r4499234523). The narrowed condition above holds only an existing keyboard-editing or unpinned state. Cancellation coverage now begins inside a qualifying state; ordinary pinned gestures are covered separately so they cannot silently regain the broad behavior. Validation of this correction is recorded below.
+- **CC-R8 · P3 · deferred:** the CSS delay still applies when the top-bar height changes. Claude Code measured a temporary 22 px header overlap lasting about 600 ms at `5fccd69`. Narrowing the pointer guard does not change that separate, non-blocking layout lag. Dynamic Type and physical-device acceptance remain open.
 - **Residual (failed save, CC-K2 · P3 · accepted):** If saving locally fails while the entry is open, the *Could not save locally* alert sits with the other notices at the top of the page, outside the keyboard viewport. The failure is not silent:
   - the pinned status line reads *Not saved*;
   - the alert keeps `role="alert"`; actual VoiceOver announcement remains unverified;
@@ -137,7 +141,7 @@ No new vulnerability was found.
 
 No calculation, record format, backup/export schema, history interpretation or workflow changed. New coverage, plus the version updates:
 
-- `tests/keyboard-reveal.browser.cjs`: `b5476b2` had 41 scenarios; `af00e4c` expanded failed-local-save coverage from one to three and passed 43. The current clean-field follow-up adds raw-coordinate interaction coverage; its final count is recorded below. The suite retains Save/Cancel activations, field visibility, collapsed-section, failed-save retry and desktop coverage.
+- `tests/keyboard-reveal.browser.cjs`: `b5476b2` had 41 scenarios; `af00e4c` expanded failed-local-save coverage from one to three and passed 43. `5fccd69` passed 67 scenarios after adding raw-coordinate clean-field interaction coverage. The current CC-R7 follow-up retains those behaviors, revises the cancellation fixture and adds ordinary pinned-gesture coverage; its final count is recorded below. The suite retains Save/Cancel activations, field visibility, collapsed-section, failed-save retry and desktop coverage.
 - `tests/forced-colours.browser.cjs`: 12 scenarios, including real ±20 g gauge fills added by Codex (CX22-02). It fails on base, and also fails when only the gauge-fill rule is removed.
 - Version assertions in `ui-ergonomics.test.cjs`, `settings-exports.browser.cjs` and `sw-assets.test.cjs` now expect 3.12.4; the worker upgrade fixture stages from main's 3.12.3.
 
@@ -203,49 +207,64 @@ No dependency, SDK version, configuration, rules, cloud resource, database struc
 
 Under `docs/review-handoff.md` §6, Codex, Claude Code and Antigravity must each review this change independently before merge. This report is the authoring session's review, not an independent one.
 
-## Current clean-field follow-up: validation and merge gate
+## Historical validation and reviews at `5fccd69`
 
-The current runtime change is presentation CSS plus an isolated inline UI pointer
-guard; release identifiers remain aligned at 3.12.4. All pre-existing application
-and shell logic remains unchanged apart from the release identifier. Firebase,
-save/sync/outbox, storage, calculations and export behavior are unchanged.
-Validation below was run on the final implementation working tree before its
-commit was created. The PR description records the resulting published head.
-Environment: Windows x64, Node 20.18.0, Playwright 1.64.1 and matching Chromium
-headless shell 156.0.8078.4; synthetic data and local fixtures only.
+The clean-field implementation at `5fccd69` passed **220 Node / 203 browser
+(124 existing + 67 keyboard + 12 forced colours) / 240 layout** checks and
+inspected **19 state configurations** with no reported problems or errors.
+The boundary audit and diff check passed; six browser counterfactuals failed for
+the expected behavior and three protected-boundary mutations were rejected.
+That Windows run used Node 20.18.0, Playwright 1.64.1 and matching Chromium
+headless shell 156.0.8078.4. These are historical results, not validation of the
+subsequent narrowing change.
 
-| Check | Result |
-|---|---|
-| Node suite | **220/220** |
-| All 11 browser suites | **203/203**: 124 existing + 67 keyboard + 12 forced colours |
-| Layout matrix | **240/240** |
-| State probe | **19 inspected configurations**, no reported problems or errors |
-| Protected-boundary audit | **Pass** against base, allowing only the exact hash-pinned pointer guard |
-| Diff hygiene | **`git diff --check` clean** |
-| Browser negative controls | **Six expected failures**, described below |
-| Audit negative controls | **Three rejected mutations**: pointer guard, Firebase import and save logic |
+- [Antigravity's review](https://github.com/murphys-logs/murphys-logs/pull/22#pullrequestreview-5809039797) of `5fccd69` reported the full positive checks and six counterfactuals, with no new findings.
+- [Claude Code's review](https://github.com/murphys-logs/murphys-logs/pull/22#pullrequestreview-5809044025) of `5fccd69` independently passed the same positive counts and six counterfactuals on matching Playwright 1.63.0 / Chromium 153.0.8010.12. It verified the clean-field fix but raised CC-R7 (P2) and CC-R8 (P3).
 
-The 67 keyboard scenarios retain the earlier 43 cases and add 24 clean-field
-cases: 18 first/repeated/held-press cases across three widths, two motion settings
-and ordinary touch/Safari-model touch/long mouse hold; plus six CDP-dispatched touch
-cases crossing the repin deadline across three widths and both motion settings.
-All browser suites reported zero page errors and zero external app requests.
+Both reviews have been received. They cover `5fccd69`; they do not approve the
+new CC-R7 runtime/test changes. CC-R8, CC-R2 and CC-R6 remain explicit non-blocking
+follow-ups rather than being folded into this fix.
 
-The unchanged regression suite fails against `af00e4c` at the first clean-field
-activation, and against `3bb4c65` after six cases at Safari-model keyboard/focus
-visibility. Temporary current-HTML copies also fail when removing the pointer
-guard (held press), the repin delay (first activation), the reduced-motion delay
-exception (first activation in reduced motion), or the forced-colour gauge-fill
-rule (white fill on white background). These negative controls verify the
-regressions are detected rather than silently weakening the earlier assertions.
+## Current CC-R7 validation and merge gate
 
-- [x] Final full Node, browser, layout, state and boundary checks recorded for the current implementation working tree.
-- [ ] [Codex independent re-review](prompts/codex-rereview.md) of the final runtime and regression changes.
-- [ ] [Claude Code independent re-review](prompts/claude-rereview.md) in a separate session.
-- [ ] [Antigravity independent re-review](prompts/antigravity-rereview.md) of the final changes.
-- [ ] Physical iPhone Safari and Home Screen acceptance: two notices, native keyboard, one Save and one Cancel tap; clean-field first/repeated tap, long press and repinning without a jump.
-- [ ] Reconcile review findings on the final head and update the PR checklist.
+The current runtime delta narrows only the presentation pointer guard. The audit
+pin is updated for its exact content. Release identifiers remain aligned at
+3.12.4. All pre-existing application and shell logic remains unchanged apart
+from the release identifier; Firebase, save/sync/outbox, storage, calculations
+and export behavior are unchanged.
 
-All earlier reviews remain evidence for their recorded SHAs, not approval of this
-new runtime change. VoiceOver, real Firebase and the protected P1 backlog remain
-separate unverified or unresolved production-readiness limits.
+The final implementation working tree passed **220/220 Node tests,
+221/221 browser scenarios** across all 11 suites (124 existing + **85 keyboard** + 12 forced colours),
+**240/240 layout checks** and **19 inspected state
+configurations** with all reported problems/errors empty. Browser suites reported
+zero page errors and zero external app requests. The protected-boundary audit
+passes and `git diff --check` is clean.
+
+Environment: Windows x64, Node 20.18.0, Playwright 1.64.1 and matching bundled
+Chromium headless shell 156.0.8078.4; synthetic data and local fixtures only.
+The PR description records the resulting published head.
+
+The 85 keyboard cases retain the earlier 67 behaviors and add 18 ordinary-gesture
+cases across three widths and both motion settings. They sample pointer events
+and animation frames through 800 ms to catch transient hiding. Cancellation
+coverage focuses a qualifying field before the cancelled contact.
+
+**Seven browser negative controls failed for the expected reasons:** exact
+`5fccd69` fails ordinary-meal notice visibility after 63 passes; exact `af00e4c`
+fails the first clean-field BCS activation; exact `3bb4c65` fails Safari-model
+Save completion; removing the guard fails the held-press check; removing the
+repin delay fails the first activation; removing its reduced-motion override
+fails the first reduced-motion activation; removing the gauge-fill rule produces
+white-on-white paint. **Three in-memory audit mutations were rejected:** changed
+guard, Firebase import and existing save logic. No tracked source was changed
+to make a negative control pass.
+
+- [x] Final Node, browser, layout, state, boundary and diff checks recorded for the CC-R7 change.
+- [ ] [Codex independent re-review](prompts/codex-rereview.md) of the final changes.
+- [ ] [Claude Code relevant re-review](prompts/claude-rereview.md) of the narrowing and regression coverage, in a separate session.
+- [ ] [Antigravity relevant re-review](prompts/antigravity-rereview.md) of the final changes.
+- [ ] Physical iPhone Safari and Home Screen acceptance: two notices, native keyboard, one Save and one Cancel tap; clean-field first/repeated tap and long press; already-pinned notices stay visible during ordinary taps, scrolling and summary presses; repinning without a jump.
+- [ ] Reconcile final reviewer dispositions and update the PR checklist.
+
+No merge or deployment is authorized. VoiceOver, real Firebase and the protected
+P1 backlog remain separate unverified or unresolved production-readiness limits.

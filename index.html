@@ -457,7 +457,9 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
    notices scroll with the page instead. Unsaved state, not button focus, carries them
    through a Save/Cancel tap: Safari does not focus a tapped button, it only blurs the
    field. The presentation-only pointer guard holds them away during main-area
-   touch contact, which CSS :active does not reliably cover. After release/blur a
+   contact only if a keyboard field has focus or notices are already unpinned;
+   ordinary taps and scrolling leave pinned notices alone. CSS :active does not
+   reliably cover touch contact. After release/blur a
    zero-duration delay lets the click finish before they return. This interaction
    delay has no animation, including with reduced motion. Keeping them sticky with
    a negative offset preserves their flow space, so repinning does not move content. */
@@ -641,13 +643,14 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
 })();
 </script>
 <script id="notice-pointer-guard">
-// Presentation only: hold notices away from a press until release or cancellation.
+// Presentation only: preserve editing/grace protection until release or cancellation.
 // Never cancel, redirect or synthesize an input event; saving remains in the app.
 (()=>{
   const root=document.documentElement, held=new Set();
   const update=()=>root.toggleAttribute('data-notice-press',held.size>0);
   document.addEventListener('pointerdown',event=>{
-    if(event.target.closest?.('#main')){held.add(event.pointerId);update();}
+    const feedback=document.getElementById('feedback');
+    if(event.target.closest?.('#main')&&(document.activeElement?.matches?.('#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"]))')||(feedback&&parseFloat(getComputedStyle(feedback).top)<0))){held.add(event.pointerId);update();}
   },{capture:true,passive:true});
   const release=event=>{held.delete(event.pointerId);update();};
   for(const type of ['pointerup','pointercancel'])document.addEventListener(type,release,{capture:true,passive:true});
