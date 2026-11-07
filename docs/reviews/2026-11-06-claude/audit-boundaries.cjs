@@ -2,15 +2,16 @@
 
 // Protected-boundary audit for this change set. Compares the working tree with a
 // base commit (default: the recorded base) and fails unless:
-//  - index.html differs only inside its single <style> block and in the two
-//    release identifiers (data-version, APP_VERSION);
+//  - index.html differs only inside <style>, in the two release identifiers,
+//    and in the exact presentation-only pointer guard pinned below;
 //  - sw.js differs only in VERSION;
 //  - manifest.webmanifest, icon-180.png and .gitattributes are byte-identical;
-//  - the script (everything after </style>, including Firebase imports,
+//  - apart from that isolated guard, everything after </style> (Firebase imports,
 //    configuration, initialisation, Auth, listeners, outbox/save/sync code and
 //    calculations) is identical after normalising the release identifier.
 // Run: node docs/reviews/2026-11-06-claude/audit-boundaries.cjs [base-sha]
 const assert = require('node:assert/strict');
+const { createHash } = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -34,7 +35,15 @@ const split = text => {
 };
 const before = split(normal(atBase('index.html').toString())), after = split(normal(now('index.html').toString()));
 assert.equal(after.head, before.head, 'index.html head before <style> is unchanged apart from data-version');
-assert.equal(after.rest, before.rest, 'index.html markup and all scripts after </style> are unchanged apart from APP_VERSION');
+// Exact exception, not a blanket allowance for scripts: this new block tracks
+// pointer IDs and toggles one presentation attribute. All pre-existing shell,
+// application and Firebase code must still compare equal to base.
+const guardPattern = /<script id="notice-pointer-guard">[\s\S]*?<\/script>\n/g;
+const guards = after.rest.match(guardPattern) || [];
+assert.equal(guards.length, 1, 'one isolated presentation pointer guard');
+assert.equal(createHash('sha256').update(guards[0]).digest('hex'),
+  'e2e10a11875554f11f5df2e14fba3af6fec8241284f01b98eff2a3341037c047', 'pointer guard matches its reviewed content');
+assert.equal(after.rest.replace(guardPattern, ''), before.rest, 'all pre-existing markup and scripts are unchanged apart from APP_VERSION');
 
 // Firebase surface, checked explicitly as well (subsumed by the comparison above).
 const firebase = text => [...text.matchAll(/^.*(firebasejs|firebaseConfig|initializeApp|initializeFirestore|persistentLocalCache|getAuth|onAuthStateChanged|signInWithEmailAndPassword|runTransaction|setDoc|deleteDoc|onSnapshot).*$/gm)].map(m => m[0]);
@@ -46,4 +55,4 @@ assert.equal(new Set(shipped).size, 1, `release identifiers agree: ${shipped.joi
 
 const changedStyle = before.style.split('\n').length !== after.style.split('\n').length || before.style !== after.style;
 console.log(JSON.stringify({ base, release: shipped[0], styleChanged: changedStyle,
-  checked: ['manifest.webmanifest', 'icon-180.png', '.gitattributes', 'sw.js', 'index.html head/script/markup', 'Firebase lines'] }));
+  checked: ['manifest.webmanifest', 'icon-180.png', '.gitattributes', 'sw.js', 'index.html head/script/markup', 'exact pointer guard', 'Firebase lines'] }));

@@ -2,8 +2,8 @@
 
 // Local-only browser regression for typing with the software keyboard open while
 // notices are showing (for example "Sync pending" on a walk with no signal).
-// iOS keeps the layout viewport full height behind the keyboard and only shrinks the
-// visual viewport, so the keyboard is modelled by limiting window.visualViewport.
+// The keyboard is modelled by limiting window.visualViewport with offsetTop=0:
+// this covers document scrolling, not native visual-viewport panning at page end.
 // This is Chromium touch emulation of that geometry, not a Safari, physical-keyboard
 // or installed Home Screen test.
 // Reuses the Firebase-blocked fixture from draft-input.browser.cjs; no network
@@ -53,12 +53,22 @@ async function main() {
     Object.defineProperty(window, 'visualViewport', { configurable: true, value: {
       offsetTop: 0, height: visible, get width() { return real.width; }, addEventListener() {}, removeEventListener() {} } });
   }, visible);
+  // Sticky with a negative offset scrolls out of the way. Test the effective
+  // pin position rather than requiring a particular CSS positioning mechanism.
+  const pinned = () => {
+    const css = getComputedStyle(document.getElementById('feedback'));
+    return css.position === 'sticky' && parseFloat(css.top) >= 0;
+  };
+  const waitForPinned = page => page.waitForFunction(() => {
+    const css = getComputedStyle(document.getElementById('feedback'));
+    return css.position === 'sticky' && Math.abs(parseFloat(css.top) - parseFloat(css.getPropertyValue('--headerh'))) < 0.5;
+  }, null, { timeout: 2000 });
   const geometry = (page, selector) => page.evaluate(selector => {
     const el = document.querySelector(selector), field = el.getBoundingClientRect();
     const save = el.closest('[data-form]').querySelector('[data-confirm]')?.getBoundingClientRect();
     const feedback = document.getElementById('feedback'), region = feedback.getBoundingClientRect();
-    // Whatever is pinned over the top of the page: the top bar, and the notices while sticky.
-    const pinned = getComputedStyle(feedback).position === 'sticky';
+    const css = getComputedStyle(feedback);
+    const pinned = css.position === 'sticky' && parseFloat(css.top) >= 0;
     const cover = Math.max(document.querySelector('.topbar').getBoundingClientRect().bottom, pinned ? region.bottom : 0);
     return { fieldTop: field.top, fieldBottom: field.bottom, cover, pinned, saveBottom: save?.bottom ?? null,
       focus: document.activeElement?.id, noticesHeight: region.height,
@@ -97,7 +107,8 @@ async function main() {
         const target = await page.evaluate(id => {
           const button = document.getElementById(id), box = button.getBoundingClientRect();
           const x = box.left + box.width / 2, y = box.top + box.height / 2;
-          const feedback = document.getElementById('feedback'), pinned = getComputedStyle(feedback).position === 'sticky';
+          const feedback = document.getElementById('feedback'), css = getComputedStyle(feedback);
+          const pinned = css.position === 'sticky' && parseFloat(css.top) >= 0;
           const cover = Math.max(document.querySelector('.topbar').getBoundingClientRect().bottom,
             pinned ? feedback.getBoundingClientRect().bottom : 0);
           return { x, y, top: box.top, bottom: box.bottom, cover, pinned,
@@ -119,11 +130,113 @@ async function main() {
           `${activation} ${action}: Save queues exactly one change; Cancel queues none`);
         const fieldTop = await page.locator(selector).evaluate(el => el.getBoundingClientRect().top);
         await page.evaluate(() => document.activeElement.blur());
+        await waitForPinned(page);
         const settled = await page.locator(selector).evaluate(el => ({ top: el.getBoundingClientRect().top,
           position: getComputedStyle(document.getElementById('feedback')).position }));
         assert.equal(settled.position, 'sticky', 'notices pin again after focus leaves the completed entry');
         assert.ok(Math.abs(settled.top - fieldTop) < 0.5, 'repinning after confirmation does not shift the field');
         pass(`${activation} ${action}: one activation completes with two notices at ${width}x${height}/${visible}px keyboard viewport`);
+        await context.close();
+      }
+    }
+
+    // A clean field has no dirty marker to hold notices out of the way. Align the
+    // intended action with the returning Dismiss button, then use raw coordinates:
+    // both the first and a quick repeated activation must reach the intended action.
+    // Held mouse and touch contacts check that repinning waits for release.
+    for (const [width, height, visible] of PHONES) for (const reducedMotion of ['no-preference', 'reduce']) {
+      for (const activation of ['touch', 'safari-touch', 'mouse-hold', 'touch-boundary']) {
+        const { context, page } = await open({ viewport: { width, height }, isMobile: true, hasTouch: true, reducedMotion });
+        if (activation === 'safari-touch') await page.evaluate(() => document.addEventListener('mousedown', event => {
+          if (!event.target.closest?.('button')) return;
+          event.preventDefault(); document.activeElement?.blur?.();
+        }, true));
+        await page.evaluate(date => testApp.open('day', { date }), YESTERDAY);
+        await showNotices(page);
+        await openKeyboard(page, visible);
+        await page.locator(`#in-activeMin-${YESTERDAY}`).focus();
+        const target = await page.evaluate(date => {
+          const id = `bcs-${date}-4`, button = document.getElementById(id), box = button.getBoundingClientRect();
+          const feedback = document.getElementById('feedback').getBoundingClientRect();
+          const dismiss = document.getElementById('dismiss-notice').getBoundingClientRect();
+          const header = document.querySelector('.topbar').getBoundingClientRect();
+          const y = dismiss.top + dismiss.height / 2 - feedback.top + header.bottom;
+          scrollBy(0, box.top + box.height / 2 - y);
+          const moved = button.getBoundingClientRect();
+          const x = (Math.max(moved.left, dismiss.left) + Math.min(moved.right, dismiss.right)) / 2;
+          return { id, x, y, hit: button.contains(document.elementFromPoint(x, y)),
+            dirty: document.querySelectorAll('#main [data-dirty]').length,
+            focus: document.activeElement.id, headerBottom: header.bottom,
+            overlap: Math.min(moved.right, dismiss.right) - Math.max(moved.left, dismiss.left) };
+        }, YESTERDAY);
+        assert.equal(target.focus, `in-activeMin-${YESTERDAY}`, 'fixture focuses an untyped field');
+        assert.equal(target.dirty, 0, 'fixture has no dirty form');
+        assert.ok(target.hit && target.overlap > 0, 'fixture action is hittable and overlaps the returning Dismiss button');
+        assert.ok(target.y > target.headerBottom && target.y < visible, 'fixture action is inside the modeled keyboard viewport');
+        const before = await page.evaluate(() => ({ banner: testApp.S.banner, undo: testApp.S.undo, writes: testApp.queuedWrites().length }));
+        const unchangedNotices = async () => {
+          assert.deepEqual(await page.evaluate(() => testApp.S.banner), before.banner, 'the notice is not dismissed or retried');
+          assert.deepEqual(await page.evaluate(() => testApp.S.undo), before.undo, 'Undo is not activated');
+        };
+        if (activation === 'mouse-hold') {
+          await page.mouse.move(target.x, target.y);
+          await page.mouse.down();
+          await page.waitForTimeout(850);
+          assert.equal(await page.evaluate(pinned), false, 'a held press keeps notices away beyond the release delay');
+          assert.equal(await page.evaluate(() => testApp.queuedWrites().length), before.writes, 'holding alone does not activate');
+          await page.mouse.up();
+        } else await page.touchscreen.tap(target.x, target.y);
+        assert.equal(await page.evaluate(date => testApp.S.days[date].bcs, YESTERDAY), 4, 'the first activation reaches BCS 4');
+        assert.equal(await page.evaluate(() => testApp.queuedWrites().length), before.writes + 1, 'the first activation queues exactly one change');
+        await unchangedNotices();
+        let touchSession;
+        if (activation === 'touch-boundary') {
+          // Start a second contact just before the previous grace period ends;
+          // holding across that deadline must not put a notice under the finger.
+          touchSession = await context.newCDPSession(page);
+          await page.waitForFunction(() => document.getElementById('feedback').getAnimations().some(animation =>
+            animation.transitionProperty === 'top' && animation.currentTime > 450 && animation.currentTime < 550));
+          await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: target.x, y: target.y }] });
+          await page.waitForTimeout(200);
+          assert.equal(await page.evaluate(pinned), false, 'notices remain away while touch contact crosses the prior repin deadline');
+        } else await page.waitForTimeout(100);
+        assert.ok(await page.evaluate(({ id, x, y }) => document.getElementById(id).contains(document.elementFromPoint(x, y)), target),
+          'the same coordinates still reach the intended control during a quick repeat');
+        if (touchSession) await touchSession.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        else if (activation === 'mouse-hold') await page.mouse.click(target.x, target.y);
+        else await page.touchscreen.tap(target.x, target.y);
+        assert.equal(await page.evaluate(date => testApp.S.days[date].bcs ?? null, YESTERDAY), null, 'a repeated activation toggles BCS rather than Dismiss');
+        const writes = await page.evaluate(() => testApp.queuedWrites());
+        assert.equal(writes.length, before.writes + 2, 'two deliberate activations queue exactly two changes');
+        assert.deepEqual(writes.slice(before.writes).map(([, op]) => ({ col: op.col, id: op.id, bcs: op.patch.bcs ?? null, remove: op.remove || [] })),
+          [{ col: 'days', id: YESTERDAY, bcs: 4, remove: [] }, { col: 'days', id: YESTERDAY, bcs: null, remove: [['bcs']] }]);
+        await unchangedNotices();
+        const top = await page.locator(`#${target.id}`).evaluate(el => el.getBoundingClientRect().top);
+        await waitForPinned(page);
+        const settled = await page.locator(`#${target.id}`).evaluate(el => el.getBoundingClientRect().top);
+        assert.ok(Math.abs(settled - top) < 0.5, 'delayed repinning does not shift the intended control');
+        const duration = await page.evaluate(() => getComputedStyle(document.getElementById('feedback')).transitionDuration);
+        assert.equal(duration, '0s', 'the safety delay never animates the notices');
+        assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-notice-press')), false, 'release clears the presentation marker');
+        if (touchSession) {
+          // A cancelled contact must not leave notices permanently unpinned.
+          const cancelTarget = await page.evaluate(id => {
+            const button = document.getElementById(id), box = button.getBoundingClientRect();
+            scrollBy(0, box.top + box.height / 2 - (innerHeight - 100));
+            const moved = button.getBoundingClientRect();
+            return { x: moved.left + moved.width / 2, y: moved.top + moved.height / 2,
+              hit: button.contains(document.elementFromPoint(moved.left + moved.width / 2, moved.top + moved.height / 2)) };
+          }, target.id);
+          assert.ok(cancelTarget.hit, 'cancel fixture starts on a visible main control');
+          await touchSession.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cancelTarget.x, y: cancelTarget.y }] });
+          assert.equal(await page.evaluate(pinned), false, 'a new contact holds notices away');
+          await touchSession.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+          await waitForPinned(page);
+          assert.equal(await page.evaluate(() => document.documentElement.hasAttribute('data-notice-press')), false, 'cancellation clears the presentation marker');
+          assert.equal(await page.evaluate(() => testApp.queuedWrites().length), before.writes + 2, 'cancelled contact creates no extra write');
+          await unchangedNotices();
+        }
+        pass(`clean ${activation}: first and repeated action, then stable repin at ${width}x${height}, reduced motion ${reducedMotion}`);
         await context.close();
       }
     }
@@ -167,11 +280,11 @@ async function main() {
         // Leaving the field with the entry still unsaved keeps the notices out of the way
         // (Save/Cancel is still showing); cancelling pins them again. Neither moves the page.
         const state = selector => page.evaluate(selector => ({ top: document.querySelector(selector).getBoundingClientRect().top,
-          position: getComputedStyle(document.getElementById('feedback')).position }), selector);
+          pinned: (() => { const css = getComputedStyle(document.getElementById('feedback')); return css.position === 'sticky' && parseFloat(css.top) >= 0; })() }), selector);
         const before = (await state(selector)).top;
         await page.evaluate(() => document.activeElement.blur());
         const unsaved = await state(selector);
-        assert.equal(unsaved.position, 'static', `${label}: notices stay out of the way while the entry is unsaved`);
+        assert.equal(unsaved.pinned, false, `${label}: notices stay out of the way while the entry is unsaved`);
         assert.ok(Math.abs(unsaved.top - before) < 0.5, `${label}: no content shift on leaving the field (${before} → ${unsaved.top})`);
         await page.locator(selector).focus();
         await page.locator(selector).press('Escape');
@@ -179,8 +292,9 @@ async function main() {
         // marker above the field, so measure only the step that pins the notices again.
         const cancelled = await state(selector);
         await page.evaluate(() => document.activeElement?.blur?.());
+        await waitForPinned(page);
         const settled = await state(selector);
-        assert.equal(settled.position, 'sticky', 'notices are pinned again once the entry is cancelled');
+        assert.equal(settled.pinned, true, 'notices are pinned again once the entry is cancelled');
         assert.ok(Math.abs(settled.top - cancelled.top) < 0.5, `${label}: no content shift when notices are pinned again (${cancelled.top} → ${settled.top})`);
         assert.equal(await page.evaluate(() => testApp.queuedWrites().length), 0, 'typing alone queues no write');
         pass(`${label}: typed field stays visible (Save revealed where it fits) with two notices and a ${visible}px keyboard viewport at ${width}x${height}`);
@@ -193,28 +307,31 @@ async function main() {
       await page.evaluate(() => document.querySelector('[data-act="openstool"]').click());
       await page.evaluate(() => document.querySelector('[data-act="editstool"]').click());
       await page.locator('#st-t').focus();
-      assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('feedback')).position), 'sticky',
+      await waitForPinned(page);
+      assert.equal(await page.evaluate(pinned), true,
         'a native time picker leaves the notices pinned');
       await page.evaluate(() => document.querySelector('[data-act="cancelstool"]').click());
       pass(`time picker focus keeps notices pinned at ${width}x${height}`);
 
       // An unsaved entry inside a collapsed Today section is out of sight, with no
       // Save/Cancel to reach: the notices are pinned. Reopening it unpins them again.
-      const notes = `#in-notes-${TODAY}`, position = () => page.evaluate(() => getComputedStyle(document.getElementById('feedback')).position);
+      const notes = `#in-notes-${TODAY}`;
       const queuedBefore = await page.evaluate(() => testApp.queuedWrites().length);
       await page.evaluate(selector => { document.querySelector(selector).closest('details').open = true; }, notes);
       await page.locator(notes).focus();
       await page.locator(notes).pressSequentially('Unsaved note');
       await page.evaluate(() => document.activeElement.blur());
-      assert.equal(await position(), 'static', 'a visible unsaved entry keeps notices out of the way');
+      assert.equal(await page.evaluate(pinned), false, 'a visible unsaved entry keeps notices out of the way');
       await page.evaluate(selector => { document.querySelector(selector).closest('details').open = false; }, notes);
-      assert.equal(await position(), 'sticky', 'an unsaved entry in a collapsed section leaves notices pinned');
+      await waitForPinned(page);
+      assert.equal(await page.evaluate(pinned), true, 'an unsaved entry in a collapsed section leaves notices pinned');
       await page.evaluate(selector => { document.querySelector(selector).closest('details').open = true; }, notes);
-      assert.equal(await position(), 'static', 'reopening the section unpins them again');
+      assert.equal(await page.evaluate(pinned), false, 'reopening the section unpins them again');
       // Escape cancels single-line fields only; Notes is cancelled with its button.
       await page.evaluate(id => document.getElementById(id).click(), `cancel-in-notes-${TODAY}`);
       await page.evaluate(() => document.activeElement?.blur?.());
-      assert.equal(await position(), 'sticky', 'cancelling pins them again');
+      await waitForPinned(page);
+      assert.equal(await page.evaluate(pinned), true, 'cancelling pins them again');
       assert.equal(await page.evaluate(() => testApp.queuedWrites().length), queuedBefore, 'cancelling queues no write');
       pass(`collapsed unsaved entry leaves notices pinned at ${width}x${height}`);
       await context.close();
@@ -264,14 +381,14 @@ async function main() {
         const form = document.querySelector(selector).closest('[data-form]'), button = document.getElementById(saveId);
         const save = button?.getBoundingClientRect(), x = save ? save.left + save.width / 2 : 0, y = save ? save.top + save.height / 2 : 0;
         return { stateVisible: state.top >= 0 && state.bottom <= visible, alertRole: alert?.getAttribute('role'),
-          position: getComputedStyle(feedback).position, dirty: form.hasAttribute('data-dirty'),
+          pinned: getComputedStyle(feedback).position === 'sticky' && parseFloat(getComputedStyle(feedback).top) >= 0, dirty: form.hasAttribute('data-dirty'),
           value: document.querySelector(selector).value, saveEnabled: !!button && !button.disabled,
           saveHit: !!button && button.contains(document.elementFromPoint(x, y)), x, y,
           saveVisible: !!save && save.top >= document.querySelector('.topbar').getBoundingClientRect().bottom && save.bottom <= visible };
       }, { selector, saveId, visible });
       assert.ok(failed.stateVisible, 'the pinned status line shows "Not saved" inside the keyboard viewport');
       assert.equal(failed.alertRole, 'alert', 'the failure notice retains alert semantics');
-      assert.equal(failed.position, 'static', 'notices stay out of the way while the entry is still unsaved');
+      assert.equal(failed.pinned, false, 'notices stay out of the way while the entry is still unsaved');
       assert.equal(failed.dirty, true, 'the entry stays open');
       assert.equal(failed.value, '45', 'the typed value is kept');
       assert.ok(failed.saveEnabled, 'Save is enabled for a retry');
@@ -303,7 +420,7 @@ async function main() {
       await page.evaluate(() => { for (const d of document.querySelectorAll('#main details')) d.open = true; });
       await page.locator(`#in-notes-${TODAY}`).focus();
       await page.locator(`#in-notes-${TODAY}`).pressSequentially('desktop');
-      assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById('feedback')).position), 'sticky',
+      assert.equal(await page.evaluate(pinned), true,
         'desktop keeps the notices pinned while typing');
       await page.locator(`#in-notes-${TODAY}`).press('Escape');
       pass('desktop 1440x900: notices stay pinned while typing');
