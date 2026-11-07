@@ -1,5 +1,5 @@
 // Publish the shell and worker together, with matching release identifiers.
-const VERSION = '3.12.3';
+const VERSION = '3.12.4';
 const SCOPE = new URL(self.registration.scope);
 const SHELL = new URL('index.html', SCOPE).href;
 const MANIFEST = new URL('manifest.webmanifest', SCOPE).href;

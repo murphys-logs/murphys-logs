@@ -88,6 +88,7 @@ async function main() {
     if(req.url==='/manifest.webmanifest')return send(fs.readFileSync(path.join(root,'manifest.webmanifest')),'application/manifest+json');
     if(req.url==='/icon-180.png')return send(fs.readFileSync(path.join(root,'icon-180.png')),'image/png');
     if(req.url==='/setup')return send('<!doctype html><title>Synthetic setup</title>');
+    if(req.url==='/connectivity-check')return send('online','text/plain');
     res.writeHead(404);res.end();
   });
   try {
@@ -111,8 +112,17 @@ async function main() {
     });
     ctx.on('request',req=>{const url=new URL(req.url());if(/^https?:$/.test(url.protocol)&&url.origin!==origin)external.push(url.href);});
     ctx.on('page',page=>page.on('pageerror',e=>errors.push(e.message)));
+    // The synthetic SDK uses navigator.onLine. Verify that the browser really
+    // emulates offline state and blocks an uncached request, including after a
+    // cached reload/new page, before interpreting any synthetic acknowledgement.
+    const assertOffline=async page=>{
+      const state=await page.evaluate(async()=>({online:navigator.onLine,
+        reachable:await fetch('/connectivity-check',{cache:'no-store'}).then(response=>response.ok,()=>false)}));
+      assert.equal(state.online,false,`Offline emulation must set navigator.onLine=false (Chromium ${browser.version()}); use the browser matching the installed Playwright`);
+      assert.equal(state.reachable,false,'Offline emulation must block an uncached local HTTP request');
+    };
     const ready=page=>page.waitForFunction(()=>window.offlineProbe?.S.ready&&document.querySelector('#app:not(.hide)'));
-    const open=async()=>{const page=await ctx.newPage();await page.goto(origin+'/index.html');await ready(page);return page;};
+    const open=async()=>{const page=await ctx.newPage();await page.goto(origin+'/index.html');await ready(page);await assertOffline(page);return page;};
     const queue=page=>page.evaluate(()=>offlineProbe.queuedWrites().map(([key,op])=>({key,op})));
     const reveal=async(page,locator)=>{
       for(;;){const id=await locator.evaluate(el=>{let outer;for(let p=el.parentElement;p;p=p.parentElement)if(p.tagName==='DETAILS'&&!p.open)outer=p;return outer?.id;});
@@ -131,9 +141,12 @@ async function main() {
     await page.goto(origin+'/index.html');await ready(page);
     await page.waitForFunction(()=>navigator.serviceWorker.controller&&window.AppShell?.state.offlineReady===true);
     assert.ok(served.includes('/sw.js')&&served.includes('/test-sdk/firebase-firestore.js'),'Actual server supplied the worker and dependency');
+    assert.equal(await page.evaluate(async()=>{
+      const response=await fetch('/connectivity-check',{cache:'no-store'});return response.ok;
+    }),true,'The uncached connectivity endpoint is reachable before going offline');
     console.log('PASS online initial load installs the actual worker and confirms complete offline app files');
 
-    await ctx.setOffline(true);await page.reload();await ready(page);
+    await ctx.setOffline(true);await assertOffline(page);await page.reload();await ready(page);await assertOffline(page);
     await page.waitForFunction(()=>window.AppShell.state.offlineReady===true);
     assert.equal(await page.evaluate(()=>offlineProbe.S.days['2026-11-05'].notes),'Previously available history');
     for(const tab of ['history','review','settings','today']){
@@ -160,7 +173,7 @@ async function main() {
     assert.equal(await page.locator('#in-walkMin-'+TODAY).inputValue(),'22','Reconnect does not erase entered text');
     // After acknowledgement, record availability comes from the synthetic
     // snapshot fixture; this is not a check of Firestore's persistent cache.
-    await ctx.setOffline(true);await page.reload();await ready(page);
+    await ctx.setOffline(true);await assertOffline(page);await page.reload();await ready(page);await assertOffline(page);
     assert.equal(await page.evaluate(()=>offlineProbe.S.days['2026-11-06'].notes),'Saved offline before reconnect');
     assert.equal((await queue(page)).length,0);
     console.log('PASS synthetic reconnect acknowledges once, keeps the real app draft, and an offline reload renders the updated snapshot fixture');
@@ -169,7 +182,7 @@ async function main() {
     await page.evaluate(()=>{offlineTransport.delayNext=true;});
     await notes(page,'Entered before connection failed during send');
     await page.waitForFunction(()=>offlineTransport.inFlight);
-    await ctx.setOffline(true);await page.evaluate(()=>offlineTransport.rejectInFlight());
+    await ctx.setOffline(true);await assertOffline(page);await page.evaluate(()=>offlineTransport.rejectInFlight());
     await page.waitForFunction(()=>offlineProbe.S.status.includes('Offline'));
     const interrupted=await queue(page);assert.equal(interrupted.length,1);
     await page.close();page=await open();

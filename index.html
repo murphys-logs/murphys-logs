@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en-GB" data-version="3.12.3">
+<html lang="en-GB" data-version="3.12.4">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
@@ -436,6 +436,10 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   :focus-visible{outline:3px solid CanvasText}
   button:not(:disabled):active{opacity:1}
   button:disabled{color:GrayText}
+  /* Marks drawn only as a fill would take the page colour and vanish. Stool chart
+     shapes still tell the bands apart; the attention dot keeps its spoken label. */
+  :is(.tabbar .dotmark,.dot,.chart-point.stool-point,.gauge .mid){forced-color-adjust:none;background:CanvasText}
+  .gauge .fill{forced-color-adjust:none;background:Highlight}
 }
 @media(min-width:64rem){
   main.wide{max-width:68rem}
@@ -446,6 +450,25 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   .tabbar{max-width:42rem;margin:auto;border:1px solid var(--rule);border-radius:12px 12px 0 0}
   .topbar{padding-inline:max(var(--sl),calc((100vw - 65.5rem)/2)) max(var(--sr),calc((100vw - 65.5rem)/2))}
   .chart-plot{height:14rem}
+}
+/* Typing with an on-screen keyboard: the area left above it can be shorter than the
+   pinned top bar plus notices, which would hide the field being typed in. While a
+   keyboard field is focused, or a visible entry is unsaved (so Save/Cancel is showing),
+   notices scroll with the page instead. Unsaved state, not button focus, carries them
+   through a Save/Cancel tap: Safari does not focus a tapped button, it only blurs the
+   field. The presentation-only pointer guard holds them away during main-area
+   contact only if a keyboard field has focus or notices are already unpinned;
+   ordinary taps and scrolling leave pinned notices alone. CSS :active does not
+   reliably cover touch contact. After release/blur a
+   zero-duration delay lets the click finish before they return. This interaction
+   delay has no animation, including with reduced motion. Keeping them sticky with
+   a negative offset preserves their flow space, so repinning does not move content. */
+@media(hover:none) and (pointer:coarse){
+  .feedback-region{transition:top 0s .6s!important}
+  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"])):focus,#main [data-dirty]:not(details:not([open]) *)){scroll-padding-top:calc(var(--headerh) + 1rem)}
+  html[data-notice-press] .feedback-region,
+  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"])):focus,#main [data-dirty]:not(details:not([open]) *)) .feedback-region{top:-100vh;transition:none!important}
+  html:has(#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"])):focus,#main [data-dirty]:not(details:not([open]) *)) #main :is(input,select,textarea,[tabindex="-1"]){scroll-margin-block-start:calc(var(--headerh) + 1rem)}
 }
 /* iPhone shell: keep the desktop shell unchanged, including touch-screen PCs. */
 @supports(-webkit-touch-callout:none){
@@ -619,6 +642,23 @@ td{color:var(--tone,var(--ink-2));font-variant-numeric:tabular-nums}
   }
 })();
 </script>
+<script id="notice-pointer-guard">
+// Presentation only: preserve editing/grace protection until release or cancellation.
+// Never cancel, redirect or synthesize an input event; saving remains in the app.
+(()=>{
+  const root=document.documentElement, held=new Set();
+  const update=()=>root.toggleAttribute('data-notice-press',held.size>0);
+  document.addEventListener('pointerdown',event=>{
+    const feedback=document.getElementById('feedback');
+    if(event.target.closest?.('#main')&&(document.activeElement?.matches?.('#main :is(textarea,input:not([type="date"],[type="time"],[type="file"],[type="checkbox"],[type="radio"]))')||(feedback&&parseFloat(getComputedStyle(feedback).top)<0))){held.add(event.pointerId);update();}
+  },{capture:true,passive:true});
+  const release=event=>{held.delete(event.pointerId);update();};
+  for(const type of ['pointerup','pointercancel'])document.addEventListener(type,release,{capture:true,passive:true});
+  const clear=()=>{held.clear();update();};
+  window.addEventListener('blur',clear);
+  window.addEventListener('pagehide',clear);
+})();
+</script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut }
@@ -627,7 +667,7 @@ import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager
          doc, collection, setDoc, deleteDoc, deleteField, runTransaction, onSnapshot }
   from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
-const APP_VERSION = '3.12.3';
+const APP_VERSION = '3.12.4';
 
 /* Internal route mapping (Phase D, 5-tab -> 4-destination shell):
    Primary tab-bar destinations: 'today' | 'history' | 'review' | 'settings'

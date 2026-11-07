@@ -1,0 +1,4 @@
+{"browser":"153.0.8010.12","node":"v22.23.4","timing":"click/input dispatch to the next animation frame plus a task; frame-bound (about 16.7 ms) at best"}
+{"count":31,"loadMs":68,"quickLogSave":14.8,"typeNoteMedian":16.7,"tabHistory":15.1,"tabReview":13.8,"tabSettings":12.6,"tabToday":14.9,"errors":0}
+{"count":365,"loadMs":76,"quickLogSave":17.8,"typeNoteMedian":16.6,"tabHistory":15.5,"tabReview":12.6,"tabSettings":15.8,"tabToday":14.8,"errors":0}
+{"count":1826,"loadMs":122,"quickLogSave":24.6,"typeNoteMedian":16.7,"tabHistory":17.7,"tabReview":20,"tabSettings":13.6,"tabToday":7.3,"errors":0}
